@@ -8,7 +8,7 @@ require (
 	github.com/lthibault/log v1.0.2
 	github.com/lthibault/util v0.0.2
 	github.com/multiformats/go-multiaddr v0.2.2
-	github.com/tinylib/msgp v1.1.5 // indirect
+	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9 // indirect
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
-	zombiezen.com/go/capnproto2 v2.17.1-0.20210303164322-e0eb98e184b7+incompatible
+	golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f // indirect
 )
