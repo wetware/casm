@@ -2,46 +2,50 @@ package mesh
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
+	"io/ioutil"
 	"math/rand"
 	"sync"
-	"sync/atomic"
+	"time"
 
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
+	"golang.org/x/sync/errgroup"
 
-	"zombiezen.com/go/capnproto2/rpc"
-	"zombiezen.com/go/capnproto2/server"
-
+	"github.com/lthibault/jitterbug"
 	syncutil "github.com/lthibault/util/sync"
-
-	"github.com/wetware/casm/internal/mesh"
 )
 
 var (
-	// ErrDisconnected is returned from methods of Neighborhood when it
+	// ErrClosed is returned from methods of Neighborhood when it
 	// has left the overlay network.
-	ErrDisconnected = errors.New("disconnected")
+	ErrClosed = errors.New("closed")
+
+	r = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 const (
-	ProtocolID protocol.ID = "mesh"
+	BaseProto   protocol.ID = "/casm/mesh"
+	JoinProto               = BaseProto + "/join"
+	SampleProto             = BaseProto + "/sample"
 
 	// EventJoined indicates a peer has joined the neighborhood.
 	EventJoined Event = iota
 
 	// EventLeft indicates a peer has left the neighborhood.
 	EventLeft
+
+	protectTag   = "mesh/neighborhood"
+	defaultDepth = 7
 )
 
 // An Event represents a state transition in a neighborhood.
 type Event uint8
-
-// A Callback is invoked when a peer joins or leaves the
-// neighborhood.
-type Callback func(Event, peer.ID)
 
 // Bootstrapper can provide bootstrap peers.
 type Bootstrapper interface {
@@ -50,51 +54,60 @@ type Bootstrapper interface {
 
 // Neighborhood is a local view of the overlay network.
 type Neighborhood struct {
-	mu *sync.Mutex
-	cb Callback
+	ctx    context.Context
+	cancel context.CancelFunc
 
-	h host.Host
+	mu sync.RWMutex
+	ns peer.IDSlice
 
-	es          map[peer.ID]*edge
-	view        *atomic.Value
-	k, overflow uint8
+	h  host.Host
+	cb func(Event, peer.ID)
 
-	once  *sync.Once
-	cq    chan struct{}
-	join  chan *edge
-	leave chan peer.ID
-
-	policy *server.Policy
+	graftable cond
 }
 
 // New neighborhood.
-func New(h host.Host, opt ...Option) Neighborhood {
-	n := Neighborhood{
-		mu:    new(sync.Mutex),
-		cb:    nopCallback,
-		h:     h,
-		once:  new(sync.Once),
-		cq:    make(chan struct{}),
-		join:  make(chan *edge),
-		leave: make(chan peer.ID),
-		view:  new(atomic.Value),
+func New(h host.Host, opt ...Option) *Neighborhood {
+	n := &Neighborhood{
+		h:         h,
+		graftable: make(cond),
 	}
-
-	n.view.Store([]peer.ID{})
-	h.SetStreamHandler(ProtocolID, n.handler)
 
 	for _, option := range withDefaults(opt) {
-		option(&n)
+		option(n)
 	}
+
+	h.Network().Notify(&network.NotifyBundle{
+		DisconnectedF: leave(n),
+	})
+
+	for _, e := range []endpoint{
+		join(n),
+		sample(n),
+	} {
+		h.SetStreamHandler(e.Proto, e.Handler)
+	}
+
+	go n.loop(h)
 
 	return n
 }
 
-// Join an overlay network, using the supplied bootstrapper.
+// Neighbors are peers to which n is directly connected.
 //
-// If Join returns nil, users must call Leave when finished
-// to avoid leaking a goroutine.
-func (n Neighborhood) Join(ctx context.Context, b Bootstrapper) error {
+// It returns nil when n is not connected to the overlay network.
+func (n *Neighborhood) Neighbors() peer.IDSlice {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	ns := make(peer.IDSlice, len(n.ns), cap(n.ns))
+	copy(ns, n.ns)
+
+	return ns
+}
+
+// Join an overlay network, using the supplied bootstrapper.
+func (n *Neighborhood) Join(ctx context.Context, b Bootstrapper) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -105,6 +118,8 @@ func (n Neighborhood) Join(ctx context.Context, b Bootstrapper) error {
 
 	var brk syncutil.Breaker
 	go func() {
+		defer brk.Break()
+
 		// This loop continues to be valid even after Wait() returns.
 		// It will terminate when the 'peers' is exhausted.  Infinite
 		// streams of bootstrap pears are valid.
@@ -120,174 +135,300 @@ func (n Neighborhood) Join(ctx context.Context, b Bootstrapper) error {
 	return brk.Wait()
 }
 
-// Leave the overlay network gracefully.
-func (n Neighborhood) Leave(ctx context.Context) error {
-	// TODO:  gracefully close connections
+// Leave the overlay network gracefully and stop all goroutines.
+func (n *Neighborhood) Leave(ctx context.Context) error {
+	n.cancel()
 
 	return errors.New("Leave NOT IMPLEMENTED")
 }
 
-// Neighbors are peers to which n is directly connected.
-//
-// It returns nil when n is not connected to the overlay network.
-func (n Neighborhood) Neighbors() []peer.ID {
-	return n.view.Load().([]peer.ID)
-}
+// callback handles neighborhood events.
+// Callers must hold 'mu'.
+func (n *Neighborhood) callback(e Event, id peer.ID) {
+	switch e {
+	case EventJoined:
+		n.h.ConnManager().Protect(id, protectTag)
+		n.cb(e, id)
 
-// SetCallback assigns a callback to n that is called any time a neighbor
-// joins or leaves the neighborhood.
-func (n Neighborhood) SetCallback(f Callback) {
-	if f == nil {
-		f = nopCallback
+	case EventLeft:
+		n.h.ConnManager().Unprotect(id, protectTag)
+		n.cb(e, id)
+
+	default:
+		panic(fmt.Sprintf("invalid event %v", e))
 	}
 
+	if isGraftable(n.ns) {
+		n.graftable.Signal()
+	}
+}
+
+func (n *Neighborhood) loop(h host.Host) {
+	ticker := jitterbug.New(time.Hour, jitterbug.Uniform{
+		Source: r,
+		Min:    time.Minute * 10,
+	})
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			_ = prune(n).Wait() // TODO:  log
+
+		case <-n.graftable:
+			_ = graft(n).Wait() // TODO:  log
+
+		case <-n.ctx.Done():
+			return
+
+		}
+	}
+
+}
+
+func prune(n *Neighborhood) waiter {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	n.cb = f
+	if isSaturated(n.ns) {
+		popRandom(n)
+	}
+
+	return n.graft()
 }
 
-func (n Neighborhood) loop() {
-	go func() {
-		defer close(n.join)
-		defer close(n.leave)
+func graft(n *Neighborhood) waiter {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 
-		for {
-			select {
-			case <-n.cq:
-				return
+	// full?
+	if isSaturated(n.ns) {
+		return nopWaiter{}
+	}
 
-			case e := <-n.join:
-				// already connected?
-				if _, ok := n.es[e.ID]; ok {
-					_ = e.Close()
-					continue
-				}
-
-				// too many edges?
-				if len(n.es) > int(n.k+n.overflow) {
-					popRandom(n.es)
-				}
-
-				n.es[e.ID] = e
-				n.cb(EventJoined, e.ID)
-				n.setView()
-
-			case id := <-n.leave:
-				// exists?
-				if e, ok := n.es[id]; ok {
-					_ = e.Close()
-					delete(n.es, id)
-					n.cb(EventLeft, id)
-					n.setView()
-				}
-			}
-		}
-	}()
+	return n.graft()
 }
 
-func (n Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() error {
+func popRandom(n *Neighborhood) {
+	r.Shuffle(cap(n.ns), func(i, j int) {
+		n.ns[i], n.ns[j] = n.ns[j], n.ns[i]
+	})
+
+	n.callback(EventLeft, n.ns[cap(n.ns)-1])
+	n.ns = n.ns[:cap(n.ns)-1] // pop
+}
+
+func (n *Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() error {
 	return func() error {
 		if err := n.h.Connect(ctx, info); err != nil {
 			return err
 		}
 
-		s, err := n.h.NewStream(ctx, info.ID, ProtocolID)
-		if err != nil {
+		s, err := n.h.NewStream(ctx, info.ID, JoinProto)
+		if s != nil {
 			return err
 		}
 
-		conn := rpc.NewConn(rpc.NewPackedStreamTransport(s), &rpc.Options{
-			// ErrorReporter: /* TODO - logger */,
-		})
-
-		nc := &edge{
-			ID:   s.Conn().RemotePeer(),
-			Conn: conn,
-			n:    mesh.Neighbor{Client: conn.Bootstrap(ctx)},
-		}
-
-		select {
-		case <-n.cq:
-			return ErrDisconnected
-		case <-ctx.Done():
-			return ctx.Err()
-		case n.join <- nc:
-			n.loop() // NOTE:  must be delayed until err guaranteed nil
-			n.watch(nc)
-		}
-
+		join(n).Handler(s) // closes s
 		return nil
 	}
 }
 
-func (n Neighborhood) handler(s network.Stream) {
-	nb := mesh.Neighbor_ServerToClient(neighbor{n}, n.policy)
+func (n *Neighborhood) graft() waiter {
+	r.Shuffle(cap(n.ns), func(i, j int) {
+		n.ns[i], n.ns[j] = n.ns[j], n.ns[i]
+	})
 
-	conn := rpc.NewConn(
-		rpc.NewPackedStreamTransport(s),
-		&rpc.Options{
-			BootstrapClient: nb.Client,
-			// ErrorReporter: /* TODO -  logger */,
+	ctx, cancel := context.WithTimeout(n.ctx, time.Second*30)
+	defer cancel()
+
+	var any syncutil.Any
+	for i := 0; i < slots(n.ns); i++ {
+		any.Go(n.sample(ctx, n.ns[i], defaultDepth))
+	}
+
+	return &any
+}
+
+func (n *Neighborhood) sample(ctx context.Context, id peer.ID, depth uint8) func() error {
+	return func() error {
+		s, err := n.h.NewStream(ctx, id, SampleProto)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+
+		// ensure write deadline; default 30s.
+		if t, ok := ctx.Deadline(); ok {
+			s.SetWriteDeadline(t)
+		} else {
+			s.SetWriteDeadline(time.Now().Add(time.Second * 30))
+		}
+
+		if err = binary.Write(s, binary.BigEndian, depth); err != nil {
+			return err
+		}
+
+		if err = s.CloseWrite(); err != nil {
+			return err
+		}
+
+		// ensure read deadline; default 30s.
+		if t, ok := ctx.Deadline(); ok {
+			s.SetReadDeadline(t)
+		} else {
+			s.SetReadDeadline(time.Now().Add(time.Second * 30))
+		}
+
+		io.Copy(io.Discard, s) // block until remote side closes
+		return nil
+	}
+}
+
+func leave(n *Neighborhood) func(network.Network, network.Conn) {
+	return func(_ network.Network, c network.Conn) {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+
+		if rid := c.RemotePeer(); isNeighbor(n.ns, rid) {
+			for i, id := range n.ns {
+				if id == rid {
+					n.callback(EventLeft, rid)
+					n.ns[i] = n.ns[len(n.ns)-1] // move last element to i
+					n.ns = n.ns[:len(n.ns)-1]   // pop last element
+				}
+			}
+		}
+	}
+}
+
+type endpoint struct {
+	Proto   protocol.ID
+	Handler network.StreamHandler
+}
+
+func join(n *Neighborhood) endpoint {
+	return endpoint{
+		Proto: JoinProto,
+		Handler: func(s network.Stream) {
+			defer s.Close()
+
+			n.mu.Lock()
+			defer n.mu.Unlock()
+
+			// duplicate connection?
+			if isNeighbor(n.ns, s.Conn().RemotePeer()) {
+				return
+			}
+
+			// neighborhood full?
+			if isFull(n.ns) {
+				popRandom(n)
+			}
+
+			// add to neighborhood
+			n.ns = append(n.ns, s.Conn().RemotePeer()) // push
+			n.callback(EventJoined, s.Conn().RemotePeer())
 		},
-	)
+	}
+}
 
-	nc := &edge{
-		ID:   s.Conn().RemotePeer(),
-		Conn: conn,
-		n:    nb,
+func sample(n *Neighborhood) endpoint {
+	return endpoint{
+		Proto: SampleProto,
+		Handler: func(s network.Stream) {
+			defer s.Close()
+
+			var depth uint8
+			if err := binary.Read(s, binary.BigEndian, &depth); err != nil {
+				// TODO:  logging
+				return
+			}
+
+			ctx, cancel := context.WithCancel(n.ctx)
+			defer cancel()
+
+			go func() {
+				defer cancel()
+				io.Copy(ioutil.Discard, s) // block until closed
+			}()
+
+			var g errgroup.Group
+
+			// final destination?
+			switch depth {
+			case 0:
+				info, err := peer.AddrInfoFromP2pAddr(s.Conn().RemoteMultiaddr())
+				if err != nil {
+					return // TODO:  logging
+				}
+
+				g.Go(n.connect(ctx, *info))
+
+			default:
+				ns := n.Neighbors()
+				r.Shuffle(len(ns), func(i, j int) {
+					ns[i], ns[j] = ns[j], ns[i]
+				})
+
+				g.Go(n.sample(ctx, ns[0], depth-1))
+			}
+
+			if err := g.Wait(); err != nil {
+				// TODO:  logging
+			}
+		},
+	}
+}
+
+func isNeighbor(ns peer.IDSlice, id peer.ID) bool {
+	for _, n := range ns {
+		if n == id {
+			return true
+		}
 	}
 
+	return false
+}
+
+func isFull(ns peer.IDSlice) bool {
+	return len(ns) == cap(ns)
+}
+
+func isGraftable(ns peer.IDSlice) bool {
+	if len(ns) > 0 && !isSaturated(ns) {
+		return true
+	}
+
+	return false
+}
+
+func isSaturated(ns peer.IDSlice) bool {
+	return len(ns) >= saturationPoint(ns)
+}
+
+// returns the saturation point (i.e. k-1 connections).
+// the empty slot is designed to prevent churn.
+func saturationPoint(ns peer.IDSlice) int {
+	return cap(ns) - len(ns) - 1
+}
+
+// slots available
+func slots(ns peer.IDSlice) int {
+	return saturationPoint(ns) - len(ns)
+}
+
+type cond chan struct{}
+
+func (c cond) Signal() {
 	select {
-	case n.join <- nc:
-		n.watch(nc)
-	case <-n.cq:
+	case c <- struct{}{}:
+	default:
 	}
 }
 
-func (n Neighborhood) watch(e *edge) {
-	go func() {
-		<-e.Done()
-		select {
-		case n.leave <- e.ID:
-		case <-n.cq:
-			return
-		}
-	}()
-}
+type waiter interface{ Wait() error }
 
-func (n Neighborhood) setView() {
-	v := make([]peer.ID, 0, len(n.es))
-	for id := range n.es {
-		v = append(v, id)
-	}
-	n.view.Store(v)
-}
+type nopWaiter struct{}
 
-func nopCallback(Event, peer.ID) {}
-
-type neighbor struct{ n Neighborhood }
-
-func (n neighbor) Walk(ctx context.Context, walk mesh.Neighbor_walk) error {
-	return errors.New("neighbor.Walk NOT IMPLEMENTED")
-}
-
-type edge struct {
-	ID peer.ID
-	*rpc.Conn
-	n mesh.Neighbor
-}
-
-func popRandom(m map[peer.ID]*edge) {
-	var i int
-	x := rand.Intn(len(m) - 1)
-	for id, e := range m {
-		if i == x {
-			e.Close()
-			delete(m, id)
-			break
-		}
-
-		i++
-	}
-}
+func (nopWaiter) Wait() error { return nil }

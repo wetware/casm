@@ -5,9 +5,9 @@ using Go = import "/go.capnp";
 $Go.package("mesh");
 $Go.import("github.com/wetware/casm/internal/mesh");
 
-interface Neighbor {
+interface Edge {
     interface Returner {
-        return @0 (n :Neighbor) -> ();
+        return @0 (n :Edge) -> ();
     }
 
     walk @0 (r :Returner, depth :UInt8) -> ();

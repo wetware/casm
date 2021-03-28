@@ -1,42 +1,59 @@
 package mesh
 
 import (
-	"zombiezen.com/go/capnproto2/server"
+	"context"
+
+	"github.com/libp2p/go-libp2p-core/peer"
 )
 
 // Option type for Neighborhood.
 type Option func(*Neighborhood)
 
-// WithServerPolicy .
-func WithServerPolicy(p *server.Policy) Option {
-	if p == nil {
-		p = &server.Policy{}
+// WithContext sets the neighborhood's root context.
+//
+// If ctx == nil, context.Background() is used.
+func WithContext(ctx context.Context) Option {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	return func(n *Neighborhood) {
-		n.policy = p
+		n.ctx, n.cancel = context.WithCancel(ctx)
 	}
 }
 
-// WithParams .
-func WithParams(k, overflow uint8) Option {
-	if k == 0 {
-		k = 5
-	}
-
-	if overflow == 0 {
-		overflow = 2
+// WithCallback sets the callback that is invoked when a
+// neighbor (dis)connects.
+//
+// If f == nil, the callback is a nop.
+func WithCallback(f func(Event, peer.ID)) Option {
+	if f == nil {
+		f = func(Event, peer.ID) {}
 	}
 
 	return func(n *Neighborhood) {
-		n.k = k
-		n.overflow = overflow
+		n.cb = f
+	}
+}
+
+// WithCardinality sets the maximum number of peers that
+// can be in the neighborhood at any point in time.
+//
+// If k < 2, a default value of 5 is used.
+func WithCardinality(k uint) Option {
+	if k < 2 {
+		k = 5
+	}
+
+	return func(n *Neighborhood) {
+		n.ns = make(peer.IDSlice, 0, k)
 	}
 }
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
-		WithParams(0, 0),
-		WithServerPolicy(nil),
+		WithCallback(nil),
+		WithCardinality(5),
+		WithContext(context.Background()),
 	}, opt...)
 }

@@ -10,197 +10,197 @@ import (
 	server "zombiezen.com/go/capnproto2/server"
 )
 
-type Neighbor struct{ Client *capnp.Client }
+type Edge struct{ Client *capnp.Client }
 
-// Neighbor_TypeID is the unique identifier for the type Neighbor.
-const Neighbor_TypeID = 0xe786f2ea35c6d7fb
+// Edge_TypeID is the unique identifier for the type Edge.
+const Edge_TypeID = 0x8d4410c80d840764
 
-func (c Neighbor) Walk(ctx context.Context, params func(Neighbor_walk_Params) error) (Neighbor_walk_Results_Future, capnp.ReleaseFunc) {
+func (c Edge) Walk(ctx context.Context, params func(Edge_walk_Params) error) (Edge_walk_Results_Future, capnp.ReleaseFunc) {
 	s := capnp.Send{
 		Method: capnp.Method{
-			InterfaceID:   0xe786f2ea35c6d7fb,
+			InterfaceID:   0x8d4410c80d840764,
 			MethodID:      0,
-			InterfaceName: "mesh.capnp:Neighbor",
+			InterfaceName: "mesh.capnp:Edge",
 			MethodName:    "walk",
 		},
 	}
 	if params != nil {
 		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 1}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(Neighbor_walk_Params{Struct: s}) }
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Edge_walk_Params{Struct: s}) }
 	}
 	ans, release := c.Client.SendCall(ctx, s)
-	return Neighbor_walk_Results_Future{Future: ans.Future()}, release
+	return Edge_walk_Results_Future{Future: ans.Future()}, release
 }
 
-// A Neighbor_Server is a Neighbor with a local implementation.
-type Neighbor_Server interface {
-	Walk(context.Context, Neighbor_walk) error
+// A Edge_Server is a Edge with a local implementation.
+type Edge_Server interface {
+	Walk(context.Context, Edge_walk) error
 }
 
-// Neighbor_NewServer creates a new Server from an implementation of Neighbor_Server.
-func Neighbor_NewServer(s Neighbor_Server, policy *server.Policy) *server.Server {
+// Edge_NewServer creates a new Server from an implementation of Edge_Server.
+func Edge_NewServer(s Edge_Server, policy *server.Policy) *server.Server {
 	c, _ := s.(server.Shutdowner)
-	return server.New(Neighbor_Methods(nil, s), s, c, policy)
+	return server.New(Edge_Methods(nil, s), s, c, policy)
 }
 
-// Neighbor_ServerToClient creates a new Client from an implementation of Neighbor_Server.
+// Edge_ServerToClient creates a new Client from an implementation of Edge_Server.
 // The caller is responsible for calling Release on the returned Client.
-func Neighbor_ServerToClient(s Neighbor_Server, policy *server.Policy) Neighbor {
-	return Neighbor{Client: capnp.NewClient(Neighbor_NewServer(s, policy))}
+func Edge_ServerToClient(s Edge_Server, policy *server.Policy) Edge {
+	return Edge{Client: capnp.NewClient(Edge_NewServer(s, policy))}
 }
 
-// Neighbor_Methods appends Methods to a slice that invoke the methods on s.
+// Edge_Methods appends Methods to a slice that invoke the methods on s.
 // This can be used to create a more complicated Server.
-func Neighbor_Methods(methods []server.Method, s Neighbor_Server) []server.Method {
+func Edge_Methods(methods []server.Method, s Edge_Server) []server.Method {
 	if cap(methods) == 0 {
 		methods = make([]server.Method, 0, 1)
 	}
 
 	methods = append(methods, server.Method{
 		Method: capnp.Method{
-			InterfaceID:   0xe786f2ea35c6d7fb,
+			InterfaceID:   0x8d4410c80d840764,
 			MethodID:      0,
-			InterfaceName: "mesh.capnp:Neighbor",
+			InterfaceName: "mesh.capnp:Edge",
 			MethodName:    "walk",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Walk(ctx, Neighbor_walk{call})
+			return s.Walk(ctx, Edge_walk{call})
 		},
 	})
 
 	return methods
 }
 
-// Neighbor_walk holds the state for a server call to Neighbor.walk.
+// Edge_walk holds the state for a server call to Edge.walk.
 // See server.Call for documentation.
-type Neighbor_walk struct {
+type Edge_walk struct {
 	*server.Call
 }
 
 // Args returns the call's arguments.
-func (c Neighbor_walk) Args() Neighbor_walk_Params {
-	return Neighbor_walk_Params{Struct: c.Call.Args()}
+func (c Edge_walk) Args() Edge_walk_Params {
+	return Edge_walk_Params{Struct: c.Call.Args()}
 }
 
 // AllocResults allocates the results struct.
-func (c Neighbor_walk) AllocResults() (Neighbor_walk_Results, error) {
+func (c Edge_walk) AllocResults() (Edge_walk_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Neighbor_walk_Results{Struct: r}, err
+	return Edge_walk_Results{Struct: r}, err
 }
 
-type Neighbor_Returner struct{ Client *capnp.Client }
+type Edge_Returner struct{ Client *capnp.Client }
 
-// Neighbor_Returner_TypeID is the unique identifier for the type Neighbor_Returner.
-const Neighbor_Returner_TypeID = 0xd4e8260bae0ab2a2
+// Edge_Returner_TypeID is the unique identifier for the type Edge_Returner.
+const Edge_Returner_TypeID = 0x8e38967b9891d626
 
-func (c Neighbor_Returner) Return(ctx context.Context, params func(Neighbor_Returner_return_Params) error) (Neighbor_Returner_return_Results_Future, capnp.ReleaseFunc) {
+func (c Edge_Returner) Return(ctx context.Context, params func(Edge_Returner_return_Params) error) (Edge_Returner_return_Results_Future, capnp.ReleaseFunc) {
 	s := capnp.Send{
 		Method: capnp.Method{
-			InterfaceID:   0xd4e8260bae0ab2a2,
+			InterfaceID:   0x8e38967b9891d626,
 			MethodID:      0,
-			InterfaceName: "mesh.capnp:Neighbor.Returner",
+			InterfaceName: "mesh.capnp:Edge.Returner",
 			MethodName:    "return",
 		},
 	}
 	if params != nil {
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(Neighbor_Returner_return_Params{Struct: s}) }
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Edge_Returner_return_Params{Struct: s}) }
 	}
 	ans, release := c.Client.SendCall(ctx, s)
-	return Neighbor_Returner_return_Results_Future{Future: ans.Future()}, release
+	return Edge_Returner_return_Results_Future{Future: ans.Future()}, release
 }
 
-// A Neighbor_Returner_Server is a Neighbor_Returner with a local implementation.
-type Neighbor_Returner_Server interface {
-	Return(context.Context, Neighbor_Returner_return) error
+// A Edge_Returner_Server is a Edge_Returner with a local implementation.
+type Edge_Returner_Server interface {
+	Return(context.Context, Edge_Returner_return) error
 }
 
-// Neighbor_Returner_NewServer creates a new Server from an implementation of Neighbor_Returner_Server.
-func Neighbor_Returner_NewServer(s Neighbor_Returner_Server, policy *server.Policy) *server.Server {
+// Edge_Returner_NewServer creates a new Server from an implementation of Edge_Returner_Server.
+func Edge_Returner_NewServer(s Edge_Returner_Server, policy *server.Policy) *server.Server {
 	c, _ := s.(server.Shutdowner)
-	return server.New(Neighbor_Returner_Methods(nil, s), s, c, policy)
+	return server.New(Edge_Returner_Methods(nil, s), s, c, policy)
 }
 
-// Neighbor_Returner_ServerToClient creates a new Client from an implementation of Neighbor_Returner_Server.
+// Edge_Returner_ServerToClient creates a new Client from an implementation of Edge_Returner_Server.
 // The caller is responsible for calling Release on the returned Client.
-func Neighbor_Returner_ServerToClient(s Neighbor_Returner_Server, policy *server.Policy) Neighbor_Returner {
-	return Neighbor_Returner{Client: capnp.NewClient(Neighbor_Returner_NewServer(s, policy))}
+func Edge_Returner_ServerToClient(s Edge_Returner_Server, policy *server.Policy) Edge_Returner {
+	return Edge_Returner{Client: capnp.NewClient(Edge_Returner_NewServer(s, policy))}
 }
 
-// Neighbor_Returner_Methods appends Methods to a slice that invoke the methods on s.
+// Edge_Returner_Methods appends Methods to a slice that invoke the methods on s.
 // This can be used to create a more complicated Server.
-func Neighbor_Returner_Methods(methods []server.Method, s Neighbor_Returner_Server) []server.Method {
+func Edge_Returner_Methods(methods []server.Method, s Edge_Returner_Server) []server.Method {
 	if cap(methods) == 0 {
 		methods = make([]server.Method, 0, 1)
 	}
 
 	methods = append(methods, server.Method{
 		Method: capnp.Method{
-			InterfaceID:   0xd4e8260bae0ab2a2,
+			InterfaceID:   0x8e38967b9891d626,
 			MethodID:      0,
-			InterfaceName: "mesh.capnp:Neighbor.Returner",
+			InterfaceName: "mesh.capnp:Edge.Returner",
 			MethodName:    "return",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Return(ctx, Neighbor_Returner_return{call})
+			return s.Return(ctx, Edge_Returner_return{call})
 		},
 	})
 
 	return methods
 }
 
-// Neighbor_Returner_return holds the state for a server call to Neighbor_Returner.return.
+// Edge_Returner_return holds the state for a server call to Edge_Returner.return.
 // See server.Call for documentation.
-type Neighbor_Returner_return struct {
+type Edge_Returner_return struct {
 	*server.Call
 }
 
 // Args returns the call's arguments.
-func (c Neighbor_Returner_return) Args() Neighbor_Returner_return_Params {
-	return Neighbor_Returner_return_Params{Struct: c.Call.Args()}
+func (c Edge_Returner_return) Args() Edge_Returner_return_Params {
+	return Edge_Returner_return_Params{Struct: c.Call.Args()}
 }
 
 // AllocResults allocates the results struct.
-func (c Neighbor_Returner_return) AllocResults() (Neighbor_Returner_return_Results, error) {
+func (c Edge_Returner_return) AllocResults() (Edge_Returner_return_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Neighbor_Returner_return_Results{Struct: r}, err
+	return Edge_Returner_return_Results{Struct: r}, err
 }
 
-type Neighbor_Returner_return_Params struct{ capnp.Struct }
+type Edge_Returner_return_Params struct{ capnp.Struct }
 
-// Neighbor_Returner_return_Params_TypeID is the unique identifier for the type Neighbor_Returner_return_Params.
-const Neighbor_Returner_return_Params_TypeID = 0xa032e07a3902231b
+// Edge_Returner_return_Params_TypeID is the unique identifier for the type Edge_Returner_return_Params.
+const Edge_Returner_return_Params_TypeID = 0xe8b8ccf039bd10ea
 
-func NewNeighbor_Returner_return_Params(s *capnp.Segment) (Neighbor_Returner_return_Params, error) {
+func NewEdge_Returner_return_Params(s *capnp.Segment) (Edge_Returner_return_Params, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Neighbor_Returner_return_Params{st}, err
+	return Edge_Returner_return_Params{st}, err
 }
 
-func NewRootNeighbor_Returner_return_Params(s *capnp.Segment) (Neighbor_Returner_return_Params, error) {
+func NewRootEdge_Returner_return_Params(s *capnp.Segment) (Edge_Returner_return_Params, error) {
 	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Neighbor_Returner_return_Params{st}, err
+	return Edge_Returner_return_Params{st}, err
 }
 
-func ReadRootNeighbor_Returner_return_Params(msg *capnp.Message) (Neighbor_Returner_return_Params, error) {
+func ReadRootEdge_Returner_return_Params(msg *capnp.Message) (Edge_Returner_return_Params, error) {
 	root, err := msg.Root()
-	return Neighbor_Returner_return_Params{root.Struct()}, err
+	return Edge_Returner_return_Params{root.Struct()}, err
 }
 
-func (s Neighbor_Returner_return_Params) String() string {
-	str, _ := text.Marshal(0xa032e07a3902231b, s.Struct)
+func (s Edge_Returner_return_Params) String() string {
+	str, _ := text.Marshal(0xe8b8ccf039bd10ea, s.Struct)
 	return str
 }
 
-func (s Neighbor_Returner_return_Params) N() Neighbor {
+func (s Edge_Returner_return_Params) N() Edge {
 	p, _ := s.Struct.Ptr(0)
-	return Neighbor{Client: p.Interface().Client()}
+	return Edge{Client: p.Interface().Client()}
 }
 
-func (s Neighbor_Returner_return_Params) HasN() bool {
+func (s Edge_Returner_return_Params) HasN() bool {
 	return s.Struct.HasPtr(0)
 }
 
-func (s Neighbor_Returner_return_Params) SetN(v Neighbor) error {
+func (s Edge_Returner_return_Params) SetN(v Edge) error {
 	if !v.Client.IsValid() {
 		return s.Struct.SetPtr(0, capnp.Ptr{})
 	}
@@ -209,130 +209,130 @@ func (s Neighbor_Returner_return_Params) SetN(v Neighbor) error {
 	return s.Struct.SetPtr(0, in.ToPtr())
 }
 
-// Neighbor_Returner_return_Params_List is a list of Neighbor_Returner_return_Params.
-type Neighbor_Returner_return_Params_List struct{ capnp.List }
+// Edge_Returner_return_Params_List is a list of Edge_Returner_return_Params.
+type Edge_Returner_return_Params_List struct{ capnp.List }
 
-// NewNeighbor_Returner_return_Params creates a new list of Neighbor_Returner_return_Params.
-func NewNeighbor_Returner_return_Params_List(s *capnp.Segment, sz int32) (Neighbor_Returner_return_Params_List, error) {
+// NewEdge_Returner_return_Params creates a new list of Edge_Returner_return_Params.
+func NewEdge_Returner_return_Params_List(s *capnp.Segment, sz int32) (Edge_Returner_return_Params_List, error) {
 	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return Neighbor_Returner_return_Params_List{l}, err
+	return Edge_Returner_return_Params_List{l}, err
 }
 
-func (s Neighbor_Returner_return_Params_List) At(i int) Neighbor_Returner_return_Params {
-	return Neighbor_Returner_return_Params{s.List.Struct(i)}
+func (s Edge_Returner_return_Params_List) At(i int) Edge_Returner_return_Params {
+	return Edge_Returner_return_Params{s.List.Struct(i)}
 }
 
-func (s Neighbor_Returner_return_Params_List) Set(i int, v Neighbor_Returner_return_Params) error {
+func (s Edge_Returner_return_Params_List) Set(i int, v Edge_Returner_return_Params) error {
 	return s.List.SetStruct(i, v.Struct)
 }
 
-func (s Neighbor_Returner_return_Params_List) String() string {
-	str, _ := text.MarshalList(0xa032e07a3902231b, s.List)
+func (s Edge_Returner_return_Params_List) String() string {
+	str, _ := text.MarshalList(0xe8b8ccf039bd10ea, s.List)
 	return str
 }
 
-// Neighbor_Returner_return_Params_Future is a wrapper for a Neighbor_Returner_return_Params promised by a client call.
-type Neighbor_Returner_return_Params_Future struct{ *capnp.Future }
+// Edge_Returner_return_Params_Future is a wrapper for a Edge_Returner_return_Params promised by a client call.
+type Edge_Returner_return_Params_Future struct{ *capnp.Future }
 
-func (p Neighbor_Returner_return_Params_Future) Struct() (Neighbor_Returner_return_Params, error) {
+func (p Edge_Returner_return_Params_Future) Struct() (Edge_Returner_return_Params, error) {
 	s, err := p.Future.Struct()
-	return Neighbor_Returner_return_Params{s}, err
+	return Edge_Returner_return_Params{s}, err
 }
 
-func (p Neighbor_Returner_return_Params_Future) N() Neighbor {
-	return Neighbor{Client: p.Future.Field(0, nil).Client()}
+func (p Edge_Returner_return_Params_Future) N() Edge {
+	return Edge{Client: p.Future.Field(0, nil).Client()}
 }
 
-type Neighbor_Returner_return_Results struct{ capnp.Struct }
+type Edge_Returner_return_Results struct{ capnp.Struct }
 
-// Neighbor_Returner_return_Results_TypeID is the unique identifier for the type Neighbor_Returner_return_Results.
-const Neighbor_Returner_return_Results_TypeID = 0xa56d8cd9f2bd45a4
+// Edge_Returner_return_Results_TypeID is the unique identifier for the type Edge_Returner_return_Results.
+const Edge_Returner_return_Results_TypeID = 0xc5d56429846f1e48
 
-func NewNeighbor_Returner_return_Results(s *capnp.Segment) (Neighbor_Returner_return_Results, error) {
+func NewEdge_Returner_return_Results(s *capnp.Segment) (Edge_Returner_return_Results, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Neighbor_Returner_return_Results{st}, err
+	return Edge_Returner_return_Results{st}, err
 }
 
-func NewRootNeighbor_Returner_return_Results(s *capnp.Segment) (Neighbor_Returner_return_Results, error) {
+func NewRootEdge_Returner_return_Results(s *capnp.Segment) (Edge_Returner_return_Results, error) {
 	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Neighbor_Returner_return_Results{st}, err
+	return Edge_Returner_return_Results{st}, err
 }
 
-func ReadRootNeighbor_Returner_return_Results(msg *capnp.Message) (Neighbor_Returner_return_Results, error) {
+func ReadRootEdge_Returner_return_Results(msg *capnp.Message) (Edge_Returner_return_Results, error) {
 	root, err := msg.Root()
-	return Neighbor_Returner_return_Results{root.Struct()}, err
+	return Edge_Returner_return_Results{root.Struct()}, err
 }
 
-func (s Neighbor_Returner_return_Results) String() string {
-	str, _ := text.Marshal(0xa56d8cd9f2bd45a4, s.Struct)
+func (s Edge_Returner_return_Results) String() string {
+	str, _ := text.Marshal(0xc5d56429846f1e48, s.Struct)
 	return str
 }
 
-// Neighbor_Returner_return_Results_List is a list of Neighbor_Returner_return_Results.
-type Neighbor_Returner_return_Results_List struct{ capnp.List }
+// Edge_Returner_return_Results_List is a list of Edge_Returner_return_Results.
+type Edge_Returner_return_Results_List struct{ capnp.List }
 
-// NewNeighbor_Returner_return_Results creates a new list of Neighbor_Returner_return_Results.
-func NewNeighbor_Returner_return_Results_List(s *capnp.Segment, sz int32) (Neighbor_Returner_return_Results_List, error) {
+// NewEdge_Returner_return_Results creates a new list of Edge_Returner_return_Results.
+func NewEdge_Returner_return_Results_List(s *capnp.Segment, sz int32) (Edge_Returner_return_Results_List, error) {
 	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
-	return Neighbor_Returner_return_Results_List{l}, err
+	return Edge_Returner_return_Results_List{l}, err
 }
 
-func (s Neighbor_Returner_return_Results_List) At(i int) Neighbor_Returner_return_Results {
-	return Neighbor_Returner_return_Results{s.List.Struct(i)}
+func (s Edge_Returner_return_Results_List) At(i int) Edge_Returner_return_Results {
+	return Edge_Returner_return_Results{s.List.Struct(i)}
 }
 
-func (s Neighbor_Returner_return_Results_List) Set(i int, v Neighbor_Returner_return_Results) error {
+func (s Edge_Returner_return_Results_List) Set(i int, v Edge_Returner_return_Results) error {
 	return s.List.SetStruct(i, v.Struct)
 }
 
-func (s Neighbor_Returner_return_Results_List) String() string {
-	str, _ := text.MarshalList(0xa56d8cd9f2bd45a4, s.List)
+func (s Edge_Returner_return_Results_List) String() string {
+	str, _ := text.MarshalList(0xc5d56429846f1e48, s.List)
 	return str
 }
 
-// Neighbor_Returner_return_Results_Future is a wrapper for a Neighbor_Returner_return_Results promised by a client call.
-type Neighbor_Returner_return_Results_Future struct{ *capnp.Future }
+// Edge_Returner_return_Results_Future is a wrapper for a Edge_Returner_return_Results promised by a client call.
+type Edge_Returner_return_Results_Future struct{ *capnp.Future }
 
-func (p Neighbor_Returner_return_Results_Future) Struct() (Neighbor_Returner_return_Results, error) {
+func (p Edge_Returner_return_Results_Future) Struct() (Edge_Returner_return_Results, error) {
 	s, err := p.Future.Struct()
-	return Neighbor_Returner_return_Results{s}, err
+	return Edge_Returner_return_Results{s}, err
 }
 
-type Neighbor_walk_Params struct{ capnp.Struct }
+type Edge_walk_Params struct{ capnp.Struct }
 
-// Neighbor_walk_Params_TypeID is the unique identifier for the type Neighbor_walk_Params.
-const Neighbor_walk_Params_TypeID = 0xd9a56012f5234db6
+// Edge_walk_Params_TypeID is the unique identifier for the type Edge_walk_Params.
+const Edge_walk_Params_TypeID = 0xdbb65bb736e0080b
 
-func NewNeighbor_walk_Params(s *capnp.Segment) (Neighbor_walk_Params, error) {
+func NewEdge_walk_Params(s *capnp.Segment) (Edge_walk_Params, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return Neighbor_walk_Params{st}, err
+	return Edge_walk_Params{st}, err
 }
 
-func NewRootNeighbor_walk_Params(s *capnp.Segment) (Neighbor_walk_Params, error) {
+func NewRootEdge_walk_Params(s *capnp.Segment) (Edge_walk_Params, error) {
 	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return Neighbor_walk_Params{st}, err
+	return Edge_walk_Params{st}, err
 }
 
-func ReadRootNeighbor_walk_Params(msg *capnp.Message) (Neighbor_walk_Params, error) {
+func ReadRootEdge_walk_Params(msg *capnp.Message) (Edge_walk_Params, error) {
 	root, err := msg.Root()
-	return Neighbor_walk_Params{root.Struct()}, err
+	return Edge_walk_Params{root.Struct()}, err
 }
 
-func (s Neighbor_walk_Params) String() string {
-	str, _ := text.Marshal(0xd9a56012f5234db6, s.Struct)
+func (s Edge_walk_Params) String() string {
+	str, _ := text.Marshal(0xdbb65bb736e0080b, s.Struct)
 	return str
 }
 
-func (s Neighbor_walk_Params) R() Neighbor_Returner {
+func (s Edge_walk_Params) R() Edge_Returner {
 	p, _ := s.Struct.Ptr(0)
-	return Neighbor_Returner{Client: p.Interface().Client()}
+	return Edge_Returner{Client: p.Interface().Client()}
 }
 
-func (s Neighbor_walk_Params) HasR() bool {
+func (s Edge_walk_Params) HasR() bool {
 	return s.Struct.HasPtr(0)
 }
 
-func (s Neighbor_walk_Params) SetR(v Neighbor_Returner) error {
+func (s Edge_walk_Params) SetR(v Edge_Returner) error {
 	if !v.Client.IsValid() {
 		return s.Struct.SetPtr(0, capnp.Ptr{})
 	}
@@ -341,137 +341,135 @@ func (s Neighbor_walk_Params) SetR(v Neighbor_Returner) error {
 	return s.Struct.SetPtr(0, in.ToPtr())
 }
 
-func (s Neighbor_walk_Params) Depth() uint8 {
+func (s Edge_walk_Params) Depth() uint8 {
 	return s.Struct.Uint8(0)
 }
 
-func (s Neighbor_walk_Params) SetDepth(v uint8) {
+func (s Edge_walk_Params) SetDepth(v uint8) {
 	s.Struct.SetUint8(0, v)
 }
 
-// Neighbor_walk_Params_List is a list of Neighbor_walk_Params.
-type Neighbor_walk_Params_List struct{ capnp.List }
+// Edge_walk_Params_List is a list of Edge_walk_Params.
+type Edge_walk_Params_List struct{ capnp.List }
 
-// NewNeighbor_walk_Params creates a new list of Neighbor_walk_Params.
-func NewNeighbor_walk_Params_List(s *capnp.Segment, sz int32) (Neighbor_walk_Params_List, error) {
+// NewEdge_walk_Params creates a new list of Edge_walk_Params.
+func NewEdge_walk_Params_List(s *capnp.Segment, sz int32) (Edge_walk_Params_List, error) {
 	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
-	return Neighbor_walk_Params_List{l}, err
+	return Edge_walk_Params_List{l}, err
 }
 
-func (s Neighbor_walk_Params_List) At(i int) Neighbor_walk_Params {
-	return Neighbor_walk_Params{s.List.Struct(i)}
-}
+func (s Edge_walk_Params_List) At(i int) Edge_walk_Params { return Edge_walk_Params{s.List.Struct(i)} }
 
-func (s Neighbor_walk_Params_List) Set(i int, v Neighbor_walk_Params) error {
+func (s Edge_walk_Params_List) Set(i int, v Edge_walk_Params) error {
 	return s.List.SetStruct(i, v.Struct)
 }
 
-func (s Neighbor_walk_Params_List) String() string {
-	str, _ := text.MarshalList(0xd9a56012f5234db6, s.List)
+func (s Edge_walk_Params_List) String() string {
+	str, _ := text.MarshalList(0xdbb65bb736e0080b, s.List)
 	return str
 }
 
-// Neighbor_walk_Params_Future is a wrapper for a Neighbor_walk_Params promised by a client call.
-type Neighbor_walk_Params_Future struct{ *capnp.Future }
+// Edge_walk_Params_Future is a wrapper for a Edge_walk_Params promised by a client call.
+type Edge_walk_Params_Future struct{ *capnp.Future }
 
-func (p Neighbor_walk_Params_Future) Struct() (Neighbor_walk_Params, error) {
+func (p Edge_walk_Params_Future) Struct() (Edge_walk_Params, error) {
 	s, err := p.Future.Struct()
-	return Neighbor_walk_Params{s}, err
+	return Edge_walk_Params{s}, err
 }
 
-func (p Neighbor_walk_Params_Future) R() Neighbor_Returner {
-	return Neighbor_Returner{Client: p.Future.Field(0, nil).Client()}
+func (p Edge_walk_Params_Future) R() Edge_Returner {
+	return Edge_Returner{Client: p.Future.Field(0, nil).Client()}
 }
 
-type Neighbor_walk_Results struct{ capnp.Struct }
+type Edge_walk_Results struct{ capnp.Struct }
 
-// Neighbor_walk_Results_TypeID is the unique identifier for the type Neighbor_walk_Results.
-const Neighbor_walk_Results_TypeID = 0xa6104d9ae8231b62
+// Edge_walk_Results_TypeID is the unique identifier for the type Edge_walk_Results.
+const Edge_walk_Results_TypeID = 0xe46bccea4210765b
 
-func NewNeighbor_walk_Results(s *capnp.Segment) (Neighbor_walk_Results, error) {
+func NewEdge_walk_Results(s *capnp.Segment) (Edge_walk_Results, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Neighbor_walk_Results{st}, err
+	return Edge_walk_Results{st}, err
 }
 
-func NewRootNeighbor_walk_Results(s *capnp.Segment) (Neighbor_walk_Results, error) {
+func NewRootEdge_walk_Results(s *capnp.Segment) (Edge_walk_Results, error) {
 	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Neighbor_walk_Results{st}, err
+	return Edge_walk_Results{st}, err
 }
 
-func ReadRootNeighbor_walk_Results(msg *capnp.Message) (Neighbor_walk_Results, error) {
+func ReadRootEdge_walk_Results(msg *capnp.Message) (Edge_walk_Results, error) {
 	root, err := msg.Root()
-	return Neighbor_walk_Results{root.Struct()}, err
+	return Edge_walk_Results{root.Struct()}, err
 }
 
-func (s Neighbor_walk_Results) String() string {
-	str, _ := text.Marshal(0xa6104d9ae8231b62, s.Struct)
+func (s Edge_walk_Results) String() string {
+	str, _ := text.Marshal(0xe46bccea4210765b, s.Struct)
 	return str
 }
 
-// Neighbor_walk_Results_List is a list of Neighbor_walk_Results.
-type Neighbor_walk_Results_List struct{ capnp.List }
+// Edge_walk_Results_List is a list of Edge_walk_Results.
+type Edge_walk_Results_List struct{ capnp.List }
 
-// NewNeighbor_walk_Results creates a new list of Neighbor_walk_Results.
-func NewNeighbor_walk_Results_List(s *capnp.Segment, sz int32) (Neighbor_walk_Results_List, error) {
+// NewEdge_walk_Results creates a new list of Edge_walk_Results.
+func NewEdge_walk_Results_List(s *capnp.Segment, sz int32) (Edge_walk_Results_List, error) {
 	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
-	return Neighbor_walk_Results_List{l}, err
+	return Edge_walk_Results_List{l}, err
 }
 
-func (s Neighbor_walk_Results_List) At(i int) Neighbor_walk_Results {
-	return Neighbor_walk_Results{s.List.Struct(i)}
+func (s Edge_walk_Results_List) At(i int) Edge_walk_Results {
+	return Edge_walk_Results{s.List.Struct(i)}
 }
 
-func (s Neighbor_walk_Results_List) Set(i int, v Neighbor_walk_Results) error {
+func (s Edge_walk_Results_List) Set(i int, v Edge_walk_Results) error {
 	return s.List.SetStruct(i, v.Struct)
 }
 
-func (s Neighbor_walk_Results_List) String() string {
-	str, _ := text.MarshalList(0xa6104d9ae8231b62, s.List)
+func (s Edge_walk_Results_List) String() string {
+	str, _ := text.MarshalList(0xe46bccea4210765b, s.List)
 	return str
 }
 
-// Neighbor_walk_Results_Future is a wrapper for a Neighbor_walk_Results promised by a client call.
-type Neighbor_walk_Results_Future struct{ *capnp.Future }
+// Edge_walk_Results_Future is a wrapper for a Edge_walk_Results promised by a client call.
+type Edge_walk_Results_Future struct{ *capnp.Future }
 
-func (p Neighbor_walk_Results_Future) Struct() (Neighbor_walk_Results, error) {
+func (p Edge_walk_Results_Future) Struct() (Edge_walk_Results, error) {
 	s, err := p.Future.Struct()
-	return Neighbor_walk_Results{s}, err
+	return Edge_walk_Results{s}, err
 }
 
-const schema_e71ccb83a9b1b95a = "x\xda\x8cR?k\x14A\x1c}of\xf6V\x12$" +
-	"\x99\xcc\x81H\x14\x91\x0b\xa2b\x0e\x8dZ\x98&i$" +
-	" Dn\x026\xa9\xbc\xd3\xc5\x13\xef.\xc7\xee\x86\x03" +
-	"[\xc1\xcaO`e\x82\x11RD\xd0B\xb8\"\xad\x8d" +
-	"X\x08\x82\x04\x1b;C\xca\x80\x95\xc5\xc8\xec\xb9\x9b\xc5" +
-	"B\xd2\x0d\xfc\x1e\xef\xefL~_\x14\xd7\x82\x81\x04\xec" +
-	"\xc5\xa0\xe2\xa6k\xe2\xd6\xd3\x1fs\xaf\xa0\xcf\x12\x08\x18" +
-	"\x02\xd77\xb8J\xd0\xecp\x01t\xafo\xef\x1e\xee\xbd" +
-	"\xe8n\x8d\x00\xca\xdf?\xb3E(\xd7\x9a\xae\xed\xbf\\" +
-	"\x9e|\x03]\xcd/C\x8e\xf9\xcb\xe6\xfb\xb1\xb7\xe3\x17" +
-	"\xf6\xbfBW\xa5\xfb\xfd\xed\xe3\xcd\x83\xc3\xe7?\x01\x9a" +
-	"\x0d\x1e\x98\x1d\xafa\xb6\xb9d\xbe\xf8\x97\xfb\xb0\\\xfb" +
-	"5u\x7fk\x0f\xb6\xca\xc2\xc2\x90\xc2[\xd8\xe5\x00<" +
-	"b\xd0\xe3\xd2\xad\x0e\xdfm?\xfbt&\xa3;-6" +
-	"\xcdyq\x0a0\xb3b\xc9\xdc\x13!\xae\xb8n\x94\xb4" +
-	"\xeb\x0f\x9a}\xd5\xeb\xcf\xdf\x8d\x1e?j\xb7\xd6\xe2\xfa" +
-	"J\x94\xae\xc7\xbd(\xae\xc7\xd9c\xa6\xd1\x8c\x9b\xb2\x9b" +
-	"X%\x15\xa0\x08\xe8\x93S\x80=!i\xab\x82\xecQ" +
-	"\x97mS\x83\xc7\xe3]\x89\x92\xf5\xb0\x93&\x05Z\x96" +
-	"\xd1\x83f\xe7I\x06\xe9\xa4\x09P`\xc4\xbf\x8c\x13\x9e" +
-	"\xb2AZ%\x03\xa0\x98\x88\xf9\x14Z\xcfC\xe8 \\" +
-	"\x18\xa9.\xb2A\xfeG\xd1\x87\xed&>]\x1e\xf6\x92" +
-	"\x0f;#i\xaf\x0a\x92Y\xedzv\xce\xff\x08I{" +
-	"C\x901\xf5\xd1\x88\xa3\x02\xce=\x8c\xfai\x9b\x15\x08" +
-	"VJu0\x97\x0b[k\xb1Udi|\xdeqy" +
-	"A\x00\xfe\xa6\xc9\xe7f\xfe}\xb4\xbe\x9c\xa5\x99\xf0f" +
-	"\xb3,\x7f\x02\x00\x00\xff\xff\x0f\xec\xc4\xe4"
+const schema_e71ccb83a9b1b95a = "x\xdat\x92\xbdk\x14A\x18\xc6\x9fgf\xf6\xf6 " +
+	"\x1c\xd9q\x02\"\x88\"\x1cb\x84\x1cjD\xf4\x9a\x0b" +
+	"A\x89X\xdd\\i\xaa\xc5[\x0c$9\x8f\xdd\x8bW" +
+	"\xd8iZ\x05\x1b\xb1\xb5\xb0\xb0L\xe3Ga\x91\"\xe0" +
+	"G,U\x82\x8d\x88\xa0\\\xa5\x7f\xc1\xc8ln\xefN" +
+	"1\xf5>\xcf\xef\xfd\xbd\xefN\xf4yA\x9c\x0d\xfa\x12" +
+	"\xb0\xa7\x82\x92k\x87\x9b\x957\xd1\xe5\xfb\xd0S\xd2]" +
+	"\x7f\xb5\xf5\xec\xde\xfb\xa3?\x00\x9a'\xbck\x9e\xf20" +
+	"`\xb6\xb8d\xf6\x18\x02\xee\xe4\xa7\x87\x8f\xef<\xba\xf8" +
+	"\x00:\x92\xe3&h\xb6\xf9\xce|\xf0\x11\xf3\x96K\xe6" +
+	"w\x1e\xbez\xec\xd6\xe6l\xfb\xe3\x0e\xf4\x11\x02*\x04" +
+	"\xe6\xf7\xb8H(7U\xfez\xe1\xc5\xf2\xf3/\xb0\x11" +
+	"\x09\x04yq\x9b\xdf@\xb3\xc3>\xe8\x96oG\x8b\x83" +
+	"\xdd\xd5\xef\xd0\xd1\xb0jN\x88\x01\x94\x1bD\xaf/\xfd" +
+	"\xda}\xf9s\x9f\x99\x17\xe7\x03Q'h*\xa2\x819" +
+	"\xb7\x9ed+\xb5\x1bq\x97\x9dn\xfdJ\xfbf\x02\xab" +
+	"\xc8\x09o^s\xad\xa4\xb7\x91v\x92\x14\x80U2\x00" +
+	"F>,\xe6j}\x1aB\x07\xe1t?^[]`" +
+	"\x93\x1c\x81\xc5\x10\\\x1bc\x9a\xe4\x10T\xe8\xb1\xd8]" +
+	"\xebz\x0ej\xa4y\xfaoT\xf8/\xaa\xb6\x9f\xaa\xb6" +
+	"\x92lc\xad\x97\xa1\x08\x169oSm\xc6i\x18\xaf" +
+	"g\xb6,\x15\xa0\x08\xe8\xd9C\x80\xadJ\xda3\x82\xe4" +
+	"\x8c?\xa9\x9e;\xe7\xff\xaf\xa4=/\xc8\x94z|\x02" +
+	"\x90\x1a<\xdeN\xba\xbd\x15\x96 X\xc2\x7f\xb6\xcbG" +
+	"\xb5\x92l\xda\x8b\x8c>\xcb\x83\x8c\x1b\xcd8\xf5Rj" +
+	"$U\xf1ReI;#\xc8\x0e\xf5\xe4s\xf1\x02\x7f" +
+	"\x02\x00\x00\xff\xff\x89\\\xb4\xf1"
 
 func init() {
 	schemas.Register(schema_e71ccb83a9b1b95a,
-		0xa032e07a3902231b,
-		0xa56d8cd9f2bd45a4,
-		0xa6104d9ae8231b62,
-		0xd4e8260bae0ab2a2,
-		0xd9a56012f5234db6,
-		0xe786f2ea35c6d7fb)
+		0x8d4410c80d840764,
+		0x8e38967b9891d626,
+		0xc5d56429846f1e48,
+		0xdbb65bb736e0080b,
+		0xe46bccea4210765b,
+		0xe8b8ccf039bd10ea)
 }
