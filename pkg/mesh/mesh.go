@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/lthibault/jitterbug"
+	"github.com/lthibault/log"
 	syncutil "github.com/lthibault/util/sync"
 )
 
@@ -54,6 +55,8 @@ type Bootstrapper interface {
 
 // Neighborhood is a local view of the overlay network.
 type Neighborhood struct {
+	log log.Logger
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -85,12 +88,24 @@ func New(h host.Host, opt ...Option) *Neighborhood {
 		join(n),
 		sample(n),
 	} {
-		h.SetStreamHandler(e.Proto, e.Handler)
+		h.SetStreamHandler(e.Proto, e.NewHandler(n.log))
 	}
 
 	go n.loop(h)
 
 	return n
+}
+
+// Loggable representation of the neighborhood
+func (n *Neighborhood) Loggable() map[string]interface{} {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	return map[string]interface{}{
+		"id":    n.h.ID(),
+		"k":     cap(n.ns),
+		"conns": len(n.ns),
+	}
 }
 
 // Neighbors are peers to which n is directly connected.
@@ -229,8 +244,7 @@ func (n *Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() e
 			return err
 		}
 
-		join(n).Handler(s) // closes s
-		return nil
+		return join(n).Handle(s) // closes s
 	}
 }
 
@@ -303,14 +317,27 @@ func leave(n *Neighborhood) func(network.Network, network.Conn) {
 }
 
 type endpoint struct {
-	Proto   protocol.ID
-	Handler network.StreamHandler
+	Proto  protocol.ID
+	Handle func(s network.Stream) error
+}
+
+func (e endpoint) NewHandler(log log.Logger) network.StreamHandler {
+	log = log.WithField("proto", e.Proto)
+
+	return func(s network.Stream) {
+		log = log.
+			WithField("stream", s.ID()).
+			WithField("peer", s.Conn().RemotePeer())
+
+		log.Debug("accepted")
+		log.WithError(e.Handle(s)).Debug("terminated")
+	}
 }
 
 func join(n *Neighborhood) endpoint {
 	return endpoint{
 		Proto: JoinProto,
-		Handler: func(s network.Stream) {
+		Handle: func(s network.Stream) error {
 			defer s.Close()
 
 			n.mu.Lock()
@@ -318,7 +345,7 @@ func join(n *Neighborhood) endpoint {
 
 			// duplicate connection?
 			if isNeighbor(n.ns, s.Conn().RemotePeer()) {
-				return
+				return nil
 			}
 
 			// neighborhood full?
@@ -329,6 +356,7 @@ func join(n *Neighborhood) endpoint {
 			// add to neighborhood
 			n.ns = append(n.ns, s.Conn().RemotePeer()) // push
 			n.callback(EventJoined, s.Conn().RemotePeer())
+			return nil
 		},
 	}
 }
@@ -336,13 +364,12 @@ func join(n *Neighborhood) endpoint {
 func sample(n *Neighborhood) endpoint {
 	return endpoint{
 		Proto: SampleProto,
-		Handler: func(s network.Stream) {
+		Handle: func(s network.Stream) error {
 			defer s.Close()
 
 			var depth uint8
 			if err := binary.Read(s, binary.BigEndian, &depth); err != nil {
-				// TODO:  logging
-				return
+				return err
 			}
 
 			ctx, cancel := context.WithCancel(n.ctx)
@@ -360,7 +387,7 @@ func sample(n *Neighborhood) endpoint {
 			case 0:
 				info, err := peer.AddrInfoFromP2pAddr(s.Conn().RemoteMultiaddr())
 				if err != nil {
-					return // TODO:  logging
+					return err
 				}
 
 				g.Go(n.connect(ctx, *info))
@@ -374,9 +401,7 @@ func sample(n *Neighborhood) endpoint {
 				g.Go(n.sample(ctx, ns[0], depth-1))
 			}
 
-			if err := g.Wait(); err != nil {
-				// TODO:  logging
-			}
+			return g.Wait()
 		},
 	}
 }

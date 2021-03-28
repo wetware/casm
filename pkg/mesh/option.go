@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/lthibault/log"
 )
 
 // Option type for Neighborhood.
@@ -19,6 +20,20 @@ func WithContext(ctx context.Context) Option {
 
 	return func(n *Neighborhood) {
 		n.ctx, n.cancel = context.WithCancel(ctx)
+	}
+}
+
+// WithLogger sets the logger for the neighborhood.
+//
+// If l == nil, a default logger is used that provides
+// human-readable output for log level INFO and above.
+func WithLogger(l log.Logger) Option {
+	if l == nil {
+		l = log.New()
+	}
+
+	return func(n *Neighborhood) {
+		n.log = l.With(n)
 	}
 }
 
