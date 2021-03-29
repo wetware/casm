@@ -72,7 +72,7 @@ type Neighborhood struct {
 func New(h host.Host, opt ...Option) *Neighborhood {
 	n := &Neighborhood{
 		h:         h,
-		graftable: make(cond),
+		graftable: make(cond, 1),
 	}
 
 	for _, option := range withDefaults(opt) {
@@ -114,6 +114,7 @@ func (n *Neighborhood) Neighbors() peer.IDSlice {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
+	// Functions such as 'graft' rely on slice capacity to detect saturation.
 	ns := make(peer.IDSlice, len(n.ns), cap(n.ns))
 	copy(ns, n.ns)
 
@@ -199,52 +200,91 @@ func (n *Neighborhood) callback(e Event, id peer.ID) {
 	}
 }
 
+// loop is responsible for maintaining the random overlay.
 func (n *Neighborhood) loop(h host.Host) {
+	/*
+	 * We use a randomized ticker to avoid network storms
+	 * in cases where a large number of peers are started
+	 * in close succession.  See note below.
+	 */
 	ticker := jitterbug.New(time.Hour, jitterbug.Uniform{
 		Source: r,
 		Min:    time.Minute * 10,
 	})
 	defer ticker.Stop()
 
+	/*
+	 * Churn is generally not uniformly random, meaning that
+	 * the overlay will tend to become less random over time.
+	 * To mitigate this, we periodically 'prune' neighborhood
+	 * connections by disconnecting from a random peer.  This
+	 * is followed by a 'graft' operation, in which we sample
+	 * the graph for new peers and connect to them.
+	 *
+	 * Additionally, neighbor disconnections signal that a new
+	 * graft operation should be started.
+	 *
+	 * Note that because join operations must always succeed,
+	 * joins on a full neighborhood will cause a random peer
+	 * to be pruned, which can result in churn storms.  In
+	 * order to mitigate this effect, we aim for k-1 neighbors
+	 * and leave one slot open to "absorb" any churn.
+	 */
+
 	for {
 		select {
 		case <-ticker.C:
-			_ = prune(n).Wait() // TODO:  log
+			prune(n)
 
 		case <-n.graftable:
-			_ = graft(n).Wait() // TODO:  log
+			if err := graft(n).Wait(); err != nil {
+				n.log.WithError(err).Debug("graft failed")
+			}
 
 		case <-n.ctx.Done():
 			return
 
 		}
 	}
-
 }
 
-func prune(n *Neighborhood) waiter {
+func prune(n *Neighborhood) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	if isSaturated(n.ns) {
 		popRandom(n)
+		n.graftable.Signal()
 	}
-
-	return n.graft()
 }
 
-func graft(n *Neighborhood) waiter {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+func graft(n *Neighborhood) *syncutil.Any {
+	var (
+		any syncutil.Any
+		ns  = n.Neighbors()
+	)
 
 	// full?
-	if isSaturated(n.ns) {
-		return nopWaiter{}
+	if len(ns) == 0 || isSaturated(ns) {
+		return &any
 	}
 
-	return n.graft()
+	r.Shuffle(cap(ns), func(i, j int) {
+		ns[i], ns[j] = ns[j], ns[i]
+	})
+
+	ctx, cancel := context.WithTimeout(n.ctx, time.Second*30)
+	defer cancel()
+
+	for i := 0; i < slots(n.ns); i++ {
+		any.Go(n.sample(ctx, n.ns[i], defaultDepth))
+	}
+
+	return &any
 }
 
+// popRandom removes a random peer from the neighborhood.
+// Callers must hold n.mu.
 func popRandom(n *Neighborhood) {
 	r.Shuffle(cap(n.ns), func(i, j int) {
 		n.ns[i], n.ns[j] = n.ns[j], n.ns[i]
@@ -267,22 +307,6 @@ func (n *Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() e
 
 		return join(n).Handle(s) // closes s
 	}
-}
-
-func (n *Neighborhood) graft() waiter {
-	r.Shuffle(cap(n.ns), func(i, j int) {
-		n.ns[i], n.ns[j] = n.ns[j], n.ns[i]
-	})
-
-	ctx, cancel := context.WithTimeout(n.ctx, time.Second*30)
-	defer cancel()
-
-	var any syncutil.Any
-	for i := 0; i < slots(n.ns); i++ {
-		any.Go(n.sample(ctx, n.ns[i], defaultDepth))
-	}
-
-	return &any
 }
 
 func (n *Neighborhood) sample(ctx context.Context, id peer.ID, depth uint8) func() error {
@@ -350,8 +374,12 @@ func (e endpoint) NewHandler(log log.Logger) network.StreamHandler {
 			WithField("stream", s.ID()).
 			WithField("peer", s.Conn().RemotePeer())
 
-		log.Debug("accepted")
-		log.WithError(e.Handle(s)).Debug("terminated")
+		log.Debug("stream accepted")
+		defer log.Debug("stream closed")
+
+		if err := e.Handle(s); err != nil {
+			log.WithError(err).Debug("stream handler failed")
+		}
 	}
 }
 
@@ -472,12 +500,6 @@ func (c cond) Signal() {
 	default:
 	}
 }
-
-type waiter interface{ Wait() error }
-
-type nopWaiter struct{}
-
-func (nopWaiter) Wait() error { return nil }
 
 // wait for a reader to close by blocking on a 'Read'
 // call and discarding any data/error.
