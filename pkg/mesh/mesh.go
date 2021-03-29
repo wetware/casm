@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"sync"
 	"time"
@@ -301,7 +300,7 @@ func (n *Neighborhood) sample(ctx context.Context, id peer.ID, depth uint8) func
 			s.SetWriteDeadline(time.Now().Add(time.Second * 30))
 		}
 
-		if err = binary.Write(s, binary.BigEndian, depth); err != nil {
+		if err = binary.Write(s, binary.BigEndian, depth-1); err != nil {
 			return err
 		}
 
@@ -316,7 +315,7 @@ func (n *Neighborhood) sample(ctx context.Context, id peer.ID, depth uint8) func
 			s.SetReadDeadline(time.Now().Add(time.Second * 30))
 		}
 
-		io.Copy(io.Discard, s) // block until remote side closes
+		wait(s) // block until remote side closes
 		return nil
 	}
 }
@@ -399,7 +398,7 @@ func sample(n *Neighborhood) endpoint {
 
 			go func() {
 				defer cancel()
-				io.Copy(ioutil.Discard, s) // block until closed
+				wait(s) // block until closed
 			}()
 
 			var g errgroup.Group
@@ -479,3 +478,10 @@ type waiter interface{ Wait() error }
 type nopWaiter struct{}
 
 func (nopWaiter) Wait() error { return nil }
+
+// wait for a reader to close by blocking on a 'Read'
+// call and discarding any data/error.
+func wait(r io.Reader) {
+	var buf [1]byte
+	r.Read(buf[:])
+}
