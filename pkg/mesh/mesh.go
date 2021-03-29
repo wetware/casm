@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -25,6 +26,10 @@ var (
 	// ErrClosed is returned from methods of Neighborhood when it
 	// has left the overlay network.
 	ErrClosed = errors.New("closed")
+
+	// // errNoPeers is a sentinel error used to signal that a reboot
+	// // has failed because there were no peers in the PeerStore.
+	// errNoPeers = errors.New("no peers")
 
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
@@ -47,20 +52,33 @@ const (
 // An Event represents a state transition in a neighborhood.
 type Event uint8
 
-// Bootstrapper can provide bootstrap peers.
-type Bootstrapper interface {
-	Bootstrap(ctx context.Context) (<-chan peer.AddrInfo, error)
+func (e Event) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"event": e.String(),
+	}
+}
+
+func (e Event) String() string {
+	switch e {
+	case EventJoined:
+		return "joined"
+	case EventLeft:
+		return "left"
+	}
+
+	panic(fmt.Sprintf("invalid event '%d'", e))
 }
 
 // Neighborhood is a local view of the overlay network.
 type Neighborhood struct {
+	ns  string
 	log log.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu sync.RWMutex
-	ns peer.IDSlice
+	mu    sync.RWMutex
+	slots peer.IDSlice
 
 	h  host.Host
 	cb func(Event, peer.ID)
@@ -101,9 +119,10 @@ func (n *Neighborhood) Loggable() map[string]interface{} {
 	defer n.mu.RUnlock()
 
 	return map[string]interface{}{
+		"type":  "casm.mesh.neighborhood",
 		"id":    n.h.ID(),
-		"k":     cap(n.ns),
-		"conns": len(n.ns),
+		"k":     cap(n.slots),
+		"conns": len(n.slots),
 	}
 }
 
@@ -115,18 +134,18 @@ func (n *Neighborhood) Neighbors() peer.IDSlice {
 	defer n.mu.RUnlock()
 
 	// Functions such as 'graft' rely on slice capacity to detect saturation.
-	ns := make(peer.IDSlice, len(n.ns), cap(n.ns))
-	copy(ns, n.ns)
+	ns := make(peer.IDSlice, len(n.slots), cap(n.slots))
+	copy(ns, n.slots)
 
 	return ns
 }
 
-// Join an overlay network, using the supplied bootstrapper.
-func (n *Neighborhood) Join(ctx context.Context, b Bootstrapper) error {
+// Join an overlay network designated by 'ns', using 'd' to discover bootstrap peers.
+func (n *Neighborhood) Join(ctx context.Context, d discovery.Discoverer, opt ...discovery.Option) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	peers, err := b.Bootstrap(ctx)
+	peers, err := d.FindPeers(ctx, n.ns, opt...)
 	if err != nil {
 		return err
 	}
@@ -171,10 +190,10 @@ func (n *Neighborhood) Close(ctx context.Context) error {
 		n.h.RemoveStreamHandler(proto)
 	}
 
-	for _, id := range n.ns {
+	for _, id := range n.slots {
 		n.callback(EventLeft, id)
 	}
-	n.ns = n.ns[:0]
+	n.slots = n.slots[:0]
 
 	return nil
 }
@@ -186,22 +205,29 @@ func (n *Neighborhood) callback(e Event, id peer.ID) {
 	case EventJoined:
 		n.h.ConnManager().Protect(id, protectTag)
 		n.cb(e, id)
+		n.log.With(e).WithField("peer", id).Trace("peer joined")
 
 	case EventLeft:
 		n.h.ConnManager().Unprotect(id, protectTag)
 		n.cb(e, id)
+		n.log.With(e).WithField("peer", id).Trace("peer left")
 
 	default:
-		panic(fmt.Sprintf("invalid event %v", e))
+		panic(fmt.Sprintf("invalid event '%d'", e))
 	}
 
-	if isGraftable(n.ns) {
+	switch {
+	case len(n.slots) == 0:
+		n.log.Warn("orphaned")
+	case isGraftable(n.slots):
 		n.graftable.Signal()
 	}
 }
 
 // loop is responsible for maintaining the random overlay.
 func (n *Neighborhood) loop(h host.Host) {
+	defer close(n.graftable)
+
 	/*
 	 * We use a randomized ticker to avoid network storms
 	 * in cases where a large number of peers are started
@@ -235,6 +261,7 @@ func (n *Neighborhood) loop(h host.Host) {
 		select {
 		case <-ticker.C:
 			prune(n)
+			n.graftable.Signal()
 
 		case <-n.graftable:
 			if err := graft(n).Wait(); err != nil {
@@ -252,9 +279,8 @@ func prune(n *Neighborhood) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if isSaturated(n.ns) {
+	if isSaturated(n.slots) {
 		popRandom(n)
-		n.graftable.Signal()
 	}
 }
 
@@ -276,8 +302,8 @@ func graft(n *Neighborhood) *syncutil.Any {
 	ctx, cancel := context.WithTimeout(n.ctx, time.Second*30)
 	defer cancel()
 
-	for i := 0; i < slots(n.ns); i++ {
-		any.Go(n.sample(ctx, n.ns[i], defaultDepth))
+	for i := 0; i < slots(n.slots); i++ {
+		any.Go(n.sample(ctx, n.slots[i], defaultDepth))
 	}
 
 	return &any
@@ -286,12 +312,12 @@ func graft(n *Neighborhood) *syncutil.Any {
 // popRandom removes a random peer from the neighborhood.
 // Callers must hold n.mu.
 func popRandom(n *Neighborhood) {
-	r.Shuffle(cap(n.ns), func(i, j int) {
-		n.ns[i], n.ns[j] = n.ns[j], n.ns[i]
+	r.Shuffle(cap(n.slots), func(i, j int) {
+		n.slots[i], n.slots[j] = n.slots[j], n.slots[i]
 	})
 
-	n.callback(EventLeft, n.ns[cap(n.ns)-1])
-	n.ns = n.ns[:cap(n.ns)-1] // pop
+	n.callback(EventLeft, n.slots[cap(n.slots)-1])
+	n.slots = n.slots[:cap(n.slots)-1] // pop
 }
 
 func (n *Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() error {
@@ -349,12 +375,12 @@ func leave(n *Neighborhood) func(network.Network, network.Conn) {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 
-		if rid := c.RemotePeer(); isNeighbor(n.ns, rid) {
-			for i, id := range n.ns {
+		if rid := c.RemotePeer(); isNeighbor(n.slots, rid) {
+			for i, id := range n.slots {
 				if id == rid {
 					n.callback(EventLeft, rid)
-					n.ns[i] = n.ns[len(n.ns)-1] // move last element to i
-					n.ns = n.ns[:len(n.ns)-1]   // pop last element
+					n.slots[i] = n.slots[len(n.slots)-1] // move last element to i
+					n.slots = n.slots[:len(n.slots)-1]   // pop last element
 				}
 			}
 		}
@@ -393,17 +419,17 @@ func join(n *Neighborhood) endpoint {
 			defer n.mu.Unlock()
 
 			// duplicate connection?
-			if isNeighbor(n.ns, s.Conn().RemotePeer()) {
+			if isNeighbor(n.slots, s.Conn().RemotePeer()) {
 				return nil
 			}
 
 			// neighborhood full?
-			if isFull(n.ns) {
+			if isFull(n.slots) {
 				popRandom(n)
 			}
 
 			// add to neighborhood
-			n.ns = append(n.ns, s.Conn().RemotePeer()) // push
+			n.slots = append(n.slots, s.Conn().RemotePeer()) // push
 			n.callback(EventJoined, s.Conn().RemotePeer())
 			return nil
 		},
@@ -455,8 +481,8 @@ func sample(n *Neighborhood) endpoint {
 	}
 }
 
-func isNeighbor(ns peer.IDSlice, id peer.ID) bool {
-	for _, n := range ns {
+func isNeighbor(ps peer.IDSlice, id peer.ID) bool {
+	for _, n := range ps {
 		if n == id {
 			return true
 		}
@@ -465,31 +491,31 @@ func isNeighbor(ns peer.IDSlice, id peer.ID) bool {
 	return false
 }
 
-func isFull(ns peer.IDSlice) bool {
-	return len(ns) == cap(ns)
+func isFull(ps peer.IDSlice) bool {
+	return len(ps) == cap(ps)
 }
 
-func isGraftable(ns peer.IDSlice) bool {
-	if len(ns) > 0 && !isSaturated(ns) {
+func isGraftable(ps peer.IDSlice) bool {
+	if len(ps) > 0 && !isSaturated(ps) {
 		return true
 	}
 
 	return false
 }
 
-func isSaturated(ns peer.IDSlice) bool {
-	return len(ns) >= saturationPoint(ns)
+func isSaturated(ps peer.IDSlice) bool {
+	return len(ps) >= saturationPoint(ps)
 }
 
 // returns the saturation point (i.e. k-1 connections).
 // the empty slot is designed to prevent churn.
-func saturationPoint(ns peer.IDSlice) int {
-	return cap(ns) - len(ns) - 1
+func saturationPoint(ps peer.IDSlice) int {
+	return cap(ps) - len(ps) - 1
 }
 
 // slots available
-func slots(ns peer.IDSlice) int {
-	return saturationPoint(ns) - len(ns)
+func slots(ps peer.IDSlice) int {
+	return saturationPoint(ps) - len(ps)
 }
 
 type cond chan struct{}

@@ -10,6 +10,19 @@ import (
 // Option type for Neighborhood.
 type Option func(*Neighborhood)
 
+// WithNamespace sets the namespace of the neighborhood.
+//
+// If ns == "", defaults to "casm".
+func WithNamespace(ns string) Option {
+	if ns == "" {
+		ns = "casm"
+	}
+
+	return func(n *Neighborhood) {
+		n.ns = ns
+	}
+}
+
 // WithContext sets the neighborhood's root context.
 //
 // If ctx == nil, context.Background() is used.
@@ -61,12 +74,13 @@ func WithCardinality(k uint) Option {
 	}
 
 	return func(n *Neighborhood) {
-		n.ns = make(peer.IDSlice, 0, k)
+		n.slots = make(peer.IDSlice, 0, k)
 	}
 }
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
+		WithNamespace(""),
 		WithCallback(nil),
 		WithCardinality(5),
 		WithContext(context.Background()),
