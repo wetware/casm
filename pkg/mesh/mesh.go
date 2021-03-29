@@ -150,11 +150,33 @@ func (n *Neighborhood) Join(ctx context.Context, b Bootstrapper) error {
 	return brk.Wait()
 }
 
-// Leave the overlay network gracefully and stop all goroutines.
-func (n *Neighborhood) Leave(ctx context.Context) error {
-	n.cancel()
+// Close gracefully exits the overlay network without closing
+// the underlying host.  It returns nil unless it was previously
+// clsoed.
+func (n *Neighborhood) Close(ctx context.Context) error {
+	select {
+	case <-n.ctx.Done():
+		return ErrClosed
+	default:
+		n.cancel()
+	}
 
-	return errors.New("Leave NOT IMPLEMENTED")
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	for _, proto := range []protocol.ID{
+		JoinProto,
+		SampleProto,
+	} {
+		n.h.RemoveStreamHandler(proto)
+	}
+
+	for _, id := range n.ns {
+		n.callback(EventLeft, id)
+	}
+	n.ns = n.ns[:0]
+
+	return nil
 }
 
 // callback handles neighborhood events.
