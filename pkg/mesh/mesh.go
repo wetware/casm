@@ -15,6 +15,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
+	swarm "github.com/libp2p/go-libp2p-swarm"
+
 	"golang.org/x/sync/errgroup"
 
 	"github.com/lthibault/jitterbug"
@@ -27,9 +29,9 @@ var (
 	// has left the overlay network.
 	ErrClosed = errors.New("closed")
 
-	// // errNoPeers is a sentinel error used to signal that a reboot
-	// // has failed because there were no peers in the PeerStore.
-	// errNoPeers = errors.New("no peers")
+	// ErrNoPeers is a sentinel error used to signal that a reboot
+	// has failed because there were no peers in the PeerStore.
+	ErrNoPeers = errors.New("no peers")
 
 	r = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
@@ -323,6 +325,10 @@ func popRandom(n *Neighborhood) {
 func (n *Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() error {
 	return func() error {
 		if err := n.h.Connect(ctx, info); err != nil {
+			if errors.Is(err, swarm.ErrDialToSelf) {
+				return ErrNoPeers
+			}
+
 			return err
 		}
 
@@ -330,8 +336,9 @@ func (n *Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() e
 		if s != nil {
 			return err
 		}
+		defer s.Close() // belt-and-suspenders; 's' is closed by 'Handle' below.
 
-		return join(n).Handle(s) // closes s
+		return join(n).Handle(s)
 	}
 }
 
