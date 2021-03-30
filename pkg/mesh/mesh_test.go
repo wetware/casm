@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
+	"github.com/jbenet/goprocess"
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/test"
@@ -52,6 +53,10 @@ func TestJoin(t *testing.T) {
 	network.EXPECT().
 		Notify(gomock.Any()).
 		Times(1)
+	network.EXPECT().
+		Process().
+		Return(goprocess.Background()).
+		AnyTimes()
 
 	host := mock_libp2p.NewMockHost(ctrl)
 	host.EXPECT().
@@ -61,7 +66,7 @@ func TestJoin(t *testing.T) {
 	host.EXPECT().
 		Network().
 		Return(network).
-		Times(1)
+		AnyTimes()
 	host.EXPECT().
 		SetStreamHandler(gomock.Any(), gomock.Any()).
 		Times(2)

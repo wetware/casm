@@ -17,6 +17,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/protocol"
 	swarm "github.com/libp2p/go-libp2p-swarm"
 
+	"github.com/jbenet/goprocess"
+	goprocessctx "github.com/jbenet/goprocess/context"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/lthibault/jitterbug"
@@ -73,11 +75,9 @@ func (e Event) String() string {
 
 // Neighborhood is a local view of the overlay network.
 type Neighborhood struct {
-	ns  string
-	log log.Logger
-
-	ctx    context.Context
-	cancel context.CancelFunc
+	ns   string
+	proc goprocess.Process
+	log  log.Logger
 
 	mu    sync.RWMutex
 	slots peer.IDSlice
@@ -110,7 +110,8 @@ func New(h host.Host, opt ...Option) *Neighborhood {
 		h.SetStreamHandler(e.Proto, e.NewHandler(n.log))
 	}
 
-	go n.loop(h)
+	n.proc = goprocess.GoChild(h.Network().Process(), n.loop)
+	n.proc.SetTeardown(n.teardown)
 
 	return n
 }
@@ -174,14 +175,14 @@ func (n *Neighborhood) Join(ctx context.Context, d discovery.Discoverer, opt ...
 // Close gracefully exits the overlay network without closing
 // the underlying host.  It returns nil unless it was previously
 // clsoed.
-func (n *Neighborhood) Close() error {
-	select {
-	case <-n.ctx.Done():
-		return ErrClosed
-	default:
-		n.cancel()
-	}
+func (n *Neighborhood) Close() error { return n.proc.Close() }
 
+func (n *Neighborhood) ctx() context.Context {
+	return goprocessctx.OnClosingContext(n.proc)
+}
+
+func (n *Neighborhood) teardown() error {
+	n.h.Network().Process()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -227,7 +228,7 @@ func (n *Neighborhood) callback(e Event, id peer.ID) {
 }
 
 // loop is responsible for maintaining the random overlay.
-func (n *Neighborhood) loop(h host.Host) {
+func (n *Neighborhood) loop(p goprocess.Process) {
 	defer close(n.graftable)
 
 	/*
@@ -270,7 +271,7 @@ func (n *Neighborhood) loop(h host.Host) {
 				n.log.WithError(err).Debug("graft failed")
 			}
 
-		case <-n.ctx.Done():
+		case <-p.Closing():
 			return
 
 		}
@@ -301,7 +302,7 @@ func graft(n *Neighborhood) *syncutil.Any {
 		ns[i], ns[j] = ns[j], ns[i]
 	})
 
-	ctx, cancel := context.WithTimeout(n.ctx, time.Second*30)
+	ctx, cancel := context.WithTimeout(n.ctx(), time.Second*30)
 	defer cancel()
 
 	for i := 0; i < slots(n.slots); i++ {
@@ -452,7 +453,7 @@ func sample(n *Neighborhood) endpoint {
 				return err
 			}
 
-			ctx, cancel := context.WithCancel(n.ctx)
+			ctx, cancel := context.WithCancel(n.ctx())
 			defer cancel()
 
 			go func() {

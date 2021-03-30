@@ -1,8 +1,6 @@
 package mesh
 
 import (
-	"context"
-
 	"github.com/libp2p/go-libp2p-core/peer"
 
 	"github.com/lthibault/log"
@@ -21,19 +19,6 @@ func WithNamespace(ns string) Option {
 
 	return func(n *Neighborhood) {
 		n.ns = ns
-	}
-}
-
-// WithContext sets the neighborhood's root context.
-//
-// If ctx == nil, context.Background() is used.
-func WithContext(ctx context.Context) Option {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	return func(n *Neighborhood) {
-		n.ctx, n.cancel = context.WithCancel(ctx)
 	}
 }
 
@@ -85,6 +70,5 @@ func withDefaults(opt []Option) []Option {
 		WithNamespace(""),
 		WithCallback(nil),
 		WithCardinality(5),
-		WithContext(context.Background()),
 	}, opt...)
 }
