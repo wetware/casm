@@ -325,20 +325,18 @@ func popRandom(n *Neighborhood) {
 func (n *Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() error {
 	return func() error {
 		if err := n.h.Connect(ctx, info); err != nil {
-			if errors.Is(err, swarm.ErrDialToSelf) {
-				return ErrNoPeers
-			}
-
 			return err
 		}
 
 		s, err := n.h.NewStream(ctx, info.ID, JoinProto)
-		if s != nil {
+		if err != nil {
+			if errors.Is(err, swarm.ErrDialToSelf) {
+				return ErrNoPeers
+			}
 			return err
 		}
-		defer s.Close() // belt-and-suspenders; 's' is closed by 'Handle' below.
 
-		return join(n).Handle(s)
+		return join(n).Handle(s) // closes s
 	}
 }
 

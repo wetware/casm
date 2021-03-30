@@ -70,7 +70,11 @@ func TestJoin(t *testing.T) {
 		Times(2)
 	host.EXPECT().
 		Connect(gomock.Any(), addrs[0]).
-		Return(swarm.ErrDialToSelf).
+		Return(nil).
+		Times(1)
+	host.EXPECT().
+		NewStream(gomock.Any(), addrs[0].ID, mesh.JoinProto).
+		Return(nil, swarm.ErrDialToSelf).
 		Times(1)
 
 	n := mesh.New(host, mesh.WithNamespace("casm.test.mesh"))
