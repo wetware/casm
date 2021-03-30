@@ -80,6 +80,7 @@ func WithCardinality(k uint) Option {
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
+		WithLogger(nil),
 		WithNamespace(""),
 		WithCallback(nil),
 		WithCardinality(5),
