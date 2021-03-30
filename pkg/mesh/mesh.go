@@ -172,7 +172,7 @@ func (n *Neighborhood) Join(ctx context.Context, d discovery.Discoverer, opt ...
 // Close gracefully exits the overlay network without closing
 // the underlying host.  It returns nil unless it was previously
 // clsoed.
-func (n *Neighborhood) Close(ctx context.Context) error {
+func (n *Neighborhood) Close() error {
 	select {
 	case <-n.ctx.Done():
 		return ErrClosed
