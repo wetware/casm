@@ -45,7 +45,9 @@ const (
 	JoinProto               = BaseProto + "/join"
 	SampleProto             = BaseProto + "/sample"
 
-	protectTag   = "mesh/neighborhood"
+	protectTag = "mesh/neighborhood"
+	streamTag  = "mesh/stream-active"
+
 	defaultDepth = 7
 )
 
@@ -521,9 +523,30 @@ var _ network.Notifiee = (*notifiee)(nil)
 
 func (*notifiee) Listen(network.Network, multiaddr.Multiaddr)      {}
 func (*notifiee) ListenClose(network.Network, multiaddr.Multiaddr) {}
-func (*notifiee) OpenedStream(network.Network, network.Stream)     {}
-func (*notifiee) ClosedStream(network.Network, network.Stream)     {}
-func (*notifiee) Connected(network.Network, network.Conn)          {}
+
+func (n *notifiee) OpenedStream(_ network.Network, s network.Stream) {
+	if s.Stat().Transient {
+		return
+	}
+
+	(*Neighborhood)(n).h.ConnManager().UpsertTag(
+		s.Conn().RemotePeer(),
+		streamTag,
+		func(i int) int { return i + 1 }) // incr
+}
+
+func (n *notifiee) ClosedStream(_ network.Network, s network.Stream) {
+	if s.Stat().Transient {
+		return
+	}
+
+	(*Neighborhood)(n).h.ConnManager().UpsertTag(
+		s.Conn().RemotePeer(),
+		streamTag,
+		func(i int) int { return i - 1 }) // decr
+}
+
+func (*notifiee) Connected(network.Network, network.Conn) {}
 
 func (n *notifiee) Disconnected(_ network.Network, c network.Conn) {
 	n.mu.Lock()

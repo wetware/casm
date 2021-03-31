@@ -11,7 +11,7 @@ require (
 	github.com/libp2p/go-libp2p-yamux v0.5.1 // indirect
 	github.com/libp2p/go-tcp-transport v0.2.1 // indirect
 	github.com/lthibault/jitterbug v2.0.0+incompatible
-	github.com/lthibault/log v1.0.2
+	github.com/lthibault/log v1.1.0
 	github.com/lthibault/util v0.0.3
 	github.com/multiformats/go-multiaddr v0.3.1
 	github.com/stretchr/testify v1.7.0
