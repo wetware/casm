@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/jbenet/goprocess"
+	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/test"
@@ -49,9 +50,14 @@ func TestJoin(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	bus := eventbus.NewBus()
+
 	network := mock_libp2p.NewMockNetwork(ctrl)
 	network.EXPECT().
 		Notify(gomock.Any()).
+		Times(1)
+	network.EXPECT().
+		StopNotify(gomock.Any()).
 		Times(1)
 	network.EXPECT().
 		Process().
@@ -62,6 +68,10 @@ func TestJoin(t *testing.T) {
 	host.EXPECT().
 		ID().
 		Return(addrs[0].ID).
+		AnyTimes()
+	host.EXPECT().
+		EventBus().
+		Return(bus).
 		AnyTimes()
 	host.EXPECT().
 		Network().
@@ -82,9 +92,10 @@ func TestJoin(t *testing.T) {
 		Return(nil, swarm.ErrDialToSelf).
 		Times(1)
 
-	n := mesh.New(host, mesh.WithNamespace("casm.test.mesh"))
+	n, err := mesh.New(host, mesh.WithNamespace("casm.test.mesh"))
+	require.NoError(t, err)
 	defer func() { require.NoError(t, n.Close()) }()
 
-	err := n.Join(ctx, addrs[:1], discovery.Limit(1))
+	err = n.Join(ctx, addrs[:1], discovery.Limit(1))
 	require.ErrorIs(t, err, mesh.ErrNoPeers)
 }

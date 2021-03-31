@@ -36,20 +36,6 @@ func WithLogger(l log.Logger) Option {
 	}
 }
 
-// WithCallback sets the callback that is invoked when a
-// neighbor (dis)connects.
-//
-// If f == nil, the callback is a nop.
-func WithCallback(f func(Event, peer.ID)) Option {
-	if f == nil {
-		f = func(Event, peer.ID) {}
-	}
-
-	return func(n *Neighborhood) {
-		n.cb = f
-	}
-}
-
 // WithCardinality sets the maximum number of peers that
 // can be in the neighborhood at any point in time.
 //
@@ -68,7 +54,6 @@ func withDefaults(opt []Option) []Option {
 	return append([]Option{
 		WithLogger(nil),
 		WithNamespace(""),
-		WithCallback(nil),
 		WithCardinality(5),
 	}, opt...)
 }

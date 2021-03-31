@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	swarm "github.com/libp2p/go-libp2p-swarm"
+	"github.com/multiformats/go-multiaddr"
 
 	"github.com/jbenet/goprocess"
 	goprocessctx "github.com/jbenet/goprocess/context"
@@ -43,65 +45,43 @@ const (
 	JoinProto               = BaseProto + "/join"
 	SampleProto             = BaseProto + "/sample"
 
-	// EventJoined indicates a peer has joined the neighborhood.
-	EventJoined Event = iota
-
-	// EventLeft indicates a peer has left the neighborhood.
-	EventLeft
-
 	protectTag   = "mesh/neighborhood"
 	defaultDepth = 7
 )
 
-// An Event represents a state transition in a neighborhood.
-type Event uint8
-
-func (e Event) Loggable() map[string]interface{} {
-	return map[string]interface{}{
-		"event": e.String(),
-	}
-}
-
-func (e Event) String() string {
-	switch e {
-	case EventJoined:
-		return "joined"
-	case EventLeft:
-		return "left"
-	}
-
-	panic(fmt.Sprintf("invalid event '%d'", e))
-}
-
 // Neighborhood is a local view of the overlay network.
 type Neighborhood struct {
-	ns   string
-	proc goprocess.Process
-	log  log.Logger
+	ns  string
+	log log.Logger
 
 	mu    sync.RWMutex
 	slots peer.IDSlice
 
-	h  host.Host
-	cb func(Event, peer.ID)
-
-	graftable cond
+	h     host.Host
+	proc  goprocess.Process
+	event event.Emitter
 }
 
 // New neighborhood.
-func New(h host.Host, opt ...Option) *Neighborhood {
-	n := &Neighborhood{
-		h:         h,
-		graftable: make(cond, 1),
-	}
+func New(h host.Host, opt ...Option) (*Neighborhood, error) {
+	var (
+		err     error
+		n       = &Neighborhood{h: h}
+		process goprocess.ProcessFunc
+	)
 
 	for _, option := range withDefaults(opt) {
 		option(n)
 	}
 
-	h.Network().Notify(&network.NotifyBundle{
-		DisconnectedF: leave(n),
-	})
+	if process, err = n.loop(); err != nil {
+		return nil, err
+	}
+
+	n.proc = goprocess.GoChild(h.Network().Process(), process)
+	defer n.proc.SetTeardown(n.teardown)
+
+	h.Network().Notify((*notifiee)(n))
 
 	for _, e := range []endpoint{
 		join(n),
@@ -110,10 +90,7 @@ func New(h host.Host, opt ...Option) *Neighborhood {
 		h.SetStreamHandler(e.Proto, e.NewHandler(n.log))
 	}
 
-	n.proc = goprocess.GoChild(h.Network().Process(), n.loop)
-	n.proc.SetTeardown(n.teardown)
-
-	return n
+	return n, nil
 }
 
 // Loggable representation of the neighborhood
@@ -182,9 +159,9 @@ func (n *Neighborhood) ctx() context.Context {
 }
 
 func (n *Neighborhood) teardown() error {
-	n.h.Network().Process()
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	defer func() { n.slots = n.slots[:0] }()
 
 	for _, proto := range []protocol.ID{
 		JoinProto,
@@ -193,89 +170,106 @@ func (n *Neighborhood) teardown() error {
 		n.h.RemoveStreamHandler(proto)
 	}
 
-	for _, id := range n.slots {
-		n.callback(EventLeft, id)
-	}
-	n.slots = n.slots[:0]
+	n.h.Network().StopNotify((*notifiee)(n))
 
-	return nil
+	for _, id := range n.slots {
+		_ = n.callback(EvtNeighborhoodChanged{
+			Peer:  id,
+			Event: EventLeft,
+			State: StateClosed,
+		})
+	}
+
+	return n.event.Close()
 }
 
 // callback handles neighborhood events.
 // Callers must hold 'mu'.
-func (n *Neighborhood) callback(e Event, id peer.ID) {
-	switch e {
+func (n *Neighborhood) callback(e EvtNeighborhoodChanged) error {
+	defer n.log.With(e).Trace(e)
+
+	switch e.Event {
 	case EventJoined:
-		n.h.ConnManager().Protect(id, protectTag)
-		n.cb(e, id)
-		n.log.With(e).WithField("peer", id).Trace("peer joined")
+		n.h.ConnManager().Protect(e.Peer, protectTag)
 
 	case EventLeft:
-		n.h.ConnManager().Unprotect(id, protectTag)
-		n.cb(e, id)
-		n.log.With(e).WithField("peer", id).Trace("peer left")
+		n.h.ConnManager().Unprotect(e.Peer, protectTag)
 
 	default:
-		panic(fmt.Sprintf("invalid event '%d'", e))
+		panic(fmt.Sprintf("invalid event '%d'", e.Event))
 	}
 
-	switch {
-	case len(n.slots) == 0:
-		n.log.Warn("orphaned")
-	case isGraftable(n.slots):
-		n.graftable.Signal()
-	}
+	return n.event.Emit(e)
 }
 
 // loop is responsible for maintaining the random overlay.
-func (n *Neighborhood) loop(p goprocess.Process) {
-	defer close(n.graftable)
+func (n *Neighborhood) loop() (goprocess.ProcessFunc, error) {
+	var (
+		err error
+		bus = n.h.EventBus()
+		sub event.Subscription
+	)
 
-	/*
-	 * We use a randomized ticker to avoid network storms
-	 * in cases where a large number of peers are started
-	 * in close succession.  See note below.
-	 */
-	ticker := jitterbug.New(time.Hour, jitterbug.Uniform{
-		Source: r,
-		Min:    time.Minute * 10,
-	})
-	defer ticker.Stop()
-
-	/*
-	 * Churn is generally not uniformly random, meaning that
-	 * the overlay will tend to become less random over time.
-	 * To mitigate this, we periodically 'prune' neighborhood
-	 * connections by disconnecting from a random peer.  This
-	 * is followed by a 'graft' operation, in which we sample
-	 * the graph for new peers and connect to them.
-	 *
-	 * Additionally, neighbor disconnections signal that a new
-	 * graft operation should be started.
-	 *
-	 * Note that because join operations must always succeed,
-	 * joins on a full neighborhood will cause a random peer
-	 * to be pruned, which can result in churn storms.  In
-	 * order to mitigate this effect, we aim for k-1 neighbors
-	 * and leave one slot open to "absorb" any churn.
-	 */
-
-	for {
-		select {
-		case <-ticker.C:
-			prune(n)
-			n.graftable.Signal()
-
-		case <-n.graftable:
-			if err := graft(n).Wait(); err != nil {
-				n.log.WithError(err).Debug("graft failed")
-			}
-
-		case <-p.Closing():
-			return
-
-		}
+	if n.event, err = bus.Emitter(new(EvtNeighborhoodChanged)); err != nil {
+		return nil, err
 	}
+
+	if sub, err = bus.Subscribe(new(EvtNeighborhoodChanged)); err != nil {
+		return nil, err
+	}
+
+	return func(p goprocess.Process) {
+		defer sub.Close()
+
+		/*
+		 * We use a randomized ticker to avoid network storms
+		 * in cases where a large number of peers are started
+		 * in close succession.  See note below.
+		 */
+		ticker := jitterbug.New(time.Hour, jitterbug.Uniform{
+			Source: r,
+			Min:    time.Minute * 10,
+		})
+		defer ticker.Stop()
+
+		/*
+		 * Churn is generally not uniformly random, meaning that
+		 * the overlay will tend to become less random over time.
+		 * To mitigate this, we periodically 'prune' neighborhood
+		 * connections by disconnecting from a random peer.  This
+		 * is followed by a 'graft' operation, in which we sample
+		 * the graph for new peers and connect to them.
+		 *
+		 * Additionally, neighbor disconnections signal that a new
+		 * graft operation should be started.
+		 *
+		 * Note that because join operations must always succeed,
+		 * joins on a full neighborhood will cause a random peer
+		 * to be pruned, which can result in churn storms.  In
+		 * order to mitigate this effect, we aim for k-1 neighbors
+		 * and leave one slot open to "absorb" any churn.
+		 */
+		for {
+			select {
+			case <-ticker.C:
+				prune(n)
+
+			case <-p.Closing():
+				return
+
+			case v := <-sub.Out():
+				switch e := v.(EvtNeighborhoodChanged); e.State {
+				case StateEmpty:
+					n.log.With(e).Warn("orphaned")
+
+				case StatePartial:
+					if err := graft(n).Wait(); err != nil {
+						n.log.WithError(err).Debug("graft failed")
+					}
+				}
+			}
+		}
+	}, nil
 }
 
 func prune(n *Neighborhood) {
@@ -293,20 +287,17 @@ func graft(n *Neighborhood) *syncutil.Any {
 		ns  = n.Neighbors()
 	)
 
-	// full?
-	if len(ns) == 0 || isSaturated(ns) {
-		return &any
-	}
+	if isGraftable(n.slots) {
+		r.Shuffle(cap(ns), func(i, j int) {
+			ns[i], ns[j] = ns[j], ns[i]
+		})
 
-	r.Shuffle(cap(ns), func(i, j int) {
-		ns[i], ns[j] = ns[j], ns[i]
-	})
+		ctx, cancel := context.WithTimeout(n.ctx(), time.Second*30)
+		defer cancel()
 
-	ctx, cancel := context.WithTimeout(n.ctx(), time.Second*30)
-	defer cancel()
-
-	for i := 0; i < slots(n.slots); i++ {
-		any.Go(n.sample(ctx, n.slots[i], defaultDepth))
+		for i := 0; i < slots(n.slots); i++ {
+			any.Go(n.sample(ctx, n.slots[i], defaultDepth))
+		}
 	}
 
 	return &any
@@ -319,7 +310,12 @@ func popRandom(n *Neighborhood) {
 		n.slots[i], n.slots[j] = n.slots[j], n.slots[i]
 	})
 
-	n.callback(EventLeft, n.slots[cap(n.slots)-1])
+	n.callback(EvtNeighborhoodChanged{
+		Peer:  n.slots[cap(n.slots)-1],
+		Event: EventLeft,
+		State: state(n.slots[:cap(n.slots)-1]),
+	})
+
 	n.slots = n.slots[:cap(n.slots)-1] // pop
 }
 
@@ -376,23 +372,6 @@ func (n *Neighborhood) sample(ctx context.Context, id peer.ID, depth uint8) func
 	}
 }
 
-func leave(n *Neighborhood) func(network.Network, network.Conn) {
-	return func(_ network.Network, c network.Conn) {
-		n.mu.Lock()
-		defer n.mu.Unlock()
-
-		if rid := c.RemotePeer(); isNeighbor(n.slots, rid) {
-			for i, id := range n.slots {
-				if id == rid {
-					n.callback(EventLeft, rid)
-					n.slots[i] = n.slots[len(n.slots)-1] // move last element to i
-					n.slots = n.slots[:len(n.slots)-1]   // pop last element
-				}
-			}
-		}
-	}
-}
-
 type endpoint struct {
 	Proto  protocol.ID
 	Handle func(s network.Stream) error
@@ -436,7 +415,12 @@ func join(n *Neighborhood) endpoint {
 
 			// add to neighborhood
 			n.slots = append(n.slots, s.Conn().RemotePeer()) // push
-			n.callback(EventJoined, s.Conn().RemotePeer())
+			n.callback(EvtNeighborhoodChanged{
+				Peer:  s.Conn().RemotePeer(),
+				Event: EventJoined,
+				State: state(n.slots),
+			})
+
 			return nil
 		},
 	}
@@ -524,18 +508,39 @@ func slots(ps peer.IDSlice) int {
 	return saturationPoint(ps) - len(ps)
 }
 
-type cond chan struct{}
-
-func (c cond) Signal() {
-	select {
-	case c <- struct{}{}:
-	default:
-	}
-}
-
 // wait for a reader to close by blocking on a 'Read'
 // call and discarding any data/error.
 func wait(r io.Reader) {
 	var buf [1]byte
 	r.Read(buf[:])
+}
+
+type notifiee Neighborhood
+
+var _ network.Notifiee = (*notifiee)(nil)
+
+func (*notifiee) Listen(network.Network, multiaddr.Multiaddr)      {}
+func (*notifiee) ListenClose(network.Network, multiaddr.Multiaddr) {}
+func (*notifiee) OpenedStream(network.Network, network.Stream)     {}
+func (*notifiee) ClosedStream(network.Network, network.Stream)     {}
+func (*notifiee) Connected(network.Network, network.Conn)          {}
+
+func (n *notifiee) Disconnected(_ network.Network, c network.Conn) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if rid := c.RemotePeer(); isNeighbor(n.slots, rid) {
+		for i, id := range n.slots {
+			if id == rid {
+				n.slots[i] = n.slots[len(n.slots)-1] // move last element to i
+				n.slots = n.slots[:len(n.slots)-1]   // pop last element
+
+				(*Neighborhood)(n).callback(EvtNeighborhoodChanged{
+					Peer:  rid,
+					Event: EventLeft,
+					State: state(n.slots),
+				})
+			}
+		}
+	}
 }
