@@ -525,9 +525,9 @@ func (*notifiee) Listen(network.Network, multiaddr.Multiaddr)      {}
 func (*notifiee) ListenClose(network.Network, multiaddr.Multiaddr) {}
 
 func (n *notifiee) OpenedStream(_ network.Network, s network.Stream) {
-	if s.Stat().Transient {
-		return
-	}
+	// if s.Stat().Transient {
+	// 	return
+	// }
 
 	(*Neighborhood)(n).h.ConnManager().UpsertTag(
 		s.Conn().RemotePeer(),
@@ -536,9 +536,9 @@ func (n *notifiee) OpenedStream(_ network.Network, s network.Stream) {
 }
 
 func (n *notifiee) ClosedStream(_ network.Network, s network.Stream) {
-	if s.Stat().Transient {
-		return
-	}
+	// if s.Stat().Transient {
+	// 	return
+	// }
 
 	(*Neighborhood)(n).h.ConnManager().UpsertTag(
 		s.Conn().RemotePeer(),
