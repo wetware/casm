@@ -148,7 +148,13 @@ func (n *Neighborhood) Join(ctx context.Context, d discovery.Discoverer, opt ...
 		}
 	}()
 
-	return brk.Wait()
+	// ErrDialToSelf occurs when 'n' is the only active neighborhood in
+	// the cluster.  Catch it and return a more informative error.
+	if err = brk.Wait(); errors.Is(err, swarm.ErrDialToSelf) {
+		return ErrNoPeers
+	}
+
+	return err
 }
 
 // Close gracefully exits the overlay network without closing
@@ -329,9 +335,6 @@ func (n *Neighborhood) connect(ctx context.Context, info peer.AddrInfo) func() e
 
 		s, err := n.h.NewStream(ctx, info.ID, JoinProto)
 		if err != nil {
-			if errors.Is(err, swarm.ErrDialToSelf) {
-				return ErrNoPeers
-			}
 			return err
 		}
 

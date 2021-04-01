@@ -44,58 +44,67 @@ func init() {
 func TestJoin(t *testing.T) {
 	t.Parallel()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	t.Run("DialToSelf", func(t *testing.T) {
+		t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
 
-	bus := eventbus.NewBus()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	network := mock_libp2p.NewMockNetwork(ctrl)
-	network.EXPECT().
-		Notify(gomock.Any()).
-		Times(1)
-	network.EXPECT().
-		StopNotify(gomock.Any()).
-		Times(1)
-	network.EXPECT().
-		Process().
-		Return(goprocess.Background()).
-		AnyTimes()
+		bus := eventbus.NewBus()
 
-	host := mock_libp2p.NewMockHost(ctrl)
-	host.EXPECT().
-		ID().
-		Return(addrs[0].ID).
-		AnyTimes()
-	host.EXPECT().
-		EventBus().
-		Return(bus).
-		AnyTimes()
-	host.EXPECT().
-		Network().
-		Return(network).
-		AnyTimes()
-	host.EXPECT().
-		SetStreamHandler(gomock.Any(), gomock.Any()).
-		Times(2)
-	host.EXPECT().
-		RemoveStreamHandler(gomock.Any()).
-		Times(2)
-	host.EXPECT().
-		Connect(gomock.Any(), addrs[0]).
-		Return(nil).
-		Times(1)
-	host.EXPECT().
-		NewStream(gomock.Any(), addrs[0].ID, mesh.JoinProto).
-		Return(nil, swarm.ErrDialToSelf).
-		Times(1)
+		network := mock_libp2p.NewMockNetwork(ctrl)
+		network.EXPECT().
+			Notify(gomock.Any()).
+			Times(1)
+		network.EXPECT().
+			StopNotify(gomock.Any()).
+			Times(1)
+		network.EXPECT().
+			Process().
+			Return(goprocess.Background()).
+			AnyTimes()
 
-	n, err := mesh.New(host, mesh.WithNamespace("casm.test.mesh"))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, n.Close()) }()
+		host := mock_libp2p.NewMockHost(ctrl)
+		host.EXPECT().
+			ID().
+			Return(addrs[0].ID).
+			AnyTimes()
+		host.EXPECT().
+			EventBus().
+			Return(bus).
+			AnyTimes()
+		host.EXPECT().
+			Network().
+			Return(network).
+			AnyTimes()
+		host.EXPECT().
+			SetStreamHandler(gomock.Any(), gomock.Any()).
+			Times(2)
+		host.EXPECT().
+			RemoveStreamHandler(gomock.Any()).
+			Times(2)
+		host.EXPECT().
+			Connect(gomock.Any(), addrs[0]).
+			Return(nil).
+			Times(1)
+		host.EXPECT().
+			NewStream(gomock.Any(), addrs[0].ID, mesh.JoinProto).
+			Return(nil, swarm.ErrDialToSelf).
+			Times(1)
 
-	err = n.Join(ctx, addrs[:1], discovery.Limit(1))
-	require.ErrorIs(t, err, mesh.ErrNoPeers)
+		n, err := mesh.New(host, mesh.WithNamespace("casm.test.mesh"))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, n.Close()) }()
+
+		err = n.Join(ctx, addrs[:1], discovery.Limit(1))
+		require.ErrorIs(t, err, mesh.ErrNoPeers)
+	})
+
+	// t.Run("", func(t *testing.T) {
+	// 	t.Parallel()
+
+	// })
 }
