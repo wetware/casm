@@ -31,6 +31,7 @@ type EvtNeighborhoodChanged struct {
 	Peer  peer.ID
 	Event Event
 	State State
+	View  peer.IDSlice
 }
 
 func (ev EvtNeighborhoodChanged) Loggable() map[string]interface{} {

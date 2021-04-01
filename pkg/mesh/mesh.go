@@ -207,6 +207,8 @@ func (n *Neighborhood) callback(e EvtNeighborhoodChanged) error {
 		panic(fmt.Sprintf("invalid event '%d'", e.Event))
 	}
 
+	e.View = n.Neighbors()
+
 	return n.event.Emit(e)
 }
 
