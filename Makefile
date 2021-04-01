@@ -1,4 +1,4 @@
-all:
+all: mocks
 
 mocks: clean-mocks
 # This roundabout call to 'go generate' allows us to:
