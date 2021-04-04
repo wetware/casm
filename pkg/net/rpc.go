@@ -1,11 +1,9 @@
 package net
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
-	"io"
+	"io/ioutil"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
@@ -14,190 +12,195 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/libp2p/go-libp2p-core/record"
-	syncutil "github.com/lthibault/util/sync"
 )
 
 const (
-	BaseProto   protocol.ID = "/casm/mesh"
-	ProtoJoin               = BaseProto + "/join"
-	ProtoSample             = BaseProto + "/sample"
+	ProtocolID protocol.ID = "/casm/net"
+	SampleID               = ProtocolID + "/sample"
+
+	defaultSampleLimit       = 1
+	defaultSampleDepth       = 7
+	defaultSampleStepTimeout = time.Second * 30
 )
 
-type endpoint interface {
-	Protocol() protocol.ID
-	Handle(Logger, network.Stream) error
-}
-
-type method interface {
-	Call(context.Context, peer.AddrInfo) error
-}
-
-// type handler interface {
-// 	Handle(network.Stream)
-// }
-
-type dialer interface {
-	Connect(context.Context, peer.AddrInfo) error
-	NewStream(context.Context, peer.ID, ...protocol.ID) (network.Stream, error)
-}
-
-type joiner Overlay
-
-func (*joiner) Protocol() protocol.ID { return ProtoJoin }
-
-func (j *joiner) Handle(_ Logger, s network.Stream) error {
-	block(s)
-	return nil
-}
-
-func (j *joiner) Call(ctx context.Context, info peer.AddrInfo) error {
-	s, err := addrDialer(info).Dial(ctx, j.h, ProtoJoin)
-	if err != nil {
-		return err
+type (
+	deliverer interface {
+		Deliver(context.Context, *peer.PeerRecord) error
 	}
 
-	return s.Close()
+	stepper interface {
+		Step(context.Context) error
+	}
+
+	streamDialer interface {
+		NewStream(context.Context, peer.ID, ...protocol.ID) (network.Stream, error)
+	}
+)
+
+type sampleOpts discovery.Options
+
+func (os *sampleOpts) Apply(opt ...discovery.Option) error {
+	return (*discovery.Options)(os).Apply(opt...)
 }
 
-type handleSample Overlay
-
-func (*handleSample) Protocol() protocol.ID { return ProtoSample }
-
-func (h *handleSample) Handle(log Logger, s network.Stream) error {
-	var depth uint8
-	if err := binary.Read(s, binary.BigEndian, &depth); err != nil {
-		return err
+func (os *sampleOpts) Breadth() int {
+	if i := (*discovery.Options)(os).Limit; i > 0 {
+		return i
 	}
 
-	if depth == 0 {
-		return h.returnResult(s, *host.InfoFromHost(h.h))
-	}
-
-	return h.walk(log, s, depth-1)
+	return defaultSampleLimit
 }
 
-func (h *handleSample) walk(log Logger, s network.Stream, depth uint8) error {
-	info, err := h.randomPeer(log)
-	if err != nil {
-		return err
+func (os *sampleOpts) Depth() uint8 {
+	if os.Other == nil {
+		return defaultSampleDepth
 	}
 
-	ch := make(chan peer.AddrInfo, 1)
-
-	any, ctx := syncutil.AnyWithContext(context.Background())
-	any.Go((*Overlay)(h).call(ctx, info, sampleMethod{
-		opt: discovery.Options{Limit: 1},
-		d:   h.h,
-		ch:  ch,
-	}))
-
-	// abort if the upstream connection times out.
-	any.Go(func() error {
-		block(s)
-		return context.DeadlineExceeded // simulate a context bound to 's'
-	})
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case info := <-ch:
-		return h.returnResult(s, info)
+	if d, ok := os.Other[keyDepth]; ok {
+		return d.(uint8)
 	}
+
+	return defaultSampleDepth
 }
 
-func (h *handleSample) returnResult(s network.Stream, info peer.AddrInfo) error {
-	rec := peer.PeerRecord{PeerID: h.h.ID(), Addrs: h.h.Addrs()}
-	env, err := record.Seal(&rec, h.h.Peerstore().PrivKey(h.h.ID()))
-	if err != nil {
-		return err
-	}
-
-	bs, err := env.Marshal()
-	if err != nil {
-		return err
-	}
-
-	_, err = io.Copy(s, bytes.NewBuffer(bs))
-	return err
+type randWalk struct {
+	depth uint8
+	sd    streamDialer
+	peer  peer.ID
+	d     deliverer
 }
 
-func (h *handleSample) randomPeer(log Logger) (peer.AddrInfo, error) {
-	ns := h.stat.Load().View().Shuffle()
-
-	// TODO:  can the neighborhood be empty here?  Investigate.
-	if len(ns) == 0 {
-		log.Warn("empty neighborhod on sub-sample")
-		return peer.AddrInfo{}, errors.New("fixme") // XXX
-	}
-
-	return ns[0], nil
-}
-
-type sampleMethod struct {
-	d   dialer
-	opt discovery.Options
-	ch  chan<- peer.AddrInfo
-}
-
-func (m sampleMethod) Call(ctx context.Context, info peer.AddrInfo) error {
-	defer close(m.ch)
-
-	s, err := addrDialer(info).Dial(ctx, m.d, ProtoSample)
+func (w randWalk) Step(ctx context.Context) error {
+	s, err := w.sd.NewStream(ctx, w.peer, SampleID)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
 
-	// ensure write deadline; default 30s.
+	return w.next(ctx, s)
+}
+
+func (w randWalk) next(ctx context.Context, s network.Stream) error {
+	if err := w.sendPayload(ctx, s); err != nil {
+		return err
+	}
+
+	return w.awaitResult(ctx, s)
+}
+
+func (w randWalk) sendPayload(ctx context.Context, s network.Stream) error {
+	if err := w.setWriteDeadline(ctx, s); err != nil {
+		return err
+	}
+
+	return binary.Write(s, binary.BigEndian, w.nextStep(ctx))
+}
+
+func (w randWalk) setWriteDeadline(ctx context.Context, s network.Stream) error {
 	if t, ok := ctx.Deadline(); ok {
-		s.SetWriteDeadline(t)
-	} else {
-		// belt-and-suspenders.  'ctx' should always have a deadline.
-		s.SetWriteDeadline(time.Now().Add(m.opt.Ttl))
+		return s.SetWriteDeadline(t)
 	}
 
-	depth := m.opt.Other[depthOptKey{}].(uint8)
-	if err = binary.Write(s, binary.BigEndian, depth-1); err != nil {
+	return nil
+}
+
+func (w randWalk) nextStep(ctx context.Context) *sampleStep {
+	s := sampleStep{Depth: w.depth - 1}
+	if t, ok := ctx.Deadline(); ok {
+		s.Timeout = time.Until(t)
+	}
+	return &s
+}
+
+func (w randWalk) awaitResult(ctx context.Context, s network.Stream) error {
+	if err := w.setReadDeadline(ctx, s); err != nil {
 		return err
 	}
 
-	if err = s.CloseWrite(); err != nil {
-		return err
-	}
+	return w.readEnvelope(ctx, s)
+}
 
-	var buf bytes.Buffer
-	if _, err = io.Copy(&buf, s); err != nil {
-		return err
-	}
-
-	_, urec, err := record.ConsumeEnvelope(buf.Bytes(), peer.PeerRecordEnvelopeDomain)
+func (w randWalk) readEnvelope(ctx context.Context, s network.Stream) error {
+	b, err := w.readPayload(ctx, s)
 	if err != nil {
 		return err
 	}
 
-	rec := urec.(*peer.PeerRecord)
-
-	select {
-	case m.ch <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return w.deliver(ctx, b)
 }
 
-type addrDialer peer.AddrInfo
-
-func (sd addrDialer) Dial(ctx context.Context, d dialer, ps ...protocol.ID) (network.Stream, error) {
-	if err := d.Connect(ctx, peer.AddrInfo(sd)); err != nil {
+func (w randWalk) readPayload(ctx context.Context, s network.Stream) ([]byte, error) {
+	if err := w.setReadDeadline(ctx, s); err != nil {
 		return nil, err
 	}
 
-	return d.NewStream(ctx, sd.ID, ps...)
+	return ioutil.ReadAll(s)
 }
 
-// wait for a reader to close by blocking on a 'Read'
-// call and discarding any data/error.
-func block(r io.Reader) {
-	var buf [1]byte
-	r.Read(buf[:])
+func (w randWalk) setReadDeadline(ctx context.Context, s network.Stream) error {
+	if t, ok := ctx.Deadline(); ok {
+		return s.SetReadDeadline(t)
+	}
+
+	return nil
+}
+
+func (w randWalk) deliver(ctx context.Context, b []byte) error {
+	_, rec, err := record.ConsumeEnvelope(b, peer.PeerRecordEnvelopeDomain)
+	if err != nil {
+		return err
+	}
+
+	return w.d.Deliver(ctx, rec.(*peer.PeerRecord))
+}
+
+type sampleStep struct {
+	Depth   uint8
+	Timeout time.Duration
+}
+
+func (s sampleStep) Deadline() time.Time {
+	if s.Timeout == 0 {
+		return time.Now().Add(defaultSampleStepTimeout)
+	}
+
+	return time.Now().Add(s.Timeout)
+}
+
+func (ss *sampleStep) RecvPayload(s network.Stream) error {
+	if err := s.SetReadDeadline(ss.Deadline()); err != nil {
+		return err
+	}
+
+	return binary.Read(s, binary.BigEndian, ss)
+}
+
+func (ss *sampleStep) Next(s network.Stream, h host.Host, peer peer.ID) stepper {
+	if ss.Depth > 1 {
+		return randWalk{
+			peer:  peer,
+			depth: ss.Depth - 1,
+			d:     deliveryStream{s: s, h: h},
+			sd:    h,
+		}
+	}
+
+	return randChoice{
+		peer: peer,
+		d:    deliveryStream{s: s, h: h},
+		h:    h,
+	}
+}
+
+type randChoice struct {
+	peer peer.ID
+	d    deliverer
+	h    host.Host
+}
+
+func (c randChoice) Step(ctx context.Context) error {
+	return c.d.Deliver(ctx, &peer.PeerRecord{
+		PeerID: c.peer,
+		Addrs:  c.h.Peerstore().Addrs(c.peer),
+	})
 }

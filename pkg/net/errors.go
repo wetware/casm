@@ -5,9 +5,15 @@ import (
 )
 
 var (
-	// ErrNoPeers is a sentinel error used to signal that a reboot
-	// has failed because there were no peers in the PeerStore.
+	// ErrNoPeers indicates an operation failed because there were
+	// reachable peers in the cluster.
 	ErrNoPeers = errors.New("no peers")
+
+	// ErrConnClosed is returned when a lease/evict operation fails
+	// due to a closed RPC connection.
+	ErrConnClosed = errors.New("connection closed")
+
+	errEdgeExists = errors.New("edge exists")
 )
 
 // JoinError is returned upon failing to join an overlay.

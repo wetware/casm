@@ -7,41 +7,36 @@ import (
 )
 
 const (
-	eventNull Event = iota
-
 	// EventJoined indicates a peer has joined the neighborhood.
-	EventJoined
+	EventJoined Event = iota
 
 	// EventLeft indicates a peer has left the neighborhood.
 	EventLeft
 
-	// StateDisconnected indicates a peer is not connected to the overlay.
-	StateDisconnected State = iota
+	// // StateDisconnected indicates a peer is not connected to the overlay.
+	// StateDisconnected State = iota
 
-	// StateConnected indicates a peer is connected to the overlay.
-	StateConnected
+	// // StateConnected indicates a peer is connected to the overlay.
+	// StateConnected
 
-	// StateClosing indicates the peer is leaving the overlay, and no longer
-	// accepting connections.
-	StateClosing
+	// // StateClosing indicates the peer is leaving the overlay, and no longer
+	// // accepting connections.
+	// StateClosing
 
-	// StateClosed indicates that the peer has left the overlay.
-	StateClosed
+	// // StateClosed indicates that the peer has left the overlay.
+	// StateClosed
 )
 
-// EvtNetState is an event signalling a change in the state of the
-// overlay network.
-type EvtNetState struct {
+// EvtState is an event that signals the state of the overlay network.
+type EvtState struct {
 	Event Event
 	Peer  peer.ID
-	Slots
 }
 
-func (ev EvtNetState) Loggable() map[string]interface{} {
+func (ev EvtState) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"peer":  ev.Peer,
 		"event": ev.Event,
-		"state": ev.State(),
 	}
 }
 
@@ -60,33 +55,31 @@ func (e Event) String() string {
 		return "joined"
 	case EventLeft:
 		return "left"
-	case eventNull:
-		return "null event"
 	}
 
 	panic(fmt.Sprintf("invalid event '%d'", e))
 }
 
-// State of the neighborhood
-type State uint8
+// // State of the neighborhood
+// type State uint8
 
-func (s State) Loggable() map[string]interface{} {
-	return map[string]interface{}{
-		"state": s.String(),
-	}
-}
+// func (s State) Loggable() map[string]interface{} {
+// 	return map[string]interface{}{
+// 		"state": s.String(),
+// 	}
+// }
 
-func (s State) String() string {
-	switch s {
-	case StateDisconnected:
-		return "disconnected"
-	case StateConnected:
-		return "connected"
-	case StateClosing:
-		return "closing"
-	case StateClosed:
-		return "closed"
-	default:
-		panic(fmt.Sprintf("invalid state '%d'", s))
-	}
-}
+// func (s State) String() string {
+// 	switch s {
+// 	case StateDisconnected:
+// 		return "disconnected"
+// 	case StateConnected:
+// 		return "connected"
+// 	case StateClosing:
+// 		return "closing"
+// 	case StateClosed:
+// 		return "closed"
+// 	default:
+// 		panic(fmt.Sprintf("invalid state '%d'", s))
+// 	}
+// }

@@ -28,3 +28,7 @@ func (l Logger) WithStream(s network.Stream) Logger {
 		"proto":  s.Protocol(),
 	})
 }
+
+func (l Logger) ReportError(err error) {
+	l.WithError(err).Debug("error in rpc connection")
+}

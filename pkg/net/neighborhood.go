@@ -1,227 +1,374 @@
 package net
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"math/rand"
+	"sync"
+	"sync/atomic"
 
 	"github.com/jbenet/goprocess"
-	ctxutil "github.com/lthibault/util/ctx"
-	"github.com/multiformats/go-multiaddr"
-
-	"github.com/libp2p/go-libp2p-core/connmgr"
+	"github.com/libp2p/go-eventbus"
+	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-)
-
-const (
-	protectTag = "casm.net/neighborhood"
-	streamTag  = "casm.net/stream-active"
-
-	bufSize = 32
+	"github.com/libp2p/go-libp2p-core/record"
+	ctxutil "github.com/lthibault/util/ctx"
 )
 
 type neighborhood struct {
 	log Logger
 
-	ns    Slots
-	state chan op
+	vtx vertex
 
-	cm   connmgr.ConnManager
-	proc goprocess.Process
+	h     host.Host
+	state event.Emitter
+	proc  goprocess.Process
+
+	gcCtr sync.WaitGroup
+	gc    chan struct{}
+	lease chan leaseRequest
+	evict chan peer.ID
 }
 
-func (n *neighborhood) Lease(ctx context.Context, peer peer.AddrInfo) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case n.state <- lease(peer):
-		return nil
-	}
-}
-
-func (n *neighborhood) Evict(ctx context.Context, peer peer.AddrInfo) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case n.state <- evict(peer):
-		return nil
-	}
-}
-
-func (n *neighborhood) loop() (goprocess.ProcessFunc, <-chan *EvtNetState) {
-	n.state = make(chan op, bufSize)
-	ch := make(chan *EvtNetState, bufSize/2)
-
-	return func(p goprocess.Process) {
-		defer n.drainAndCloseStateChan()
-		defer close(ch)
-
-		for {
-			select {
-			case <-p.Closing():
-				return
-			case s := <-n.state:
-				if ev, ok := n.handle(s.AddrInfo(), s.Event()); ok {
-					select {
-					case ch <- ev:
-					case <-p.Closing():
-					}
-				}
-			}
-		}
-	}, ch
-}
-
-func (n *neighborhood) handle(info peer.AddrInfo, ev Event) (*EvtNetState, bool) {
-	switch ev {
-	case EventJoined:
-		if !n.ns.insert(info) {
-			return nil, false
-		}
-		n.cm.Protect(info.ID, protectTag)
-
-	case EventLeft:
-		if !n.ns.delete(info) {
-			return nil, false
-		}
-		n.cm.Unprotect(info.ID, protectTag)
+func (n *neighborhood) init(log Logger, h host.Host) (err error) {
+	n.state, err = h.EventBus().Emitter(new(EvtState), eventbus.Stateful)
+	if err != nil {
+		return
 	}
 
-	return &EvtNetState{
-		Peer:  info.ID,
-		Event: ev,
-		Slots: n.ns.View(),
-	}, true
+	n.h = h
+	n.log = log.With(n)
+	n.gc = make(chan struct{}, 1)
+	n.lease = make(chan leaseRequest, 1)
+	n.evict = make(chan peer.ID, 1)
+
+	n.proc = h.Network().Process().Go(n.loop)
+	n.proc.SetTeardown(func() error {
+		n.gcCtr.Wait()
+		close(n.lease)
+		close(n.evict)
+		return n.state.Close()
+	})
+
+	return
 }
 
-func (n *neighborhood) drainAndCloseStateChan() {
-	for {
-		select {
-		case <-n.state:
-		default:
-			close(n.state)
-			return
-		}
-	}
-}
-
-func (n *neighborhood) ctx() context.Context {
+func (n *neighborhood) Close() error { return n.proc.Close() }
+func (n *neighborhood) Context() context.Context {
 	return ctxutil.FromChan(n.proc.Closing())
 }
 
-func (n *neighborhood) Listen(network.Network, multiaddr.Multiaddr)      {}
-func (n *neighborhood) ListenClose(network.Network, multiaddr.Multiaddr) {}
-
-func (n *neighborhood) Connected(network.Network, network.Conn) {}
-
-func (n *neighborhood) Disconnected(_ network.Network, c network.Conn) {
-	info, err := peer.AddrInfoFromP2pAddr(c.RemoteMultiaddr())
-	if err != nil {
-		n.log.WithError(err).WithConn(c).Error("invalid multiaddr")
-		return
+func (n *neighborhood) Neighbors() peer.IDSlice {
+	vtx := n.vtx.Load()
+	ns := make(peer.IDSlice, 0, len(vtx))
+	for id := range vtx {
+		ns = append(ns, id)
 	}
-
-	if err := n.Evict(n.ctx(), *info); err != nil {
-		n.log.WithError(err).WithConn(c).Error("failed to evict disconnected peer")
-	}
-}
-
-func (n *neighborhood) OpenedStream(_ network.Network, s network.Stream) {
-	info, err := peer.AddrInfoFromP2pAddr(s.Conn().RemoteMultiaddr())
-	if err != nil {
-		n.log.WithError(err).WithStream(s).Error("invalid multiaddr")
-		return
-	}
-
-	if s.Protocol() == ProtoJoin {
-		err := n.Lease(n.ctx(), *info)
-		if err != nil {
-			n.log.WithError(err).WithStream(s).Error("failed to lease.")
-		}
-		return
-	}
-
-	n.cm.UpsertTag(
-		info.ID,
-		streamTag,
-		func(i int) int { return i + 1 }) // incr
-}
-
-func (n *neighborhood) ClosedStream(_ network.Network, s network.Stream) {
-	if s.Protocol() != ProtoJoin {
-		return
-	}
-
-	n.cm.UpsertTag(
-		s.Conn().RemotePeer(),
-		streamTag,
-		func(i int) int { return i - 1 }) // decr
-}
-
-type Slots []peer.AddrInfo
-
-func (s Slots) State() State {
-	if len(s) == 0 {
-		return StateDisconnected
-	}
-
-	return StateConnected
-}
-
-func (s Slots) Contains(id peer.ID) (ok bool) {
-	for _, info := range s {
-		if ok = info.ID == id; ok {
-			break
-		}
-	}
-
-	return
-}
-
-func (s Slots) Shuffle() []peer.AddrInfo {
-	ns := s.View()
-	r.Shuffle(len(ns), func(i, j int) {
-		ns[i], ns[j] = ns[j], ns[i]
-	})
 	return ns
 }
 
-func (s Slots) View() Slots {
-	ss := make(Slots, len(s))
-	copy(ss, s)
-	return ss
+func (n *neighborhood) RandPeer() (peer.ID, error) {
+	if e, ok := n.vtx.Random(); ok {
+		return e.ID(), nil
+	}
+
+	return "", ErrNoPeers
 }
 
-func (s *Slots) delete(x peer.AddrInfo) (ok bool) {
-	ss := (*s)[:0]
-	for _, info := range *s {
-		if info.ID != x.ID {
-			ss = append(ss, x)
+func (n *neighborhood) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"type":    "casm.net.neighborhood",
+		"n_peers": len(n.vtx.Load()),
+	}
+}
+
+func (n *neighborhood) loop(p goprocess.Process) {
+	for {
+		select {
+		case <-p.Closing():
+			return
+
+		case req := <-n.lease:
+			n.handleLease(req)
+
+		case id := <-n.evict:
+			n.handleEvict(id)
+
+		case <-n.gc:
+			n.handleGC()
 		}
-		ok = true
+	}
+}
+
+func (n *neighborhood) Lease(ctx context.Context, s network.Stream) (context.Context, error) {
+	select {
+	case <-n.Context().Done():
+		return nil, nil
+	default:
 	}
 
-	*s = ss
-	return
-}
+	req := newLeaseRequest(s)
 
-func (s *Slots) insert(x peer.AddrInfo) (ok bool) {
-	if ok = !s.Contains(x.ID); ok {
-		*s = append(*s, x)
+	select {
+	case <-n.Context().Done():
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case n.lease <- req:
+		return req.Wait(ctx)
 	}
-	return
 }
 
-type op interface {
-	AddrInfo() peer.AddrInfo
-	Event() Event
+func (n *neighborhood) Evict(id peer.ID) {
+	select {
+	case <-n.Context().Done():
+	default:
+		select {
+		case <-n.Context().Done():
+		case n.evict <- id:
+		}
+	}
 }
 
-type lease peer.AddrInfo
+func (n *neighborhood) handleLease(req leaseRequest) {
+	defer close(req.done)
+	defer close(req.err)
+	e := req.NewEdge()
 
-func (lease) Event() Event               { return EventJoined }
-func (op lease) AddrInfo() peer.AddrInfo { return peer.AddrInfo(op) }
+	if !n.vtx.AddEdge(e) {
+		req.err <- req.s.Close()
+		return
+	}
 
-type evict peer.AddrInfo
+	go func() {
+		defer close(e.done)
+		_, _ = io.Copy(io.Discard, req.s)
+	}()
 
-func (evict) Event() Event               { return EventLeft }
-func (op evict) AddrInfo() peer.AddrInfo { return peer.AddrInfo(op) }
+	req.done <- ctxutil.FromChan(e.done)
+}
+
+func (n *neighborhood) handleEvict(id peer.ID) {
+	ok, err := n.vtx.RemoveEdge(id)
+	if !ok {
+		return
+	}
+
+	if err != nil {
+		n.log.WithField("peer", id).WithError(err).Error("error closing edge")
+	}
+
+	n.emit(id, EventLeft)
+}
+
+func (n *neighborhood) handleGC() {
+	es := n.vtx.Load()
+
+	// did copy drop any (disconnected) edges?
+	if new := es.Copy(); len(es) != len(new) {
+		n.vtx.Store(new)
+	}
+}
+
+func (n *neighborhood) emit(id peer.ID, ev Event) {
+	if err := n.state.Emit(EvtState{
+		Peer:  id,
+		Event: ev,
+	}); err != nil {
+		n.log.WithError(err).With(ev).Error("failed to emit event")
+	}
+}
+
+func (n *neighborhood) Handle(s network.Stream) {
+	var ss sampleStep
+	if err := ss.RecvPayload(s); err != nil {
+		n.log.WithStream(s).
+			WithError(err).
+			Debug("error encountered during random walk (recv payload)")
+		return
+	}
+
+	// HACK:  the local peer can become orphaned during a walk
+	//		  if the join stream terminates concurrently.  In
+	//		  such cases, we pretend the remote peer is still a
+	//		  member of the neighborhood, and proceed as planned.
+	peer := s.Conn().RemotePeer()
+	if e, ok := n.vtx.Random(); ok {
+		peer = e.ID()
+	}
+
+	ctx, cancel := context.WithDeadline(n.Context(), ss.Deadline())
+	defer cancel()
+
+	if err := ss.Next(s, n.h, peer).Step(ctx); err != nil {
+		n.log.WithStream(s).
+			WithError(err).
+			Debug("error encountered during random walk (next step)")
+	}
+}
+
+type vertex struct {
+	r     *rand.Rand
+	value atomic.Value
+}
+
+func (vtx *vertex) AddEdge(e edge) bool {
+	es := vtx.Load()
+	if _, ok := es[e.ID()]; ok {
+		return false
+	}
+
+	es = es.Copy()
+	es[e.ID()] = e
+	vtx.Store(es)
+	return true
+}
+
+func (vtx *vertex) RemoveEdge(id peer.ID) (bool, error) {
+	if e, ok := vtx.Get(id); ok {
+		return true, e.Close()
+	}
+
+	return false, nil
+}
+
+func (vtx *vertex) Random() (edge, bool) {
+	es := vtx.Load()
+	if len(es) == 0 {
+		return edge{}, false
+	}
+
+	slice := make([]edge, 0, len(es))
+
+	for _, e := range es {
+		select {
+		case <-e.done:
+		default:
+			slice = append(slice, e)
+		}
+	}
+
+	vtx.r.Shuffle(len(slice), func(i, j int) {
+		slice[i], slice[j] = slice[j], slice[i]
+	})
+
+	return slice[0], true
+}
+
+func (vtx *vertex) Get(id peer.ID) (edge, bool) {
+	if e, ok := vtx.Load()[id]; ok {
+		select {
+		case <-e.done:
+		default:
+			return e, ok
+		}
+	}
+	return edge{}, false
+}
+
+func (vtx *vertex) Load() edgeMap {
+	if v := vtx.value.Load(); v != nil {
+		return v.(edgeMap)
+	}
+
+	return nil
+}
+
+func (vtx *vertex) Store(es edgeMap) { vtx.value.Store(es) }
+
+type edge struct {
+	s    network.Stream
+	done chan struct{}
+}
+
+func (e edge) ID() peer.ID { return e.s.Conn().RemotePeer() }
+
+func (e edge) Close() error {
+	select {
+	case <-e.done:
+	default:
+		close(e.done)
+	}
+	return e.s.Reset()
+}
+
+type edgeMap map[peer.ID]edge
+
+func (m edgeMap) Copy() edgeMap {
+	new := make(edgeMap, len(m))
+	for id, e := range m {
+		select {
+		case <-e.done:
+		default:
+			new[id] = e
+		}
+	}
+	return new
+}
+
+type deliveryStream struct {
+	s network.Stream
+	h host.Host
+}
+
+func (d deliveryStream) Deliver(ctx context.Context, rec *peer.PeerRecord) error {
+	env, err := record.Seal(rec, d.h.Peerstore().PrivKey(d.h.ID()))
+	if err != nil {
+		return err
+	}
+
+	b, err := env.Marshal()
+	if err != nil {
+		return err
+	}
+
+	if t, ok := ctx.Deadline(); ok {
+		if err = d.s.SetWriteDeadline(t); err != nil {
+			return err
+		}
+	}
+
+	if _, err = io.Copy(d.s, bytes.NewReader(b)); err != nil {
+		return err
+	}
+
+	return d.s.CloseWrite()
+}
+
+type leaseRequest struct {
+	done chan context.Context
+	s    network.Stream
+	err  chan error
+}
+
+func newLeaseRequest(s network.Stream) leaseRequest {
+	return leaseRequest{
+		s:    s,
+		done: make(chan context.Context, 1),
+		err:  make(chan error, 1),
+	}
+}
+
+func (req leaseRequest) NewEdge() edge {
+	return edge{
+		s:    req.s,
+		done: make(chan struct{}),
+	}
+}
+
+func (req leaseRequest) Wait(ctx context.Context) (context.Context, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case ctx = <-req.done:
+		return ctx, nil
+	case err := <-req.err:
+		if err == nil {
+			return nil, errEdgeExists
+		}
+		return nil, err
+	}
+}

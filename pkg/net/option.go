@@ -1,13 +1,14 @@
 package net
 
 import (
-	"context"
-	"errors"
+	"math/rand"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/lthibault/log"
 )
+
+var globalRand *rand.Rand
 
 // Option for overlay network.
 type Option func(o *Overlay)
@@ -40,19 +41,44 @@ func WithLogger(l Logger) Option {
 	}
 }
 
-func withDefaults(opt []Option) []Option {
-	// ensure the logger has up-to-date fields.
-	opt = append(opt, func(o *Overlay) {
-		o.log = o.log.With(o)
-		o.n.log = o.log.WithField("type", "casm.net.neighborhood")
-	})
+// WithRand sets the random number generator for the overlay.
+//
+// The most common use-case is reproducible testing.  Another
+// common application is to seed the PRNG on the basis of the
+// host's peer.ID, thereby resulting in deterministic behavior
+// for individual hosts (which can be helpful when inspecting
+// log messages) while preserving the stochastic properties of
+// the cluster as a whole.
+//
+// If r == nil, a global *rand.Rand is used.
+func WithRand(r *rand.Rand) Option {
+	if r == nil {
+		if globalRand == nil {
+			globalRand = rand.New(rand.NewSource(time.Now().UnixNano()))
+		}
 
-	return append([]Option{
-		WithLogger(Logger{}),
-	}, opt...)
+		r = globalRand
+	}
+
+	return func(o *Overlay) {
+		o.n.vtx.r = r
+	}
 }
 
-// Options for Overlay.Sample.
+// populate logger with fields set by options
+func setLogFields(o *Overlay) { o.log = o.log.With(o) }
+
+func withDefaults(opt []Option) []Option {
+	return append([]Option{
+		WithNamespace(""),
+		WithLogger(Logger{}),
+		WithRand(nil),
+	}, append(opt, setLogFields)...)
+}
+
+/*
+ * Options for Overlay.Sample.
+ */
 
 func SampleDepth(d uint8) discovery.Option {
 	if d == 0 {
@@ -64,35 +90,13 @@ func SampleDepth(d uint8) discovery.Option {
 			opts.Other = map[interface{}]interface{}{}
 		}
 
-		opts.Other[depthOptKey{}] = d
+		opts.Other[keyDepth] = d
 		return nil
 	}
 }
 
-func sampleTimeout(ctx context.Context) discovery.Option {
-	return func(opts *discovery.Options) error {
-		if opts.Ttl != 0 {
-			return errors.New("TTL not supported")
-		}
+type sampleKey uint8
 
-		opts.Ttl = time.Second * 30 // default
-
-		if dl, ok := ctx.Deadline(); ok {
-			opts.Ttl = time.Until(dl)
-		}
-
-		return nil
-	}
-}
-
-func defaultSampleOpt(ctx context.Context, opt []discovery.Option) []discovery.Option {
-	return append([]discovery.Option{
-		discovery.Limit(1),
-		sampleTimeout(ctx),
-		SampleDepth(0),
-	}, opt...)
-}
-
-type (
-	depthOptKey struct{}
+const (
+	keyDepth sampleKey = iota
 )
