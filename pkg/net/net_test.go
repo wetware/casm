@@ -96,6 +96,92 @@ func TestFindPeers(t *testing.T) {
 	require.Len(t, ps, n)
 }
 
+func TestEventsEmitted(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tc, err := newTestCluster(ctx, 2)
+	require.NoError(t, err)
+	defer tc.Close()
+
+	sub0, err := tc.hs[0].EventBus().Subscribe(new(net.EvtState))
+	require.NoError(t, err)
+	defer sub0.Close()
+
+	sub1, err := tc.hs[1].EventBus().Subscribe(new(net.EvtState))
+	require.NoError(t, err)
+	defer sub1.Close()
+
+	t.Run("EventJoin", func(t *testing.T) {
+		require.NoError(t, tc.ConnectLine(ctx))
+
+		t.Run("Host0", func(t *testing.T) {
+			select {
+			case v, ok := <-sub0.Out():
+				require.True(t, ok, "subscription prematurely closed")
+
+				ev := v.(net.EvtState)
+				require.Equal(t, net.EventJoined, ev.Event)
+				require.Contains(t, ev.Edges(), tc.hs[1].ID())
+
+			case <-time.After(time.Millisecond * 10):
+				t.Errorf("did not receive event after %s", time.Millisecond*10)
+			}
+		})
+
+		t.Run("Host1", func(t *testing.T) {
+			select {
+			case v, ok := <-sub1.Out():
+				require.True(t, ok, "subscription prematurely closed")
+
+				ev := v.(net.EvtState)
+				require.Equal(t, net.EventJoined, ev.Event)
+				require.Contains(t, ev.Edges(), tc.hs[0].ID())
+
+			case <-time.After(time.Millisecond * 10):
+				t.Errorf("did not receive event after %s", time.Millisecond*10)
+			}
+		})
+	})
+
+	t.Run("EventLeave", func(t *testing.T) {
+		for _, s := range tc.hs[0].Network().Conns()[0].GetStreams() {
+			if s.Protocol() == net.ProtocolID {
+				require.NoError(t, s.Reset())
+			}
+		}
+		t.Run("Host0", func(t *testing.T) {
+			select {
+			case v, ok := <-sub0.Out():
+				require.True(t, ok, "subscription prematurely closed")
+
+				ev := v.(net.EvtState)
+				require.Equal(t, net.EventLeft, ev.Event)
+				require.NotContains(t, ev.Edges(), tc.hs[1].ID())
+
+			case <-time.After(time.Millisecond * 10):
+				t.Errorf("did not receive event after %s", time.Millisecond*10)
+			}
+		})
+
+		t.Run("Host1", func(t *testing.T) {
+			select {
+			case v, ok := <-sub1.Out():
+				require.True(t, ok, "subscription prematurely closed")
+
+				ev := v.(net.EvtState)
+				require.Equal(t, net.EventLeft, ev.Event)
+				require.NotContains(t, ev.Edges(), tc.hs[0].ID())
+
+			case <-time.After(time.Millisecond * 10):
+				t.Errorf("did not receive event after %s", time.Millisecond*10)
+			}
+		})
+	})
+}
+
 type testCluster struct {
 	env inproc.Env
 	hs  hostSlice

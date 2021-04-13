@@ -12,8 +12,6 @@ var (
 	// ErrConnClosed is returned when a lease/evict operation fails
 	// due to a closed RPC connection.
 	ErrConnClosed = errors.New("connection closed")
-
-	errEdgeExists = errors.New("edge exists")
 )
 
 // JoinError is returned upon failing to join an overlay.

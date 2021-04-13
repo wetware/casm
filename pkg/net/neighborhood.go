@@ -9,8 +9,6 @@ import (
 	"sync/atomic"
 
 	"github.com/jbenet/goprocess"
-	"github.com/libp2p/go-eventbus"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -19,56 +17,57 @@ import (
 )
 
 type neighborhood struct {
-	log Logger
-
 	vtx vertex
 
-	h     host.Host
-	state event.Emitter
-	proc  goprocess.Process
-
 	gcCtr sync.WaitGroup
-	gc    chan struct{}
 	lease chan leaseRequest
 	evict chan peer.ID
 }
 
-func (n *neighborhood) init(log Logger, h host.Host) (err error) {
-	n.state, err = h.EventBus().Emitter(new(EvtState), eventbus.Stateful)
-	if err != nil {
-		return
+func newNeighborhood() *neighborhood {
+	return &neighborhood{
+		lease: make(chan leaseRequest, 1),
+		evict: make(chan peer.ID, 1),
 	}
+}
 
-	n.h = h
-	n.log = log.With(n)
-	n.gc = make(chan struct{}, 1)
-	n.lease = make(chan leaseRequest, 1)
-	n.evict = make(chan peer.ID, 1)
+func (n *neighborhood) SetUp(ch chan<- EvtState) goprocess.ProcessFunc {
+	return func(p goprocess.Process) {
+		e := n.newEmitter(p, ch)
+		defer close(ch)
 
-	n.proc = h.Network().Process().Go(n.loop)
-	n.proc.SetTeardown(func() error {
+		for {
+			select {
+			case <-p.Closing():
+				return
+
+			case req := <-n.lease:
+				n.handleLease(e, req)
+
+			case id := <-n.evict:
+				n.handleEvict(e, id)
+			}
+		}
+	}
+}
+
+func (n *neighborhood) TearDown(state io.Closer) goprocess.TeardownFunc {
+	return func() error {
 		n.gcCtr.Wait()
 		close(n.lease)
 		close(n.evict)
-		return n.state.Close()
-	})
-
-	return
-}
-
-func (n *neighborhood) Close() error { return n.proc.Close() }
-func (n *neighborhood) Context() context.Context {
-	return ctxutil.FromChan(n.proc.Closing())
-}
-
-func (n *neighborhood) Neighbors() peer.IDSlice {
-	vtx := n.vtx.Load()
-	ns := make(peer.IDSlice, 0, len(vtx))
-	for id := range vtx {
-		ns = append(ns, id)
+		return state.Close()
 	}
-	return ns
 }
+
+// func (n *neighborhood) Neighbors() peer.IDSlice {
+// 	vtx := n.vtx.Load()
+// 	ns := make(peer.IDSlice, 0, len(vtx))
+// 	for id := range vtx {
+// 		ns = append(ns, id)
+// 	}
+// 	return ns
+// }
 
 func (n *neighborhood) RandPeer() (peer.ID, error) {
 	if e, ok := n.vtx.Random(); ok {
@@ -85,108 +84,75 @@ func (n *neighborhood) Loggable() map[string]interface{} {
 	}
 }
 
-func (n *neighborhood) loop(p goprocess.Process) {
-	for {
-		select {
-		case <-p.Closing():
-			return
-
-		case req := <-n.lease:
-			n.handleLease(req)
-
-		case id := <-n.evict:
-			n.handleEvict(id)
-
-		case <-n.gc:
-			n.handleGC()
-		}
-	}
-}
-
-func (n *neighborhood) Lease(ctx context.Context, s network.Stream) (context.Context, error) {
-	select {
-	case <-n.Context().Done():
-		return nil, nil
-	default:
-	}
-
+func (n *neighborhood) Lease(ctx context.Context, s network.Stream) (context.Context, bool) {
 	req := newLeaseRequest(s)
 
 	select {
-	case <-n.Context().Done():
-		return nil, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, false
 	case n.lease <- req:
 		return req.Wait(ctx)
 	}
 }
 
-func (n *neighborhood) Evict(id peer.ID) {
+func (n *neighborhood) Evict(ctx context.Context, id peer.ID) {
 	select {
-	case <-n.Context().Done():
+	case <-ctx.Done():
 	default:
 		select {
-		case <-n.Context().Done():
+		case <-ctx.Done():
 		case n.evict <- id:
 		}
 	}
 }
 
-func (n *neighborhood) handleLease(req leaseRequest) {
-	defer close(req.done)
-	defer close(req.err)
-	e := req.NewEdge()
-
-	if !n.vtx.AddEdge(e) {
-		req.err <- req.s.Close()
-		return
-	}
-
-	go func() {
-		defer close(e.done)
-		_, _ = io.Copy(io.Discard, req.s)
-	}()
-
-	req.done <- ctxutil.FromChan(e.done)
-}
-
-func (n *neighborhood) handleEvict(id peer.ID) {
-	ok, err := n.vtx.RemoveEdge(id)
-	if !ok {
-		return
-	}
-
-	if err != nil {
-		n.log.WithField("peer", id).WithError(err).Error("error closing edge")
-	}
-
-	n.emit(id, EventLeft)
-}
-
-func (n *neighborhood) handleGC() {
+func (n *neighborhood) handleLease(e emitter, req leaseRequest) {
 	es := n.vtx.Load()
 
-	// did copy drop any (disconnected) edges?
-	if new := es.Copy(); len(es) != len(new) {
-		n.vtx.Store(new)
+	// duplicate edge?
+	if _, ok := es[req.edge.ID()]; ok {
+		req.fail()
+		return
+	}
+
+	es = es.Copy()
+	es[req.edge.ID()] = req.edge
+	n.vtx.Store(es)
+
+	req.succeed()
+	e.Emit(req.edge.ID(), EventJoined)
+}
+
+func (n *neighborhood) handleEvict(e emitter, id peer.ID) {
+	es := n.vtx.Load()
+	if edge, ok := es[id]; ok {
+		defer edge.Close()
+
+		es = es.Copy()
+		delete(es, id)
+		n.vtx.Store(es)
+
+		e.Emit(edge.ID(), EventLeft)
 	}
 }
 
-func (n *neighborhood) emit(id peer.ID, ev Event) {
-	if err := n.state.Emit(EvtState{
-		Peer:  id,
-		Event: ev,
-	}); err != nil {
-		n.log.WithError(err).With(ev).Error("failed to emit event")
+type emitter func(peer.ID, Event)
+
+func (n *neighborhood) newEmitter(p goprocess.Process, ch chan<- EvtState) emitter {
+	return func(id peer.ID, ev Event) {
+		select {
+		case <-p.Closing():
+		case ch <- EvtState{Peer: id, Event: ev, es: n.vtx.Load()}:
+		}
 	}
 }
 
-func (n *neighborhood) Handle(s network.Stream) {
+func (emit emitter) Emit(id peer.ID, ev Event) { emit(id, ev) }
+
+func (n *neighborhood) Handle(ctx context.Context, log Logger, h host.Host, s network.Stream) {
 	var ss sampleStep
 	if err := ss.RecvPayload(s); err != nil {
-		n.log.WithStream(s).
-			WithError(err).
+		log.WithError(err).
 			Debug("error encountered during random walk (recv payload)")
 		return
 	}
@@ -200,12 +166,11 @@ func (n *neighborhood) Handle(s network.Stream) {
 		peer = e.ID()
 	}
 
-	ctx, cancel := context.WithDeadline(n.Context(), ss.Deadline())
+	ctx, cancel := context.WithDeadline(ctx, ss.Deadline())
 	defer cancel()
 
-	if err := ss.Next(s, n.h, peer).Step(ctx); err != nil {
-		n.log.WithStream(s).
-			WithError(err).
+	if err := ss.Next(s, h, peer).Step(ctx); err != nil {
+		log.WithError(err).
 			Debug("error encountered during random walk (next step)")
 	}
 }
@@ -213,26 +178,6 @@ func (n *neighborhood) Handle(s network.Stream) {
 type vertex struct {
 	r     *rand.Rand
 	value atomic.Value
-}
-
-func (vtx *vertex) AddEdge(e edge) bool {
-	es := vtx.Load()
-	if _, ok := es[e.ID()]; ok {
-		return false
-	}
-
-	es = es.Copy()
-	es[e.ID()] = e
-	vtx.Store(es)
-	return true
-}
-
-func (vtx *vertex) RemoveEdge(id peer.ID) (bool, error) {
-	if e, ok := vtx.Get(id); ok {
-		return true, e.Close()
-	}
-
-	return false, nil
 }
 
 func (vtx *vertex) Random() (edge, bool) {
@@ -245,7 +190,7 @@ func (vtx *vertex) Random() (edge, bool) {
 
 	for _, e := range es {
 		select {
-		case <-e.done:
+		case <-e.Context().Done():
 		default:
 			slice = append(slice, e)
 		}
@@ -261,7 +206,7 @@ func (vtx *vertex) Random() (edge, bool) {
 func (vtx *vertex) Get(id peer.ID) (edge, bool) {
 	if e, ok := vtx.Load()[id]; ok {
 		select {
-		case <-e.done:
+		case <-e.Context().Done():
 		default:
 			return e, ok
 		}
@@ -280,17 +225,18 @@ func (vtx *vertex) Load() edgeMap {
 func (vtx *vertex) Store(es edgeMap) { vtx.value.Store(es) }
 
 type edge struct {
-	s    network.Stream
-	done chan struct{}
+	cq chan struct{}
+	s  network.Stream
 }
 
-func (e edge) ID() peer.ID { return e.s.Conn().RemotePeer() }
+func (e edge) ID() peer.ID              { return e.s.Conn().RemotePeer() }
+func (e edge) Context() context.Context { return ctxutil.FromChan(e.cq) }
 
 func (e edge) Close() error {
 	select {
-	case <-e.done:
+	case <-e.cq:
 	default:
-		close(e.done)
+		close(e.cq)
 	}
 	return e.s.Reset()
 }
@@ -301,12 +247,24 @@ func (m edgeMap) Copy() edgeMap {
 	new := make(edgeMap, len(m))
 	for id, e := range m {
 		select {
-		case <-e.done:
+		case <-e.Context().Done():
 		default:
 			new[id] = e
 		}
 	}
 	return new
+}
+
+func (m edgeMap) Slice() peer.IDSlice {
+	ns := make(peer.IDSlice, 0, len(m))
+	for id, e := range m {
+		select {
+		case <-e.Context().Done():
+		default:
+			ns = append(ns, id)
+		}
+	}
+	return ns
 }
 
 type deliveryStream struct {
@@ -339,36 +297,37 @@ func (d deliveryStream) Deliver(ctx context.Context, rec *peer.PeerRecord) error
 }
 
 type leaseRequest struct {
+	edge edge
 	done chan context.Context
-	s    network.Stream
-	err  chan error
 }
 
 func newLeaseRequest(s network.Stream) leaseRequest {
 	return leaseRequest{
-		s:    s,
+		edge: edge{s: s, cq: make(chan struct{})},
 		done: make(chan context.Context, 1),
-		err:  make(chan error, 1),
 	}
 }
 
-func (req leaseRequest) NewEdge() edge {
-	return edge{
-		s:    req.s,
-		done: make(chan struct{}),
-	}
-}
-
-func (req leaseRequest) Wait(ctx context.Context) (context.Context, error) {
+func (req leaseRequest) Wait(ctx context.Context) (context.Context, bool) {
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
-	case ctx = <-req.done:
-		return ctx, nil
-	case err := <-req.err:
-		if err == nil {
-			return nil, errEdgeExists
-		}
-		return nil, err
+		return nil, false
+	case ctx, ok := <-req.done:
+		return ctx, ok
 	}
+}
+
+func (req leaseRequest) succeed() {
+	go func() {
+		req.done <- req.edge.Context()
+		defer close(req.edge.cq)
+
+		// close the edge's done channel when the stream terminates
+		_, _ = io.Copy(io.Discard, req.edge.s)
+	}()
+}
+
+func (req leaseRequest) fail() {
+	close(req.done)
+	close(req.edge.cq)
 }

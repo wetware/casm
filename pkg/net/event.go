@@ -31,14 +31,18 @@ const (
 type EvtState struct {
 	Event Event
 	Peer  peer.ID
+	es    edgeMap
 }
 
 func (ev EvtState) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"peer":  ev.Peer,
 		"event": ev.Event,
+		"edges": ev.Edges(),
 	}
 }
+
+func (ev EvtState) Edges() peer.IDSlice { return ev.es.Slice() }
 
 // An Event represents a state transition in a neighborhood.
 type Event uint8

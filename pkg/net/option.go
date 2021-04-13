@@ -53,6 +53,7 @@ func WithLogger(l Logger) Option {
 // If r == nil, a global *rand.Rand is used.
 func WithRand(r *rand.Rand) Option {
 	if r == nil {
+		// init the global PRNG?
 		if globalRand == nil {
 			globalRand = rand.New(rand.NewSource(time.Now().UnixNano()))
 		}
