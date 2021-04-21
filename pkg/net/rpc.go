@@ -14,6 +14,26 @@ import (
 	"github.com/libp2p/go-libp2p-core/record"
 )
 
+/*
+ * This file contains the implementation for the random walk that subtends Overlay.FindPeers.
+ *
+ * The algorithm is remarkably simple, even though the unholy mix of distribution and concurrency
+ * makes its implementation quite verbose.  A random walk works like this:
+ *
+ *  1. FindPeers selects a depth parameter, corresponding to the number of steps in the random walk.  The default is 9.
+ *  2. FindPeers selects a neighbor at random, opens a stream to the /casm/net/sample endpoint, and transmits depth-1.
+ *  3. The remote peer receives the depth parameter.  If depth == 1, it replies with the address of one of its neighbors at random.†
+ *  4. Else depth > 1, and the remote peer picks up the random walk at step #2 (recursion).
+ *
+ * That's it. Everything else is glue code.
+ *
+ * When reading over this code, you should skip over anything you don't understand.  Don't shave the proverbial yak.
+ *
+ * † A quick explanation, in case 'depth == 1' surprised you.  We random walk until 1 instead of 0 to avoid an extra round-trip
+ *   on the network. When we get to the penultimate node, we need only pick one of its neighbors at random and return its listen
+ *   address.  We do not need to open a stream to it.
+ */
+
 const (
 	ProtocolID protocol.ID = "/casm/net"
 	SampleID               = ProtocolID + "/sample"
