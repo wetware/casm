@@ -34,6 +34,8 @@ type EvtState struct {
 	es    edgeMap
 }
 
+func (ev EvtState) String() string { return fmt.Sprintf("%s %s", ev.Peer, ev.Event) }
+
 func (ev EvtState) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"peer":  ev.Peer,
@@ -63,27 +65,3 @@ func (e Event) String() string {
 
 	panic(fmt.Sprintf("invalid event '%d'", e))
 }
-
-// // State of the neighborhood
-// type State uint8
-
-// func (s State) Loggable() map[string]interface{} {
-// 	return map[string]interface{}{
-// 		"state": s.String(),
-// 	}
-// }
-
-// func (s State) String() string {
-// 	switch s {
-// 	case StateDisconnected:
-// 		return "disconnected"
-// 	case StateConnected:
-// 		return "connected"
-// 	case StateClosing:
-// 		return "closing"
-// 	case StateClosed:
-// 		return "closed"
-// 	default:
-// 		panic(fmt.Sprintf("invalid state '%d'", s))
-// 	}
-// }
