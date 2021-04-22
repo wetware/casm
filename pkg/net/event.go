@@ -12,19 +12,6 @@ const (
 
 	// EventLeft indicates a peer has left the neighborhood.
 	EventLeft
-
-	// // StateDisconnected indicates a peer is not connected to the overlay.
-	// StateDisconnected State = iota
-
-	// // StateConnected indicates a peer is connected to the overlay.
-	// StateConnected
-
-	// // StateClosing indicates the peer is leaving the overlay, and no longer
-	// // accepting connections.
-	// StateClosing
-
-	// // StateClosed indicates that the peer has left the overlay.
-	// StateClosed
 )
 
 // EvtState is an event that signals the state of the overlay network.

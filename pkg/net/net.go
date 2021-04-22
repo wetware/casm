@@ -11,7 +11,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/multiformats/go-multiaddr"
+	"github.com/libp2p/go-libp2p-core/protocol"
+	protoutil "github.com/wetware/casm/pkg/util/proto"
 
 	ctxutil "github.com/lthibault/util/ctx"
 	syncutil "github.com/lthibault/util/sync"
@@ -25,8 +26,10 @@ type Overlay struct {
 	h    host.Host
 	proc goprocess.Process
 
-	ns string
-	n  *neighborhood
+	ns    string
+	proto protocol.ID
+
+	n *neighborhood
 }
 
 // New network overlay
@@ -40,10 +43,6 @@ func New(h host.Host, opt ...Option) (*Overlay, error) {
 		return nil, err
 	}
 
-	o.h.Network().Notify((*notifiee)(o))
-	o.h.SetStreamHandler(ProtocolID, o.handleJoin)
-	o.h.SetStreamHandler(SampleID, o.handleSample)
-
 	return o, nil
 }
 
@@ -53,14 +52,16 @@ func (o *Overlay) init() error {
 		return err
 	}
 
+	// Start the neighborhood process.  This is the overlay's root proc.
 	ch := make(chan EvtState, 1)
-
-	// start the neighborhood process.  This is the overlay's root
-	// proc.
 	o.proc = o.h.Network().Process().Go(o.n.SetUp(ch))
 	o.proc.SetTeardown(o.n.TearDown(state))
 
 	go o.loop(ch, state)
+
+	// The main loop is now running, so we can start accepting streams.
+	o.h.SetStreamHandlerMatch(joinProto, o.matchJoin, o.handleJoin)
+	o.h.SetStreamHandlerMatch(sampleProto, o.matchSample, o.handleSample)
 
 	return nil
 }
@@ -68,15 +69,6 @@ func (o *Overlay) init() error {
 func (o *Overlay) loop(ch <-chan EvtState, state event.Emitter) {
 	go func() {
 		for ev := range ch {
-			// switch ev.Event {
-			// case EventJoined:
-			// 	o.onJoin(ev.Peer)
-
-			// case EventLeft:
-			// 	o.onLeave(ev.Peer)
-
-			// }
-
 			if err := state.Emit(ev); err != nil {
 				o.log.With(ev).Error("failed to emit event")
 			}
@@ -90,8 +82,19 @@ func (o *Overlay) Loggable() map[string]interface{} {
 		"type": "casm.net.overlay",
 		"id":   o.h.ID(),
 		"ns":   o.ns,
-		"stat": o.Stat(),
 	}
+}
+
+// Close the overlay network, freeing all resources.  Does not close the
+// underlying host.
+func (o *Overlay) Close() error {
+	for _, id := range []protocol.ID{joinProto, sampleProto} {
+		o.h.RemoveStreamHandler(id)
+	}
+
+	o.log.WithField("proto", o.proto).Debug("unregistered protocol handlers")
+
+	return o.proc.Close()
 }
 
 // Process for the overlay network.
@@ -104,16 +107,8 @@ func (o *Overlay) Stat() peer.IDSlice { return o.n.vtx.Load().Slice() }
 // Host returns the underlying libp2p host.
 func (o *Overlay) Host() host.Host { return o.h }
 
-// Close the overlay network, freeing all resources.  Does not close the
-// underlying host.
-func (o *Overlay) Close() error {
-	o.h.RemoveStreamHandler(ProtocolID)
-	o.h.Network().StopNotify((*notifiee)(o))
-
-	o.log.WithField("proto", ProtocolID).Debug("unregistered stream handlers")
-
-	return o.proc.Close()
-}
+// Namespace of the overlay network.
+func (o *Overlay) Namespace() string { return o.ns }
 
 // Join the overlay network using the provided discovery service.
 func (o *Overlay) Join(ctx context.Context, d discovery.Discoverer, opt ...discovery.Option) error {
@@ -145,7 +140,7 @@ func (o *Overlay) join(ctx context.Context, info peer.AddrInfo) func() error {
 			return err
 		}
 
-		s, err := o.h.NewStream(ctx, info.ID, ProtocolID)
+		s, err := o.h.NewStream(ctx, info.ID, o.proto)
 		if err != nil {
 			return err
 		}
@@ -200,6 +195,7 @@ func (o *Overlay) sample(ctx context.Context, ch chan<- peer.AddrInfo, d uint8) 
 			depth: d,
 			d:     deliveryChan(ch),
 			sd:    o.h,
+			proto: protoutil.Join(o.proto, "sample"),
 		}.Step(ctx)
 	}
 }
@@ -226,31 +222,6 @@ func (o *Overlay) handleSample(s network.Stream) {
 	defer s.Close()
 
 	o.n.Handle(o.ctx(), o.log.WithStream(s), o.h, s)
-}
-
-type notifiee Overlay
-
-const incr, decr = 1, -1
-
-func (*notifiee) Listen(network.Network, multiaddr.Multiaddr)      {}
-func (*notifiee) ListenClose(network.Network, multiaddr.Multiaddr) {}
-func (*notifiee) Connected(network.Network, network.Conn)          {}
-func (n *notifiee) Disconnected(network.Network, network.Conn)     {}
-
-func (n *notifiee) OpenedStream(_ network.Network, s network.Stream) {
-	if s.Protocol() != ProtocolID {
-		n.UpsertTag(s.Conn().RemotePeer(), incr)
-	}
-}
-
-func (n *notifiee) ClosedStream(_ network.Network, s network.Stream) {
-	if s.Protocol() != ProtocolID {
-		n.UpsertTag(s.Conn().RemotePeer(), decr)
-	}
-}
-
-func (n *notifiee) UpsertTag(id peer.ID, sign int) {
-	n.h.ConnManager().UpsertTag(id, tag, func(i int) int { return i + sign })
 }
 
 type deliveryChan chan<- peer.AddrInfo

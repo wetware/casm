@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -148,7 +149,7 @@ func TestEventsEmitted(t *testing.T) {
 
 	t.Run("EventLeave", func(t *testing.T) {
 		for _, s := range tc.hs[0].Network().Conns()[0].GetStreams() {
-			if s.Protocol() == net.ProtocolID {
+			if strings.HasPrefix(string(s.Protocol()), string(net.BaseProto)) {
 				require.NoError(t, s.Reset())
 			}
 		}

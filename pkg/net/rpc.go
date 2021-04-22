@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/helpers"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/libp2p/go-libp2p-core/record"
+	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
 
 /*
@@ -35,13 +37,63 @@ import (
  */
 
 const (
-	ProtocolID protocol.ID = "/casm/net"
-	SampleID               = ProtocolID + "/sample"
+	ProtocolVersion             = "0.0.0"
+	BaseProto       protocol.ID = "/casm/net"
 
 	defaultSampleLimit       = 1
 	defaultSampleDepth       = 7
 	defaultSampleStepTimeout = time.Second * 30
 )
+
+var (
+	// sampleProto and joinProto are not used for routing.  Their only
+	// purpose is to serve as a key when (un)registering protocol handlers.
+	//
+	// They should never appear on the wire.
+	joinProto   = protoutil.Join(BaseProto, "join")
+	sampleProto = protoutil.Join(BaseProto, "sample")
+
+	versionProto protocol.ID = protoutil.Join(BaseProto, protocol.ID(ProtocolVersion))
+	matchVersion func(string) bool
+)
+
+func init() {
+	var err error
+	if matchVersion, err = helpers.MultistreamSemverMatcher(
+		protoutil.Join(BaseProto, protocol.ID(ProtocolVersion)),
+	); err != nil {
+		panic(err)
+	}
+}
+
+/*
+ * Protocol Routing
+ */
+
+func (o *Overlay) matchJoin(s string) bool {
+	//	/casm/net/<version>/<ns>
+	base, subproto := protoutil.Split(protocol.ID(s))
+	if matchVersion(string(base)) && string(subproto) == o.ns {
+		return true
+	}
+
+	return false
+}
+
+func (o *Overlay) matchSample(s string) bool {
+	//	/casm/net/<version>/<ns>/sample
+	base, subproto := protoutil.Split(protocol.ID(s))
+	if subproto != "sample" {
+		return false
+	}
+
+	//	/casm/net/<version>/<ns>
+	return o.matchJoin(string(base))
+}
+
+/*
+ * Random-Walk implementation (sample).
+ */
 
 type (
 	deliverer interface {
@@ -88,10 +140,11 @@ type randWalk struct {
 	sd    streamDialer
 	peer  peer.ID
 	d     deliverer
+	proto protocol.ID
 }
 
 func (w randWalk) Step(ctx context.Context) error {
-	s, err := w.sd.NewStream(ctx, w.peer, SampleID)
+	s, err := w.sd.NewStream(ctx, w.peer, w.proto)
 	if err != nil {
 		return err
 	}
@@ -202,6 +255,7 @@ func (ss *sampleStep) Next(s network.Stream, h host.Host, peer peer.ID) stepper 
 			depth: ss.Depth - 1,
 			d:     deliveryStream{s: s, h: h},
 			sd:    h,
+			proto: s.Protocol(),
 		}
 	}
 

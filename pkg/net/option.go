@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
+	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
 
 var globalRand *rand.Rand
@@ -66,15 +68,31 @@ func WithRand(r *rand.Rand) Option {
 	}
 }
 
-// populate logger with fields set by options
-func setLogFields(o *Overlay) { o.log = o.log.With(o) }
-
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
 		WithNamespace(""),
 		WithLogger(Logger{}),
 		WithRand(nil),
-	}, append(opt, setLogFields)...)
+	}, append(opt, setLogFields, setProto)...)
+}
+
+// populate logger with fields set by options
+func setLogFields(o *Overlay) {
+	// Include only static properties in the base logger.  In particular,
+	// do not set the 'edges' field.
+	o.log = o.log.With(log.F{
+		"type": "casm.net.overlay",
+		"id":   o.h.ID(),
+		"ns":   o.ns,
+	})
+}
+
+// populate the overlay's protocol base path based on namespace to:
+//
+//	/casm/net/<version>/<namespace>
+//
+func setProto(o *Overlay) {
+	o.proto = protoutil.Join(versionProto, protocol.ID(o.ns))
 }
 
 /*
