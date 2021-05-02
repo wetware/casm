@@ -1,6 +1,7 @@
 package net
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"io/ioutil"
@@ -52,6 +53,7 @@ var (
 	// They should never appear on the wire.
 	joinProto   = protoutil.Join(BaseProto, "join")
 	sampleProto = protoutil.Join(BaseProto, "sample")
+	gossipProto = protoutil.Join(BaseProto, "gossip")
 
 	versionProto protocol.ID = protoutil.Join(BaseProto, protocol.ID(ProtocolVersion))
 	matchVersion func(string) bool
@@ -84,6 +86,17 @@ func (o *Overlay) matchSample(s string) bool {
 	//	/casm/net/<version>/<ns>/sample
 	base, subproto := protoutil.Split(protocol.ID(s))
 	if subproto != "sample" {
+		return false
+	}
+
+	//	/casm/net/<version>/<ns>
+	return o.matchJoin(string(base))
+}
+
+func (o *Overlay) matchGossip(s string) bool {
+	//	/casm/net/<version>/<ns>/gossip
+	base, subproto := protoutil.Split(protocol.ID(s))
+	if subproto != "gossip" {
 		return false
 	}
 
@@ -277,4 +290,98 @@ func (c randChoice) Step(ctx context.Context) error {
 		PeerID: c.peer,
 		Addrs:  c.h.Peerstore().Addrs(c.peer),
 	})
+}
+
+type gossip struct {
+	n     *neighborhood
+	sd    streamDialer
+	h     host.Host
+	peer  peer.ID
+	proto protocol.ID
+}
+
+func (g gossip) PushPull(ctx context.Context) ([]*peer.PeerRecord, error) {
+	s, err := g.sd.NewStream(ctx, g.peer, g.proto)
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+
+	if err = g.Push(ctx, s); err != nil {
+		return nil, err
+	}
+	return g.Pull(ctx, s)
+}
+
+func (g gossip) Push(ctx context.Context, s network.Stream) error {
+	peers := g.n.Peers()
+	peerAmount := len(peers)
+	err := binary.Write(s, binary.BigEndian, peerAmount)
+	if err != nil {
+		return err
+	}
+	for _, rec := range peers {
+		rec.Addrs = g.h.Peerstore().Addrs(rec.PeerID)
+		err = g.sendRecord(ctx, s, rec)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (g gossip) Pull(ctx context.Context, s network.Stream) ([]*peer.PeerRecord, error) {
+	// receive records
+	var amount int
+	err := binary.Read(s, binary.BigEndian, &amount)
+	if err != nil {
+		return nil, err
+	}
+	peers := make([]*peer.PeerRecord, amount)
+	for i := 0; i < amount; i++ {
+		rec, err := g.recvRecord(s)
+		if err != nil {
+			return nil, err
+		}
+		peers[i] = rec
+	}
+	return peers, nil
+}
+
+func (g gossip) sendRecord(ctx context.Context, s network.Stream, rec *peer.PeerRecord) error {
+	env, err := record.Seal(rec, g.h.Peerstore().PrivKey(g.h.ID()))
+	if err != nil {
+		return err
+	}
+
+	b, err := env.Marshal()
+	if err != nil {
+		return err
+	}
+
+	if t, ok := ctx.Deadline(); ok {
+		if err = s.SetWriteDeadline(t); err != nil {
+			return err
+		}
+	}
+
+	return binary.Write(s, binary.BigEndian, b)
+}
+
+func (g gossip) recvRecord(s network.Stream) (*peer.PeerRecord, error) {
+	buf := new(bytes.Buffer)
+	err := binary.Read(s, binary.BigEndian, &buf)
+	if err != nil {
+		return nil, err
+	}
+	_, rec, err := record.ConsumeEnvelope(buf.Bytes(), peer.PeerRecordEnvelopeDomain)
+	if err != nil {
+		return nil, err
+	}
+	rec, ok := rec.(*peer.PeerRecord)
+	if !ok {
+
+		return nil, err
+	}
+	return rec.(*peer.PeerRecord), nil
 }

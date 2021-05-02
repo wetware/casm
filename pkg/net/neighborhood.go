@@ -175,6 +175,20 @@ func (n *neighborhood) Handle(ctx context.Context, log Logger, h host.Host, s ne
 	}
 }
 
+func (n *neighborhood) Peers() []*peer.PeerRecord {
+	es := n.vtx.Load()
+	peers := make([]*peer.PeerRecord, len(es))
+
+	i := 0
+	for p := range es {
+		peers[i] = peer.NewPeerRecord()
+		peers[i].PeerID = p
+		// TODO: Addrs is filled outside this function, by the caller
+		i++
+	}
+	return peers
+}
+
 type vertex struct {
 	r     *rand.Rand
 	value atomic.Value
@@ -200,6 +214,9 @@ func (vtx *vertex) Random() (edge, bool) {
 		slice[i], slice[j] = slice[j], slice[i]
 	})
 
+	if len(slice) == 0 {
+		return edge{}, false
+	}
 	return slice[0], true
 }
 

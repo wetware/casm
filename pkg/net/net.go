@@ -3,7 +3,6 @@ package net
 
 import (
 	"context"
-
 	"github.com/jbenet/goprocess"
 	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p-core/discovery"
@@ -13,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
+	"time"
 
 	ctxutil "github.com/lthibault/util/ctx"
 	syncutil "github.com/lthibault/util/sync"
@@ -62,6 +62,7 @@ func (o *Overlay) init() error {
 	// The main loop is now running, so we can start accepting streams.
 	o.h.SetStreamHandlerMatch(joinProto, o.matchJoin, o.handleJoin)
 	o.h.SetStreamHandlerMatch(sampleProto, o.matchSample, o.handleSample)
+	o.h.SetStreamHandlerMatch(gossipProto, o.matchGossip, o.handleSample)
 
 	return nil
 }
@@ -74,6 +75,61 @@ func (o *Overlay) loop(ch <-chan EvtState, state event.Emitter) {
 			}
 		}
 	}()
+
+	for {
+		time.Sleep(500 * time.Millisecond) // TODO: decide optimal tick for updating neighbors
+		peer, err := o.n.RandPeer()
+		if err != nil { // TODO: decide what to do errors
+			continue
+		}
+		peers, err := gossip{
+			o.n, o.h, o.h, peer, protoutil.Join(o.proto, "gossip"),
+		}.PushPull(o.ctx())
+		if err != nil {
+			continue
+		}
+		err = o.setNeighborhood(o.ctx(), peers)
+		if err != nil {
+			continue
+		}
+	}
+}
+
+func (o *Overlay) setNeighborhood(ctx context.Context, peers []*peer.PeerRecord) error {
+	// get new nodes
+	oldPeers := o.n.Peers()
+	newPeers := make(StaticAddrs, len(peers))
+	for _, p := range peers {
+		if !contains(oldPeers, p) {
+			newPeers = append(newPeers, peer.AddrInfo{p.PeerID, p.Addrs})
+		}
+	}
+	// get evict nodes
+	evictPeers := []*peer.PeerRecord{}
+	for _, p := range oldPeers {
+		if !contains(peers, p) {
+			evictPeers = append(evictPeers, p)
+		}
+	}
+	// join new nodes
+	err := o.Join(ctx, newPeers)
+	if err != nil {
+		return err
+	}
+	// evict old unused nodes
+	for _, p := range evictPeers {
+		o.n.Evict(ctx, p.PeerID)
+	}
+	return nil
+}
+
+func contains(peers []*peer.PeerRecord, rec *peer.PeerRecord) bool {
+	for _, p := range peers {
+		if p.PeerID == rec.PeerID {
+			return true
+		}
+	}
+	return false
 }
 
 // Loggable representation of the neighborhood
@@ -222,6 +278,27 @@ func (o *Overlay) handleSample(s network.Stream) {
 	defer s.Close()
 
 	o.n.Handle(o.ctx(), o.log.WithStream(s), o.h, s)
+}
+
+func (o *Overlay) handleGossip(s network.Stream) error {
+	defer s.Close()
+
+	g := gossip{
+		o.n, o.h, o.h, s.Conn().RemotePeer(), protoutil.Join(o.proto, "gossip"),
+	}
+	peers, err := g.Pull(o.ctx(), s)
+	if err != nil {
+		return err
+	}
+	err = g.Push(o.ctx(), s)
+	if err != nil {
+		return err
+	}
+	err = o.setNeighborhood(o.ctx(), peers)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 type deliveryChan chan<- peer.AddrInfo
