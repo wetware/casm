@@ -189,6 +189,10 @@ func (n *neighborhood) Peers() []*peer.PeerRecord {
 	return peers
 }
 
+func (n *neighborhood) MaxSize() int {
+	return 5 // TODO: decide maximum neighbor amounts
+}
+
 type vertex struct {
 	r     *rand.Rand
 	value atomic.Value

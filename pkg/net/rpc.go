@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"io/ioutil"
+	"sort"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
@@ -345,7 +346,12 @@ func (g gossip) Pull(ctx context.Context, s network.Stream) ([]*peer.PeerRecord,
 		}
 		peers[i] = rec
 	}
-	return peers, nil
+	// merge with local neighbors and filter out best peers
+	peers = append(peers, g.n.Peers()...)
+	sort.Slice(peers, func(i, j int) bool {
+		return peers[i].Seq > peers[j].Seq
+	})
+	return peers[:g.n.MaxSize()], nil
 }
 
 func (g gossip) sendRecord(ctx context.Context, s network.Stream, rec *peer.PeerRecord) error {
