@@ -62,7 +62,7 @@ func (o *Overlay) init() error {
 	// The main loop is now running, so we can start accepting streams.
 	o.h.SetStreamHandlerMatch(joinProto, o.matchJoin, o.handleJoin)
 	o.h.SetStreamHandlerMatch(sampleProto, o.matchSample, o.handleSample)
-	o.h.SetStreamHandlerMatch(gossipProto, o.matchGossip, o.handleSample)
+	o.h.SetStreamHandlerMatch(gossipProto, o.matchGossip, o.handleGossip)
 
 	return nil
 }
@@ -280,7 +280,7 @@ func (o *Overlay) handleSample(s network.Stream) {
 	o.n.Handle(o.ctx(), o.log.WithStream(s), o.h, s)
 }
 
-func (o *Overlay) handleGossip(s network.Stream) error {
+func (o *Overlay) handleGossip(s network.Stream) {
 	defer s.Close()
 
 	g := gossip{
@@ -288,17 +288,16 @@ func (o *Overlay) handleGossip(s network.Stream) error {
 	}
 	peers, err := g.Pull(o.ctx(), s)
 	if err != nil {
-		return err
+		return
 	}
 	err = g.Push(o.ctx(), s)
 	if err != nil {
-		return err
+		return
 	}
 	err = o.setNeighborhood(o.ctx(), peers)
 	if err != nil {
-		return err
+		return
 	}
-	return nil
 }
 
 type deliveryChan chan<- peer.AddrInfo
