@@ -69,34 +69,6 @@ func TestJoin(t *testing.T) {
 	})
 }
 
-func TestFindPeers(t *testing.T) {
-	t.Parallel()
-
-	const n = 5
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	tc, err := newTestCluster(ctx, n)
-	require.NoError(t, err)
-	defer tc.Close()
-
-	err = tc.ConnectStar(ctx)
-	require.NoError(t, err)
-
-	// See if the first overlay can discovery all of the others through
-	// a flood-search of 10*n random-walks.
-	ch, err := tc.os[0].FindPeers(ctx, "", discovery.Limit(10*n))
-	require.NoError(t, err)
-
-	var ps = map[peer.ID]struct{}{}
-	for info := range ch {
-		ps[info.ID] = struct{}{}
-	}
-
-	require.Len(t, ps, n)
-}
-
 func TestEventsEmitted(t *testing.T) {
 	t.Parallel()
 

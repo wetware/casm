@@ -12,8 +12,12 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
+	"golang.org/x/sync/errgroup"
+	"math/rand"
+	"sort"
 	"time"
 
+	"github.com/lthibault/jitterbug"
 	ctxutil "github.com/lthibault/util/ctx"
 	syncutil "github.com/lthibault/util/sync"
 )
@@ -61,7 +65,6 @@ func (o *Overlay) init() error {
 
 	// The main loop is now running, so we can start accepting streams.
 	o.h.SetStreamHandlerMatch(joinProto, o.matchJoin, o.handleJoin)
-	o.h.SetStreamHandlerMatch(sampleProto, o.matchSample, o.handleSample)
 	o.h.SetStreamHandlerMatch(gossipProto, o.matchGossip, o.handleGossip)
 
 	return nil
@@ -76,54 +79,68 @@ func (o *Overlay) loop(ch <-chan EvtState, state event.Emitter) {
 		}
 	}()
 
+	o.gossipLoop()
+}
+
+func (o *Overlay) gossipLoop() {
+	b := newBackoff(time.Millisecond*500, time.Minute, 2)
+	ticker := jitterbug.New(time.Millisecond*500, b)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(500 * time.Millisecond) // TODO: decide optimal tick for updating neighbors
-		peer, err := o.n.RandPeer()
-		if err != nil { // TODO: decide what to do errors
-			continue
-		}
-		peers, err := gossip{
-			o.n, o.h, o.h, peer, protoutil.Join(o.proto, "gossip"),
-		}.PushPull(o.ctx())
-		if err != nil {
-			continue
-		}
-		err = o.setNeighborhood(o.ctx(), peers)
-		if err != nil {
-			continue
+		b.SetSteadyState(o.n.MaxLen() <= o.n.Len())
+		select {
+		case <-o.proc.Closing():
+			return
+		case <-ticker.C:
+			p, err := o.n.RandPeer()
+			if err != nil {
+				o.log.WithError(err)
+				continue
+			}
+			recs, err := gossip{
+				o.n, o.h, o.h, p, protoutil.Join(o.proto, "gossip"),
+			}.PushPull(o.ctx())
+			if err != nil {
+				o.log.WithError(err)
+				continue
+			}
+			err = o.setNeighborhood(o.ctx(), recs)
+			if err != nil {
+				o.log.WithError(err)
+				continue
+			}
+			b.Reset()
 		}
 	}
 }
 
-func (o *Overlay) setNeighborhood(ctx context.Context, peers []*peer.PeerRecord) error {
-	// get new nodes
-	oldPeers := o.n.Peers()
-	newPeers := make(StaticAddrs, len(peers))
-	for _, p := range peers {
-		if !contains(oldPeers, p) {
-			newPeers = append(newPeers, peer.AddrInfo{p.PeerID, p.Addrs})
+func (o *Overlay) setNeighborhood(ctx context.Context, recs recordSlice) error {
+	oldRecs := o.n.Records()
+	newRecs := make(StaticAddrs, len(recs))
+	for _, p := range recs {
+		if !contains(oldRecs, p) {
+			newRecs = append(newRecs, peer.AddrInfo{p.PeerID, p.Addrs})
 		}
 	}
-	// get evict nodes
-	evictPeers := []*peer.PeerRecord{}
-	for _, p := range oldPeers {
-		if !contains(peers, p) {
-			evictPeers = append(evictPeers, p)
+	evictRecs := recordSlice{}
+	for _, p := range oldRecs {
+		if !contains(recs, p) {
+			evictRecs = append(evictRecs, p)
 		}
 	}
-	// join new nodes
-	err := o.Join(ctx, newPeers)
+	err := o.Join(ctx, newRecs)
 	if err != nil {
 		return err
 	}
-	// evict old unused nodes
-	for _, p := range evictPeers {
-		o.n.Evict(ctx, p.PeerID)
+
+	for _, rec := range evictRecs {
+		o.n.Evict(ctx, rec.PeerID)
 	}
 	return nil
 }
 
-func contains(peers []*peer.PeerRecord, rec *peer.PeerRecord) bool {
+func contains(peers recordSlice, rec *peer.PeerRecord) bool {
 	for _, p := range peers {
 		if p.PeerID == rec.PeerID {
 			return true
@@ -144,7 +161,7 @@ func (o *Overlay) Loggable() map[string]interface{} {
 // Close the overlay network, freeing all resources.  Does not close the
 // underlying host.
 func (o *Overlay) Close() error {
-	for _, id := range []protocol.ID{joinProto, sampleProto} {
+	for _, id := range []protocol.ID{joinProto, gossipProto} {
 		o.h.RemoveStreamHandler(id)
 	}
 
@@ -207,94 +224,63 @@ func (o *Overlay) join(ctx context.Context, info peer.AddrInfo) func() error {
 	}
 }
 
-// FindPeers in the overlay by performing a random walk.  The ns value
-// is ignored.  The discovery.TTL option is not supported and returns
-// an error.
-//
-// FindPeers satisfies discovery.Discoverer, making it possible to pass
-// an overlay to its own Join method.
-func (o *Overlay) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	var options sampleOpts
-	if err := options.Apply(opt...); err != nil {
-		return nil, err
-	}
-
-	var (
-		j  syncutil.Join
-		ch = make(chan peer.AddrInfo, options.Limit)
-	)
-
-	for i := 0; i < options.Breadth(); i++ {
-		j.Go(o.sample(ctx, ch, options.Depth()))
-	}
-
-	go func() {
-		defer close(ch)
-
-		if err := j.Wait(); err != nil {
-			o.log.WithError(err).Debug("error encountered while sampling")
-		}
-	}()
-
-	return ch, nil
-}
-
-func (o *Overlay) sample(ctx context.Context, ch chan<- peer.AddrInfo, d uint8) func() error {
-	return func() error {
-		peer, err := o.n.RandPeer()
-		if err != nil {
-			return err
-		}
-
-		return randWalk{
-			peer:  peer,
-			depth: d,
-			d:     deliveryChan(ch),
-			sd:    o.h,
-			proto: protoutil.Join(o.proto, "sample"),
-		}.Step(ctx)
-	}
-}
-
 func (o *Overlay) ctx() context.Context {
 	return ctxutil.FromChan(o.proc.Closing())
 }
 
 func (o *Overlay) handleJoin(s network.Stream) {
 	defer s.Close()
+	rec := o.newRecordFromStream(s)
+	if o.n.Len() < o.n.MaxLen() {
+		neighbors := o.n.Records()
+		if arePeersNear(o.h.ID(), rec.PeerID) {
+			sort.Sort(neighbors)
+			o.n.Evict(o.ctx(), neighbors[len(neighbors)-1].PeerID)
+		} else {
+			rand.Seed(time.Now().Unix())
+			o.n.Evict(o.ctx(), neighbors[rand.Intn(len(neighbors))].PeerID)
+		}
+	}
+	if ctx, ok := o.n.Lease(o.ctx(), s, rec); ok {
+		p := s.Conn().RemotePeer()
+		defer o.n.Evict(o.ctx(), p)
 
-	if ctx, ok := o.n.Lease(o.ctx(), s); ok {
-		peer := s.Conn().RemotePeer()
-		defer o.n.Evict(o.ctx(), peer)
-
-		o.h.ConnManager().Protect(peer, tag)
-		defer o.h.ConnManager().Unprotect(peer, tag)
+		o.h.ConnManager().Protect(p, tag)
+		defer o.h.ConnManager().Unprotect(p, tag)
 
 		<-ctx.Done()
 	}
 }
 
-func (o *Overlay) handleSample(s network.Stream) {
-	defer s.Close()
-
-	o.n.Handle(o.ctx(), o.log.WithStream(s), o.h, s)
+func (o *Overlay) newRecordFromStream(s network.Stream) *peer.PeerRecord {
+	peerId := s.Conn().RemotePeer()
+	return &peer.PeerRecord{PeerID: peerId, Addrs: o.h.Peerstore().Addrs(peerId), Seq: 1}
 }
 
 func (o *Overlay) handleGossip(s network.Stream) {
 	defer s.Close()
 
+	gr, ctx := errgroup.WithContext(o.ctx())
+
 	g := gossip{
-		o.n, o.h, o.h, s.Conn().RemotePeer(), protoutil.Join(o.proto, "gossip"),
+		o.n, o.h, o.h, s.Conn().RemotePeer(), s.Protocol(),
 	}
-	peers, err := g.Pull(o.ctx(), s)
+	var recs recordSlice
+
+	gr.Go(func() error {
+		var err error
+		recs, err = g.Pull(ctx, s)
+		return err
+	})
+	gr.Go(func() error {
+		err := g.Push(ctx, s)
+		return err
+	})
+	err := gr.Wait()
 	if err != nil {
 		return
 	}
-	err = g.Push(o.ctx(), s)
-	if err != nil {
-		return
-	}
-	err = o.setNeighborhood(o.ctx(), peers)
+	err = o.setNeighborhood(o.ctx(), recs)
 	if err != nil {
 		return
 	}
