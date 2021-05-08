@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"sort"
+
 	"github.com/libp2p/go-libp2p-core/helpers"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
@@ -12,8 +14,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/record"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
 	"golang.org/x/sync/errgroup"
-	"math/rand"
-	"sort"
 )
 
 /*
@@ -87,6 +87,7 @@ type gossip struct {
 	h      host.Host
 	peerID peer.ID
 	proto  protocol.ID
+	r      *atomicRand
 }
 
 func (g gossip) PushPull(ctx context.Context) (recordSlice, error) {
@@ -143,7 +144,7 @@ func (g gossip) Pull(ctx context.Context, s network.Stream) (recordSlice, error)
 	recs = append(recs, g.n.Records()...)
 	sort.Sort(recs)
 	if arePeersNear(g.h.ID(), g.peerID) {
-		rand.Shuffle(len(recs), func(i, j int) {
+		g.r.Shuffle(len(recs), func(i, j int) {
 			recs[i], recs[j] = recs[j], recs[i]
 		})
 	}

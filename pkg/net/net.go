@@ -3,6 +3,9 @@ package net
 
 import (
 	"context"
+	"sort"
+	"time"
+
 	"github.com/jbenet/goprocess"
 	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p-core/discovery"
@@ -13,9 +16,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/protocol"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
 	"golang.org/x/sync/errgroup"
-	"math/rand"
-	"sort"
-	"time"
 
 	"github.com/lthibault/jitterbug"
 	ctxutil "github.com/lthibault/util/ctx"
@@ -26,6 +26,7 @@ const tag = "casm.net/neighborhood"
 
 type Overlay struct {
 	log Logger
+	r   *atomicRand
 
 	h    host.Host
 	proc goprocess.Process
@@ -83,70 +84,57 @@ func (o *Overlay) loop(ch <-chan EvtState, state event.Emitter) {
 }
 
 func (o *Overlay) gossipLoop() {
-	b := newBackoff(time.Millisecond*500, time.Minute, 2)
-	ticker := jitterbug.New(time.Millisecond*500, b)
+	var (
+		proto  = protoutil.Join(o.proto, "gossip")
+		bo     = newBackoff(time.Millisecond*500, time.Minute)
+		ticker = jitterbug.New(time.Millisecond*500, bo)
+	)
+
 	defer ticker.Stop()
 
 	for {
-		b.SetSteadyState(o.n.MaxLen() <= o.n.Len())
+		bo.SetSteadyState(o.n.MaxLen() <= o.n.Len())
 		select {
 		case <-o.proc.Closing():
 			return
 		case <-ticker.C:
 			p, err := o.n.RandPeer()
 			if err != nil {
-				o.log.WithError(err)
 				continue
 			}
 			recs, err := gossip{
-				o.n, o.h, o.h, p, protoutil.Join(o.proto, "gossip"),
+				o.n, o.h, o.h, p, proto, o.r,
 			}.PushPull(o.ctx())
 			if err != nil {
-				o.log.WithError(err)
+				o.log.WithError(err).Error("remote exchange failed")
 				continue
 			}
 			err = o.setNeighborhood(o.ctx(), recs)
 			if err != nil {
-				o.log.WithError(err)
+				o.log.WithError(err).Error("neighborhood update went wrong")
 				continue
 			}
-			b.Reset()
+			bo.Reset()
 		}
 	}
 }
 
 func (o *Overlay) setNeighborhood(ctx context.Context, recs recordSlice) error {
 	oldRecs := o.n.Records()
-	newRecs := make(StaticAddrs, len(recs))
-	for _, p := range recs {
-		if !contains(oldRecs, p) {
-			newRecs = append(newRecs, peer.AddrInfo{p.PeerID, p.Addrs})
-		}
+	leasePeers := make(StaticAddrs, 0, len(recs))
+	for _, rec := range recs.subtract(oldRecs) {
+		leasePeers = append(leasePeers, peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs})
 	}
-	evictRecs := recordSlice{}
-	for _, p := range oldRecs {
-		if !contains(recs, p) {
-			evictRecs = append(evictRecs, p)
-		}
-	}
-	err := o.Join(ctx, newRecs)
+	err := o.Join(ctx, leasePeers)
 	if err != nil {
 		return err
 	}
 
-	for _, rec := range evictRecs {
+	evictPeers := oldRecs.subtract(recs)
+	for _, rec := range evictPeers {
 		o.n.Evict(ctx, rec.PeerID)
 	}
 	return nil
-}
-
-func contains(peers recordSlice, rec *peer.PeerRecord) bool {
-	for _, p := range peers {
-		if p.PeerID == rec.PeerID {
-			return true
-		}
-	}
-	return false
 }
 
 // Loggable representation of the neighborhood
@@ -237,8 +225,7 @@ func (o *Overlay) handleJoin(s network.Stream) {
 			sort.Sort(neighbors)
 			o.n.Evict(o.ctx(), neighbors[len(neighbors)-1].PeerID)
 		} else {
-			rand.Seed(time.Now().Unix())
-			o.n.Evict(o.ctx(), neighbors[rand.Intn(len(neighbors))].PeerID)
+			o.n.Evict(o.ctx(), neighbors[o.r.Intn(len(neighbors))].PeerID)
 		}
 	}
 	if ctx, ok := o.n.Lease(o.ctx(), s, rec); ok {
@@ -263,18 +250,16 @@ func (o *Overlay) handleGossip(s network.Stream) {
 	gr, ctx := errgroup.WithContext(o.ctx())
 
 	g := gossip{
-		o.n, o.h, o.h, s.Conn().RemotePeer(), s.Protocol(),
+		o.n, o.h, o.h, s.Conn().RemotePeer(), s.Protocol(), o.r,
 	}
 	var recs recordSlice
 
-	gr.Go(func() error {
-		var err error
+	gr.Go(func() (err error) {
 		recs, err = g.Pull(ctx, s)
-		return err
+		return
 	})
 	gr.Go(func() error {
-		err := g.Push(ctx, s)
-		return err
+		return g.Push(ctx, s)
 	})
 	err := gr.Wait()
 	if err != nil {
@@ -283,16 +268,5 @@ func (o *Overlay) handleGossip(s network.Stream) {
 	err = o.setNeighborhood(o.ctx(), recs)
 	if err != nil {
 		return
-	}
-}
-
-type deliveryChan chan<- peer.AddrInfo
-
-func (ch deliveryChan) Deliver(ctx context.Context, rec *peer.PeerRecord) error {
-	select {
-	case ch <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }

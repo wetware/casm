@@ -5,23 +5,24 @@ import (
 	"time"
 )
 
+const Factor = 2
+
 type backoff struct {
 	current time.Duration
 	min     time.Duration
 	max     time.Duration
 
-	factor   int64
 	isSteady bool
 	mu       sync.Mutex
 }
 
-func newBackoff(min, max time.Duration, factor int64) *backoff {
-	return &backoff{min: min, max: max, current: min, factor: factor, isSteady: false}
+func newBackoff(min, max time.Duration) *backoff {
+	return &backoff{min: min, max: max, current: min}
 }
 
 func (b *backoff) Jitter(time.Duration) time.Duration {
 	b.mu.Lock()
-	b.current = minDuration(time.Duration(b.current.Nanoseconds()*b.factor), b.max)
+	b.current = minDuration(time.Duration(b.current.Nanoseconds()*Factor), b.max)
 	b.mu.Unlock()
 	return b.current
 }
