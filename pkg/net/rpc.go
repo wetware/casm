@@ -143,7 +143,7 @@ func (g gossip) Pull(ctx context.Context, s network.Stream) (recordSlice, error)
 	}
 	recs = append(recs, g.n.Records()...)
 	sort.Sort(recs)
-	if arePeersNear(g.h.ID(), g.peerID) {
+	if peersAreNear(g.h.ID(), g.peerID) {
 		g.r.Shuffle(len(recs), func(i, j int) {
 			recs[i], recs[j] = recs[j], recs[i]
 		})

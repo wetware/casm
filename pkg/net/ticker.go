@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-const Factor = 2
-
 type backoff struct {
 	current time.Duration
 	min     time.Duration
@@ -22,7 +20,7 @@ func newBackoff(min, max time.Duration) *backoff {
 
 func (b *backoff) Jitter(time.Duration) time.Duration {
 	b.mu.Lock()
-	b.current = minDuration(time.Duration(b.current.Nanoseconds()*Factor), b.max)
+	b.current = minDuration(time.Duration(b.current.Nanoseconds()*2), b.max) // duration is doubled until the limit is reached
 	b.mu.Unlock()
 	return b.current
 }

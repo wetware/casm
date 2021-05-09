@@ -46,7 +46,7 @@ func TestJoin(t *testing.T) {
 	t.Run("WithPeers", func(t *testing.T) {
 		t.Parallel()
 
-		const n = 3
+		const n = 3 // In order to work, this must be smaller than neighborhood's MaxSize()
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -77,9 +77,9 @@ type atomicRand struct {
 
 func (ar *atomicRand) Intn(n int) int {
 	ar.mu.Lock()
-	result := ar.r.Intn(n)
-	ar.mu.Unlock()
-	return result
+	defer ar.mu.Unlock()
+
+	return ar.r.Intn(n)
 }
 
 func (ar *atomicRand) Shuffle(n int, swap func(i, j int)) {

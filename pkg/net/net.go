@@ -98,7 +98,7 @@ func (o *Overlay) gossipLoop() {
 		case <-o.proc.Closing():
 			return
 		case <-ticker.C:
-			p, err := o.n.RandPeer()
+			p, err := o.n.RandPeer() // err is non-nil iff neighborhood is empty
 			if err != nil {
 				continue
 			}
@@ -219,9 +219,9 @@ func (o *Overlay) ctx() context.Context {
 func (o *Overlay) handleJoin(s network.Stream) {
 	defer s.Close()
 	rec := o.newRecordFromStream(s)
-	if o.n.Len() < o.n.MaxLen() {
+	if o.n.MaxLen() <= o.n.Len() {
 		neighbors := o.n.Records()
-		if arePeersNear(o.h.ID(), rec.PeerID) {
+		if peersAreNear(o.h.ID(), rec.PeerID) {
 			sort.Sort(neighbors)
 			o.n.Evict(o.ctx(), neighbors[len(neighbors)-1].PeerID)
 		} else {

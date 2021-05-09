@@ -15,7 +15,7 @@ import (
 	ctxutil "github.com/lthibault/util/ctx"
 )
 
-const MaxNeighborsAmount = 5 // TODO: decide the best amount
+const maxNeighbors = 5 // TODO: decide the best amount
 
 type recordSlice []*peer.PeerRecord
 
@@ -188,7 +188,7 @@ func (n *neighborhood) Records() recordSlice {
 }
 
 func (n *neighborhood) MaxLen() int {
-	return MaxNeighborsAmount
+	return maxNeighbors
 }
 
 func (n *neighborhood) Len() int {
@@ -361,7 +361,7 @@ func (req leaseRequest) fail() {
 	close(req.edge.cq)
 }
 
-func arePeersNear(id1 peer.ID, id2 peer.ID) bool {
+func peersAreNear(id1 peer.ID, id2 peer.ID) bool {
 	id1Bytes, _ := id1.MarshalBinary()
 	id2Bytes, _ := id2.MarshalBinary()
 	xorId := xorShortestBytes(id1Bytes, id2Bytes)
