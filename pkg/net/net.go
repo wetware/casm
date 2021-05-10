@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/jbenet/goprocess"
 	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p-core/discovery"
@@ -14,8 +16,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
-	protoutil "github.com/wetware/casm/pkg/util/proto"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/lthibault/jitterbug"
 	ctxutil "github.com/lthibault/util/ctx"
@@ -84,11 +84,8 @@ func (o *Overlay) loop(ch <-chan EvtState, state event.Emitter) {
 }
 
 func (o *Overlay) gossipLoop() {
-	var (
-		proto  = protoutil.Join(o.proto, "gossip")
-		bo     = newBackoff(time.Millisecond*500, time.Minute)
-		ticker = jitterbug.New(time.Millisecond*500, bo)
-	)
+	bo := newBackoff(time.Millisecond*500, time.Minute)
+	ticker := jitterbug.New(time.Millisecond*500, bo)
 
 	defer ticker.Stop()
 
@@ -102,8 +99,14 @@ func (o *Overlay) gossipLoop() {
 			if err != nil {
 				continue
 			}
-			recs, err := gossip{
-				o.n, o.h, o.h, p, proto, o.r,
+			s, err := o.h.NewStream(o.ctx(), p, gossipProto)
+			if err != nil {
+				o.log.WithError(err).Error("opening of gossiper stream failed")
+				continue
+			}
+
+			recs, err := gossiper{
+				o.n, o.h, s, o.r,
 			}.PushPull(o.ctx())
 			if err != nil {
 				o.log.WithError(err).Error("remote exchange failed")
@@ -249,17 +252,17 @@ func (o *Overlay) handleGossip(s network.Stream) {
 
 	gr, ctx := errgroup.WithContext(o.ctx())
 
-	g := gossip{
-		o.n, o.h, o.h, s.Conn().RemotePeer(), s.Protocol(), o.r,
+	g := gossiper{
+		o.n, o.h, s, o.r,
 	}
 	var recs recordSlice
 
 	gr.Go(func() (err error) {
-		recs, err = g.Pull(ctx, s)
+		recs, err = g.pull(ctx)
 		return
 	})
 	gr.Go(func() error {
-		return g.Push(ctx, s)
+		return g.push(ctx)
 	})
 	err := gr.Wait()
 	if err != nil {

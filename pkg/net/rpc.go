@@ -72,54 +72,38 @@ func (o *Overlay) matchGossip(s string) bool {
 }
 
 /*
- * Gossiping implementation (gossip).
+ * Gossiping implementation.
  */
 
-type (
-	streamDialer interface {
-		NewStream(context.Context, peer.ID, ...protocol.ID) (network.Stream, error)
-	}
-)
-
-type gossip struct {
-	n      *neighborhood
-	sd     streamDialer
-	h      host.Host
-	peerID peer.ID
-	proto  protocol.ID
-	r      *atomicRand
+type gossiper struct {
+	n *neighborhood
+	h host.Host
+	s network.Stream
+	r *atomicRand
 }
 
-func (g gossip) PushPull(ctx context.Context) (recordSlice, error) {
-	s, err := g.sd.NewStream(ctx, g.peerID, g.proto)
-	if err != nil {
-		return nil, err
-	}
-	defer s.Close()
+func (g gossiper) PushPull(ctx context.Context) (recordSlice, error) {
 	gr, ctx := errgroup.WithContext(ctx)
 
 	var recs recordSlice
 	gr.Go(func() error {
-		return g.Push(ctx, s)
+		return g.push(ctx)
 	})
-	gr.Go(func() error {
-		var err error
-		recs, err = g.Pull(ctx, s)
+	gr.Go(func() (err error) {
+		recs, err = g.pull(ctx)
 		return err
 	})
-	err = gr.Wait()
-	return recs, err
+	return recs, gr.Wait()
 }
 
-func (g gossip) Push(ctx context.Context, s network.Stream) error {
+func (g gossiper) push(ctx context.Context) error {
 	recs := g.n.Records()
-	err := binary.Write(s, binary.BigEndian, len(recs))
+	err := binary.Write(g.s, binary.BigEndian, len(recs))
 	if err != nil {
 		return err
 	}
 	for _, rec := range recs {
-		rec.Addrs = g.h.Peerstore().Addrs(rec.PeerID)
-		err = g.sendRecord(ctx, s, rec)
+		err = g.sendRecord(ctx, g.s, rec)
 		if err != nil {
 			return err
 		}
@@ -127,15 +111,15 @@ func (g gossip) Push(ctx context.Context, s network.Stream) error {
 	return nil
 }
 
-func (g gossip) Pull(ctx context.Context, s network.Stream) (recordSlice, error) {
+func (g gossiper) pull(ctx context.Context) (recordSlice, error) {
 	var amount int
-	err := binary.Read(s, binary.BigEndian, &amount)
+	err := binary.Read(g.s, binary.BigEndian, &amount)
 	if err != nil {
 		return nil, err
 	}
 	recs := make(recordSlice, amount)
 	for i := 0; i < amount; i++ {
-		rec, err := g.recvRecord(s)
+		rec, err := g.recvRecord(g.s)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +127,7 @@ func (g gossip) Pull(ctx context.Context, s network.Stream) (recordSlice, error)
 	}
 	recs = append(recs, g.n.Records()...)
 	sort.Sort(recs)
-	if peersAreNear(g.h.ID(), g.peerID) {
+	if peersAreNear(g.h.ID(), g.s.Conn().RemotePeer()) {
 		g.r.Shuffle(len(recs), func(i, j int) {
 			recs[i], recs[j] = recs[j], recs[i]
 		})
@@ -151,7 +135,7 @@ func (g gossip) Pull(ctx context.Context, s network.Stream) (recordSlice, error)
 	return recs[:g.n.MaxLen()], nil
 }
 
-func (g gossip) sendRecord(ctx context.Context, s network.Stream, rec *peer.PeerRecord) error {
+func (g gossiper) sendRecord(ctx context.Context, s network.Stream, rec *peer.PeerRecord) error {
 	env, err := record.Seal(rec, g.h.Peerstore().PrivKey(g.h.ID()))
 	if err != nil {
 		return err
@@ -171,7 +155,7 @@ func (g gossip) sendRecord(ctx context.Context, s network.Stream, rec *peer.Peer
 	return binary.Write(s, binary.BigEndian, b)
 }
 
-func (g gossip) recvRecord(s network.Stream) (*peer.PeerRecord, error) {
+func (g gossiper) recvRecord(s network.Stream) (*peer.PeerRecord, error) {
 	buf := new(bytes.Buffer)
 	err := binary.Read(s, binary.BigEndian, &buf)
 	if err != nil {
