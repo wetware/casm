@@ -2,9 +2,9 @@ package net
 
 import (
 	"math/rand"
+	"sync"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
@@ -62,10 +62,30 @@ func WithRand(r *rand.Rand) Option {
 
 		r = globalRand
 	}
+	ar := &atomicRand{r: r}
 
 	return func(o *Overlay) {
-		o.n.vtx.r = r
+		o.r = ar
+		o.n.vtx.r = ar
 	}
+}
+
+type atomicRand struct {
+	r  *rand.Rand
+	mu sync.Mutex
+}
+
+func (ar *atomicRand) Intn(n int) int {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+
+	return ar.r.Intn(n)
+}
+
+func (ar *atomicRand) Shuffle(n int, swap func(i, j int)) {
+	ar.mu.Lock()
+	ar.r.Shuffle(n, swap)
+	ar.mu.Unlock()
 }
 
 func withDefaults(opt []Option) []Option {
@@ -94,28 +114,3 @@ func setLogFields(o *Overlay) {
 func setProto(o *Overlay) {
 	o.proto = protoutil.Join(versionProto, protocol.ID(o.ns))
 }
-
-/*
- * Options for Overlay.Sample.
- */
-
-func SampleDepth(d uint8) discovery.Option {
-	if d == 0 {
-		d = 7
-	}
-
-	return func(opts *discovery.Options) error {
-		if opts.Other == nil {
-			opts.Other = map[interface{}]interface{}{}
-		}
-
-		opts.Other[keyDepth] = d
-		return nil
-	}
-}
-
-type sampleKey uint8
-
-const (
-	keyDepth sampleKey = iota
-)

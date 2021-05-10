@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 
@@ -15,6 +14,35 @@ import (
 	"github.com/libp2p/go-libp2p-core/record"
 	ctxutil "github.com/lthibault/util/ctx"
 )
+
+const maxNeighbors = 5 // TODO: decide the best amount
+
+type recordSlice []*peer.PeerRecord
+
+func (rs recordSlice) Len() int { return len(rs) }
+
+func (rs recordSlice) Less(i, j int) bool { return rs[i].Seq < rs[j].Seq }
+
+func (rs recordSlice) Swap(i, j int) { rs[i], rs[j] = rs[j], rs[i] }
+
+func (rs recordSlice) contains(rec *peer.PeerRecord) bool {
+	for _, p := range rs {
+		if p.PeerID == rec.PeerID {
+			return true
+		}
+	}
+	return false
+}
+
+func (rs recordSlice) subtract(rs2 recordSlice) recordSlice {
+	result := make(recordSlice, 0)
+	for _, p := range rs2 {
+		if !rs.contains(p) {
+			result = append(result, p)
+		}
+	}
+	return result
+}
 
 type neighborhood struct {
 	vtx vertex
@@ -60,7 +88,7 @@ func (n *neighborhood) TearDown(state io.Closer) goprocess.TeardownFunc {
 	}
 }
 
-// func (n *neighborhood) Neighbors() peer.IDSlice {
+// func (n *neighborhood) Records() peerID.IDSlice {
 // 	vtx := n.vtx.Load()
 // 	ns := make(peer.IDSlice, 0, len(vtx))
 // 	for id := range vtx {
@@ -71,7 +99,7 @@ func (n *neighborhood) TearDown(state io.Closer) goprocess.TeardownFunc {
 
 func (n *neighborhood) RandPeer() (peer.ID, error) {
 	if e, ok := n.vtx.Random(); ok {
-		return e.ID(), nil
+		return e.PeerID(), nil
 	}
 
 	return "", ErrNoPeers
@@ -84,8 +112,8 @@ func (n *neighborhood) Loggable() map[string]interface{} {
 	}
 }
 
-func (n *neighborhood) Lease(ctx context.Context, s network.Stream) (context.Context, bool) {
-	req := newLeaseRequest(s)
+func (n *neighborhood) Lease(ctx context.Context, s network.Stream, rec *peer.PeerRecord) (context.Context, bool) {
+	req := newLeaseRequest(s, rec)
 
 	select {
 	case <-ctx.Done():
@@ -110,17 +138,17 @@ func (n *neighborhood) handleLease(e emitter, req leaseRequest) {
 	es := n.vtx.Load()
 
 	// duplicate edge?
-	if _, ok := es[req.edge.ID()]; ok {
+	if _, ok := es[req.edge.PeerID()]; ok {
 		req.fail()
 		return
 	}
 
 	es = es.Copy()
-	es[req.edge.ID()] = req.edge
+	es[req.edge.PeerID()] = req.edge
 	n.vtx.Store(es)
 
 	req.succeed()
-	e.Emit(req.edge.ID(), EventJoined)
+	e.Emit(req.edge.PeerID(), EventJoined)
 }
 
 func (n *neighborhood) handleEvict(e emitter, id peer.ID) {
@@ -132,7 +160,7 @@ func (n *neighborhood) handleEvict(e emitter, id peer.ID) {
 		delete(es, id)
 		n.vtx.Store(es)
 
-		e.Emit(edge.ID(), EventLeft)
+		e.Emit(edge.PeerID(), EventLeft)
 	}
 }
 
@@ -149,34 +177,26 @@ func (n *neighborhood) newEmitter(p goprocess.Process, ch chan<- EvtState) emitt
 
 func (emit emitter) Emit(id peer.ID, ev Event) { emit(id, ev) }
 
-func (n *neighborhood) Handle(ctx context.Context, log Logger, h host.Host, s network.Stream) {
-	var ss sampleStep
-	if err := ss.RecvPayload(s); err != nil {
-		log.WithError(err).
-			Debug("error encountered during random walk (recv payload)")
-		return
-	}
+func (n *neighborhood) Records() recordSlice {
+	es := n.vtx.Load()
+	recs := make(recordSlice, 0, len(es))
 
-	// HACK:  the local peer can become orphaned during a walk
-	//		  if the join stream terminates concurrently.  In
-	//		  such cases, we pretend the remote peer is still a
-	//		  member of the neighborhood, and proceed as planned.
-	peer := s.Conn().RemotePeer()
-	if e, ok := n.vtx.Random(); ok {
-		peer = e.ID()
+	for _, e := range es {
+		recs = append(recs, e.Record())
 	}
+	return recs
+}
 
-	ctx, cancel := context.WithDeadline(ctx, ss.Deadline())
-	defer cancel()
+func (n *neighborhood) MaxLen() int {
+	return maxNeighbors
+}
 
-	if err := ss.Next(s, h, peer).Step(ctx); err != nil {
-		log.WithError(err).
-			Debug("error encountered during random walk (next step)")
-	}
+func (n *neighborhood) Len() int {
+	return n.vtx.Len()
 }
 
 type vertex struct {
-	r     *rand.Rand
+	r     *atomicRand
 	value atomic.Value
 }
 
@@ -200,6 +220,9 @@ func (vtx *vertex) Random() (edge, bool) {
 		slice[i], slice[j] = slice[j], slice[i]
 	})
 
+	if len(slice) == 0 {
+		return edge{}, false
+	}
 	return slice[0], true
 }
 
@@ -222,14 +245,20 @@ func (vtx *vertex) Load() edgeMap {
 	return nil
 }
 
+func (vtx *vertex) Len() int {
+	return len(vtx.Load())
+}
+
 func (vtx *vertex) Store(es edgeMap) { vtx.value.Store(es) }
 
 type edge struct {
-	cq chan struct{}
-	s  network.Stream
+	cq     chan struct{}
+	s      network.Stream
+	remote *peer.PeerRecord
 }
 
-func (e edge) ID() peer.ID              { return e.s.Conn().RemotePeer() }
+func (e edge) PeerID() peer.ID          { return e.remote.PeerID }
+func (e edge) Record() *peer.PeerRecord { return e.remote }
 func (e edge) Context() context.Context { return ctxutil.FromChan(e.cq) }
 
 func (e edge) Close() error {
@@ -301,9 +330,9 @@ type leaseRequest struct {
 	done chan context.Context
 }
 
-func newLeaseRequest(s network.Stream) leaseRequest {
+func newLeaseRequest(s network.Stream, rec *peer.PeerRecord) leaseRequest {
 	return leaseRequest{
-		edge: edge{s: s, cq: make(chan struct{})},
+		edge: edge{s: s, cq: make(chan struct{}), remote: rec},
 		done: make(chan context.Context, 1),
 	}
 }
@@ -330,4 +359,27 @@ func (req leaseRequest) succeed() {
 func (req leaseRequest) fail() {
 	close(req.done)
 	close(req.edge.cq)
+}
+
+func peersAreNear(id1 peer.ID, id2 peer.ID) bool {
+	id1Bytes, _ := id1.MarshalBinary()
+	id2Bytes, _ := id2.MarshalBinary()
+	xorId := xorShortestBytes(id1Bytes, id2Bytes)
+	return (xorId[len(xorId)-1] & 1) == 1
+}
+
+func xorShortestBytes(b1, b2 []byte) []byte {
+	if len(b1) != len(b2) {
+		shortestLen := min(len(b1), len(b2))
+		b1 = b1[:shortestLen]
+		b2 = b2[:shortestLen]
+	}
+
+	buf := make([]byte, len(b1))
+
+	for i, _ := range b1 {
+		buf[i] = b1[i] ^ b2[i]
+	}
+
+	return buf
 }

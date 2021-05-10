@@ -3,6 +3,12 @@ package net
 
 import (
 	"context"
+	"sort"
+	"time"
+
+	protoutil "github.com/wetware/casm/pkg/util/proto"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/jbenet/goprocess"
 	"github.com/libp2p/go-eventbus"
@@ -12,8 +18,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
-	protoutil "github.com/wetware/casm/pkg/util/proto"
 
+	"github.com/lthibault/jitterbug"
 	ctxutil "github.com/lthibault/util/ctx"
 	syncutil "github.com/lthibault/util/sync"
 )
@@ -22,6 +28,7 @@ const tag = "casm.net/neighborhood"
 
 type Overlay struct {
 	log Logger
+	r   *atomicRand
 
 	h    host.Host
 	proc goprocess.Process
@@ -61,7 +68,7 @@ func (o *Overlay) init() error {
 
 	// The main loop is now running, so we can start accepting streams.
 	o.h.SetStreamHandlerMatch(joinProto, o.matchJoin, o.handleJoin)
-	o.h.SetStreamHandlerMatch(sampleProto, o.matchSample, o.handleSample)
+	o.h.SetStreamHandlerMatch(gossipProto, o.matchGossip, o.handleGossip)
 
 	return nil
 }
@@ -74,6 +81,65 @@ func (o *Overlay) loop(ch <-chan EvtState, state event.Emitter) {
 			}
 		}
 	}()
+
+	o.gossipLoop()
+}
+
+func (o *Overlay) gossipLoop() {
+	bo := newBackoff(time.Millisecond*500, time.Minute)
+	ticker := jitterbug.New(time.Millisecond*500, bo)
+
+	defer ticker.Stop()
+
+	for {
+		bo.SetSteadyState(o.n.MaxLen() <= o.n.Len())
+		select {
+		case <-o.proc.Closing():
+			return
+		case <-ticker.C:
+			p, err := o.n.RandPeer() // err is non-nil iff neighborhood is empty
+			if err != nil {
+				continue
+			}
+			s, err := o.h.NewStream(o.ctx(), p, protoutil.Join(o.proto, "gossip"))
+			if err != nil {
+				o.log.WithError(err).Error("opening of gossiper stream failed")
+				continue
+			}
+
+			recs, err := gossiper{
+				o.n, o.h, s, o.r,
+			}.PushPull(o.ctx())
+			if err != nil {
+				o.log.WithError(err).Error("remote exchange failed")
+				continue
+			}
+			err = o.setNeighborhood(o.ctx(), recs)
+			if err != nil {
+				o.log.WithError(err).Error("neighborhood update went wrong")
+				continue
+			}
+			bo.Reset()
+		}
+	}
+}
+
+func (o *Overlay) setNeighborhood(ctx context.Context, recs recordSlice) error {
+	oldRecs := o.n.Records()
+	leasePeers := make(StaticAddrs, 0, len(recs))
+	for _, rec := range recs.subtract(oldRecs) {
+		leasePeers = append(leasePeers, peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs})
+	}
+	err := o.Join(ctx, leasePeers)
+	if err != nil {
+		return err
+	}
+
+	evictPeers := oldRecs.subtract(recs)
+	for _, rec := range evictPeers {
+		o.n.Evict(ctx, rec.PeerID)
+	}
+	return nil
 }
 
 // Loggable representation of the neighborhood
@@ -88,7 +154,7 @@ func (o *Overlay) Loggable() map[string]interface{} {
 // Close the overlay network, freeing all resources.  Does not close the
 // underlying host.
 func (o *Overlay) Close() error {
-	for _, id := range []protocol.ID{joinProto, sampleProto} {
+	for _, id := range []protocol.ID{joinProto, gossipProto} {
 		o.h.RemoveStreamHandler(id)
 	}
 
@@ -151,86 +217,61 @@ func (o *Overlay) join(ctx context.Context, info peer.AddrInfo) func() error {
 	}
 }
 
-// FindPeers in the overlay by performing a random walk.  The ns value
-// is ignored.  The discovery.TTL option is not supported and returns
-// an error.
-//
-// FindPeers satisfies discovery.Discoverer, making it possible to pass
-// an overlay to its own Join method.
-func (o *Overlay) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	var options sampleOpts
-	if err := options.Apply(opt...); err != nil {
-		return nil, err
-	}
-
-	var (
-		j  syncutil.Join
-		ch = make(chan peer.AddrInfo, options.Limit)
-	)
-
-	for i := 0; i < options.Breadth(); i++ {
-		j.Go(o.sample(ctx, ch, options.Depth()))
-	}
-
-	go func() {
-		defer close(ch)
-
-		if err := j.Wait(); err != nil {
-			o.log.WithError(err).Debug("error encountered while sampling")
-		}
-	}()
-
-	return ch, nil
-}
-
-func (o *Overlay) sample(ctx context.Context, ch chan<- peer.AddrInfo, d uint8) func() error {
-	return func() error {
-		peer, err := o.n.RandPeer()
-		if err != nil {
-			return err
-		}
-
-		return randWalk{
-			peer:  peer,
-			depth: d,
-			d:     deliveryChan(ch),
-			sd:    o.h,
-			proto: protoutil.Join(o.proto, "sample"),
-		}.Step(ctx)
-	}
-}
-
 func (o *Overlay) ctx() context.Context {
 	return ctxutil.FromChan(o.proc.Closing())
 }
 
 func (o *Overlay) handleJoin(s network.Stream) {
 	defer s.Close()
+	rec := o.newRecordFromStream(s)
+	neighbors := o.n.Records()
+	if o.n.MaxLen() <= len(neighbors) {
+		if peersAreNear(o.h.ID(), rec.PeerID) {
+			sort.Sort(neighbors)
+			o.n.Evict(o.ctx(), neighbors[len(neighbors)-1].PeerID)
+		} else {
+			o.n.Evict(o.ctx(), neighbors[o.r.Intn(len(neighbors))].PeerID)
+		}
+	}
+	if ctx, ok := o.n.Lease(o.ctx(), s, rec); ok {
+		p := s.Conn().RemotePeer()
+		defer o.n.Evict(o.ctx(), p)
 
-	if ctx, ok := o.n.Lease(o.ctx(), s); ok {
-		peer := s.Conn().RemotePeer()
-		defer o.n.Evict(o.ctx(), peer)
-
-		o.h.ConnManager().Protect(peer, tag)
-		defer o.h.ConnManager().Unprotect(peer, tag)
+		o.h.ConnManager().Protect(p, tag)
+		defer o.h.ConnManager().Unprotect(p, tag)
 
 		<-ctx.Done()
 	}
 }
 
-func (o *Overlay) handleSample(s network.Stream) {
-	defer s.Close()
-
-	o.n.Handle(o.ctx(), o.log.WithStream(s), o.h, s)
+func (o *Overlay) newRecordFromStream(s network.Stream) *peer.PeerRecord {
+	peerId := s.Conn().RemotePeer()
+	return &peer.PeerRecord{PeerID: peerId, Addrs: o.h.Peerstore().Addrs(peerId), Seq: 1}
 }
 
-type deliveryChan chan<- peer.AddrInfo
+func (o *Overlay) handleGossip(s network.Stream) {
+	defer s.Close()
 
-func (ch deliveryChan) Deliver(ctx context.Context, rec *peer.PeerRecord) error {
-	select {
-	case ch <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	gr, ctx := errgroup.WithContext(o.ctx())
+
+	g := gossiper{
+		o.n, o.h, s, o.r,
+	}
+	var recs recordSlice
+
+	gr.Go(func() (err error) {
+		recs, err = g.pull(ctx)
+		return
+	})
+	gr.Go(func() error {
+		return g.push(ctx)
+	})
+	err := gr.Wait()
+	if err != nil {
+		return
+	}
+	err = o.setNeighborhood(o.ctx(), recs)
+	if err != nil {
+		return
 	}
 }
