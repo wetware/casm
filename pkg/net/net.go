@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	protoutil "github.com/wetware/casm/pkg/util/proto"
+
 	"golang.org/x/sync/errgroup"
 
 	"github.com/jbenet/goprocess"
@@ -99,7 +101,7 @@ func (o *Overlay) gossipLoop() {
 			if err != nil {
 				continue
 			}
-			s, err := o.h.NewStream(o.ctx(), p, gossipProto)
+			s, err := o.h.NewStream(o.ctx(), p, protoutil.Join(o.proto, "gossip"))
 			if err != nil {
 				o.log.WithError(err).Error("opening of gossiper stream failed")
 				continue
@@ -222,8 +224,8 @@ func (o *Overlay) ctx() context.Context {
 func (o *Overlay) handleJoin(s network.Stream) {
 	defer s.Close()
 	rec := o.newRecordFromStream(s)
-	if o.n.MaxLen() <= o.n.Len() {
-		neighbors := o.n.Records()
+	neighbors := o.n.Records()
+	if o.n.MaxLen() <= len(neighbors) {
 		if peersAreNear(o.h.ID(), rec.PeerID) {
 			sort.Sort(neighbors)
 			o.n.Evict(o.ctx(), neighbors[len(neighbors)-1].PeerID)
