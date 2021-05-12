@@ -6,12 +6,14 @@ runner = "local:exec"
 [builders."docker:go"]
 enabled = true
 go_version = "1.16"
-module_path = "github.com/wetware/casm"
+module_path = "github.com/wetware/casm/testground/plans/net"
+fresh_gomod = true
 exec_pkg = "."
 
 [builders."exec:go"]
 enabled = true
-module_path = "github.com/wetware/casm"
+module_path = "github.com/wetware/casm/testground/plans/net"
+fresh_gomod = true
 
 [runners."local:docker"]
 enabled = true
