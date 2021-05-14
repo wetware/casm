@@ -60,7 +60,8 @@ func TestJoin(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			for _, o := range tc.os {
-				if size := len(o.Stat()); size != n-1 {
+				stat := o.Stat()
+				if size := len(stat.Peers()); size != n-1 {
 					return false
 				}
 			}

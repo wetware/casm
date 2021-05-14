@@ -166,9 +166,11 @@ func (o *Overlay) Close() error {
 // Process for the overlay network.
 func (o *Overlay) Process() goprocess.Process { return o.proc }
 
-// Stat returns the current state of the overlay.  The returned slice
-// contains the peer IDs of all immediate neighbors.
-func (o *Overlay) Stat() peer.IDSlice { return o.n.vtx.Load().Slice() }
+// Stat returns the current state of the overlay. The returned slice
+// contains the peer IDs of all immediate neighbors and the namespace.
+func (o *Overlay) Stat() Status {
+	return Status{peers: o.n.vtx.Load().Slice()}
+}
 
 // Host returns the underlying libp2p host.
 func (o *Overlay) Host() host.Host { return o.h }
@@ -274,4 +276,12 @@ func (o *Overlay) handleGossip(s network.Stream) {
 	if err != nil {
 		return
 	}
+}
+
+type Status struct {
+	peers peer.IDSlice
+}
+
+func (s *Status) Peers() peer.IDSlice {
+	return s.peers
 }
