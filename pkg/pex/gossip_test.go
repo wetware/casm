@@ -139,7 +139,7 @@ func TestAddRemoveGossiper(t *testing.T) {
 func TestGossip(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	tick := time.Second
+	tick := time.Millisecond
 	const tickN = 2
 	gspes := newStartedGossipEngines(t, ctx, 2, tick)
 
@@ -154,7 +154,7 @@ func TestGossip(t *testing.T) {
 		assert.NotContains(t, gsprJ.ReceivedGossips(), gossip)
 	}
 
-	<-time.After(tick * (tickN + 1))
+	<-time.After(tick * (tickN + 2))
 
 	for _, gossip := range gsprI.getGossips() {
 		assert.Contains(t, gsprJ.ReceivedGossips(), gossip)
@@ -165,7 +165,7 @@ func TestGossip(t *testing.T) {
 func TestRemoveGossiper(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	tick := time.Second
+	tick := time.Millisecond
 	const tickN = 2
 	gspes := newStartedGossipEngines(t, ctx, 2, tick)
 
@@ -176,7 +176,7 @@ func TestRemoveGossiper(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NoError(t, err)
 
-	<-time.After(tick * (tickN + 1))
+	<-time.After(tick * (tickN + 10))
 	err = gspes[0].RemoveGossiper(gsprI.id())
 	assert.NoError(t, err)
 
@@ -191,10 +191,11 @@ func TestRemoveGossiper(t *testing.T) {
 type basicGossiper struct {
 	gsprId      string
 	recvGossips []Gossip
+	lock        sync.Mutex
 }
 
 func newBasicGossip(id string) basicGossiper {
-	return basicGossiper{id, make([]Gossip, 0)}
+	return basicGossiper{gsprId: id, recvGossips: make([]Gossip, 0)}
 }
 
 func (gspr *basicGossiper) id() string {
@@ -208,11 +209,17 @@ func (gspr *basicGossiper) getGossips() []Gossip {
 }
 
 func (gspr *basicGossiper) gossipsUpdate(gossips []Gossip) {
+	gspr.lock.Lock()
 	gspr.recvGossips = append(gspr.recvGossips, gossips...)
+	gspr.lock.Unlock()
 }
 
 func (gspr basicGossiper) ReceivedGossips() []Gossip {
-	return gspr.recvGossips
+	gspr.lock.Lock()
+	cp := make([]Gossip, len(gspr.recvGossips))
+	copy(cp, gspr.recvGossips)
+	gspr.lock.Unlock()
+	return cp
 }
 
 func newStartedGossipEngines(t *testing.T, ctx context.Context, amount int, tick time.Duration) []GossipEngine {
