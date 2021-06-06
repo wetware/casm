@@ -1,259 +1,323 @@
-package pex
+package pex_test
 
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
-
-	"github.com/stretchr/testify/assert"
-
-	"github.com/libp2p/go-libp2p-core/network"
-
-	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/wetware/casm/pkg/pex"
+
+	"github.com/stretchr/testify/require"
+	mx "github.com/wetware/matrix/pkg"
 )
 
-type peerSource struct {
-	store peerstore.Peerstore
-}
+func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
+	t.Parallel()
 
-func (ps *peerSource) peers() peer.IDSlice {
-	return ps.store.Peers()
-}
-
-func TestGossipStart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cluster := newCluster(t, ctx, 2)
 
-	var (
-		mu        sync.Mutex
-		gspAmount = 0
-	)
+	h := mx.New(ctx).MustHost(ctx)
 
-	cluster[1].SetStreamHandler(gossipProtocol, func(stream network.Stream) {
-		defer stream.Close()
-		mu.Lock()
-		gspAmount += 1
-		mu.Unlock()
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	require.NoError(t, err)
+
+	var want pex.GossipRecord
+	select {
+	case v, ok := <-sub.Out():
+		require.True(t, ok, "event bus closed unexpectedly")
+		require.NotNil(t, v, "event was nil")
+
+		want, err = pex.NewGossipRecordFromEvent(v.(event.EvtLocalAddressesUpdated))
+		require.NoError(t, err)
+
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for signed record")
+		t.FailNow()
+	}
+
+	// marshal
+	b, err := want.MarshalRecord()
+	require.NoError(t, err)
+	require.NotEmpty(t, b)
+
+	// unmarshal
+	got := new(pex.GossipRecord)
+	err = got.UnmarshalRecord(b)
+	require.NoError(t, err)
+
+	// validate
+	require.Equal(t, want.Hop, got.Hop)
+	require.Equal(t, want.PeerID, got.PeerID)
+
+	require.NotNil(t, got.Addrs)
+	require.Len(t, got.Addrs, len(want.Addrs))
+
+	for i, expect := range want.Addrs {
+		require.True(t, expect.Equal(got.Addrs[i]))
+	}
+}
+
+func TestGossipRecord_SealUnseal(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := mx.New(ctx).MustHost(ctx)
+
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	require.NoError(t, err)
+
+	var want pex.GossipRecord
+	select {
+	case v, ok := <-sub.Out():
+		require.True(t, ok, "event bus closed unexpectedly")
+		require.NotNil(t, v, "event was nil")
+
+		want, err = pex.NewGossipRecordFromEvent(v.(event.EvtLocalAddressesUpdated))
+		require.NoError(t, err)
+
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for signed record")
+		t.FailNow()
+	}
+
+	// seal
+	e, err := record.Seal(&want, h.Peerstore().PrivKey(h.ID()))
+	require.NoError(t, err)
+	require.NotNil(t, e)
+
+	// marshal
+	b, err := e.Marshal()
+	require.NoError(t, err)
+	require.NotEmpty(t, b)
+
+	// unseal
+	var got pex.GossipRecord
+	e2, err := record.ConsumeTypedEnvelope(b, &got)
+	require.NoError(t, err)
+	require.NotNil(t, e2)
+
+	require.True(t, e2.Equal(e), "decoded envelope not equal to original")
+}
+
+func TestView_MarshalUnmarshal(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sim := mx.New(ctx)
+
+	h0 := sim.MustHost(ctx)
+	h1 := sim.MustHost(ctx)
+
+	view := make(pex.View, 2)
+	mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+		if err != nil {
+			return err
+		}
+
+		select {
+		case v := <-sub.Out():
+			view[i], err = pex.NewGossipRecordFromEvent(v.(event.EvtLocalAddressesUpdated))
+			return err
+
+		case <-time.After(time.Second):
+			return fmt.Errorf("timeout waiting for host %d", i)
+		}
+	}).Must(ctx, mx.Selection{h0, h1})
+
+	b, err := view.MarshalRecord()
+	require.NoError(t, err)
+	require.NotEmpty(t, b)
+
+	var remote pex.View
+	err = remote.UnmarshalRecord(b)
+	require.NoError(t, err)
+}
+
+func TestView_SealUnseal(t *testing.T) {
+	t.Parallel()
+	t.Helper()
+
+	t.Run("Succeed", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sim := mx.New(ctx)
+
+		hs := sim.MustHostSet(ctx, 2)
+		sender := hs[len(hs)-1] // last record
+		view := mustTestView(hs)
+
+		// records from peers other than the sender MUST have hop > 0 in
+		// order to pass validation.
+		incrHops(view[:len(view)-1])
+
+		// marshal
+		want, err := record.Seal(&view, privkey(sender))
+		require.NoError(t, err)
+
+		b, err := want.Marshal()
+		require.NoError(t, err)
+		require.NotNil(t, b)
+
+		// unmarshal
+		var remote pex.View
+		got, err := record.ConsumeTypedEnvelope(b, &remote)
+		require.NoError(t, err)
+		require.True(t, got.Equal(want))
+
+		err = remote.Validate(got)
+		require.NoError(t, err)
 	})
 
-	gspe := NewGossipEngine(cluster[0], &peerSource{cluster[0].Peerstore()})
-	tick := time.Millisecond
-	const tickN = 2
-	err := gspe.Start(tick)
-	if err != nil {
-		t.Error(err)
-	}
+	t.Run("Validation", func(t *testing.T) {
+		t.Helper()
+		t.Parallel()
 
-	<-time.After(tick * (tickN + 10)) // +10 because streamHandler takes a lot of time for receiving calls
+		t.Run("sender_invalid_hop_range", func(t *testing.T) {
+			t.Parallel()
 
-	mu.Lock()
-	assert.GreaterOrEqual(t, gspAmount, tickN)
-	assert.LessOrEqual(t, gspAmount, tickN+10)
-	mu.Unlock()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	err = gspe.Start(tick)
-	if err == nil {
-		t.Errorf("error expected because gossiper is already running")
-	}
+			sim := mx.New(ctx)
 
-	// TODO: check that order of source.peers() is respected
-}
+			hs := sim.MustHostSet(ctx, 2)
+			sender := hs[len(hs)-1] // last record
+			view := mustTestView(hs)
 
-func TestGossipStop(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cluster := newCluster(t, ctx, 2)
+			/*
+			 * N.B.:  we increment hops for _all_ records, including the
+			 *        sender.  This should be caught in validation.
+			 */
+			incrHops(view)
 
-	gspe := NewGossipEngine(cluster[0], &peerSource{cluster[0].Peerstore()})
-	tick := time.Millisecond
-	const tickN = 2
-	err := gspe.Start(tick)
-	if err != nil {
-		t.Error(err)
-	}
-	<-time.After(tick * (tickN + 10)) // +10 because streamHandler takes a lot of time for receiving calls
+			// marshal
+			want, err := record.Seal(&view, privkey(sender))
+			require.NoError(t, err)
 
-	var (
-		mu        sync.Mutex
-		gspAmount = 0
-	)
+			b, err := want.Marshal()
+			require.NoError(t, err)
+			require.NotNil(t, b)
 
-	cluster[1].SetStreamHandler(gossipProtocol, func(stream network.Stream) {
-		defer stream.Close()
-		mu.Lock()
-		gspAmount += 1
-		mu.Unlock()
+			// unmarshal
+			var remote pex.View
+			got, err := record.ConsumeTypedEnvelope(b, &remote)
+			require.NoError(t, err)
+			require.True(t, got.Equal(want))
+
+			err = remote.Validate(got)
+			require.ErrorAs(t, err, &pex.ValidationError{})
+			require.ErrorIs(t, err, pex.ErrInvalidRange)
+		})
+
+		t.Run("invalid_hop_range", func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sim := mx.New(ctx)
+
+			hs := sim.MustHostSet(ctx, 2)
+			sender := hs[len(hs)-1] // last record
+			view := mustTestView(hs)
+
+			/*
+			 * N.B.:  we don't increment the hops here; this should be
+			 *        caught in validation.
+			 */
+
+			// marshal
+			want, err := record.Seal(&view, privkey(sender))
+			require.NoError(t, err)
+
+			b, err := want.Marshal()
+			require.NoError(t, err)
+			require.NotNil(t, b)
+
+			// unmarshal
+			var remote pex.View
+			got, err := record.ConsumeTypedEnvelope(b, &remote)
+			require.NoError(t, err)
+			require.True(t, got.Equal(want))
+
+			err = remote.Validate(got)
+			require.ErrorAs(t, err, &pex.ValidationError{})
+			require.ErrorIs(t, err, pex.ErrInvalidRange)
+		})
+
+		t.Run("last_record_not_signed_by_sender", func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sim := mx.New(ctx)
+
+			hs := sim.MustHostSet(ctx, 2)
+			notSender := hs[0]
+			view := mustTestView(hs)
+
+			// marshal - note that we sign with the WRONG host key.
+			want, err := record.Seal(&view, privkey(notSender))
+			require.NoError(t, err)
+
+			b, err := want.Marshal()
+			require.NoError(t, err)
+			require.NotNil(t, b)
+
+			// unmarshal
+			var remote pex.View
+			got, err := record.ConsumeTypedEnvelope(b, &remote)
+			require.NoError(t, err)
+			require.True(t, got.Equal(want))
+
+			err = remote.Validate(got)
+			require.ErrorAs(t, err, &pex.ValidationError{})
+			require.ErrorIs(t, err, record.ErrInvalidSignature)
+		})
 	})
-
-	mu.Lock()
-	assert.Equal(t, gspAmount, 0)
-	mu.Unlock()
-
-	err = gspe.Start(tick)
-	assert.ErrorIs(t, err, GossipRunningError)
 }
 
-func TestAddRemoveGossiper(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cluster := newCluster(t, ctx, 2)
-
-	tick := time.Millisecond
-	gspe := NewGossipEngine(cluster[0], &peerSource{cluster[0].Peerstore()})
-
-	gsprI := basicGossiper{gsprId: "0"}
-	gsprJ := basicGossiper{gsprId: "1"}
-
-	err := gspe.AddGossiper(&gsprI)
-	assert.ErrorIs(t, err, GossipNoRunningError) // try to add gossiper to non-running engine
-
-	err = gspe.Start(tick)
-	assert.NoError(t, err)
-
-	err = gspe.AddGossiper(&gsprI) // add gossiper to running engine
-	assert.NoError(t, err)
-
-	err = gspe.AddGossiper(&gsprI)
-	assert.ErrorIs(t, err, DuplicateGossiperError) // add duplicate gossiper
-
-	err = gspe.AddGossiper(&gsprJ) // add second gossiper
-	assert.NoError(t, err)
-
-	err = gspe.RemoveGossiper(gsprI.id()) // remove add gossiper
-	assert.NoError(t, err)
-
-	err = gspe.RemoveGossiper(gsprI.id())
-	assert.ErrorIs(t, err, GossiperNotFoundError) // remove previously removed gossiper
-
-	err = gspe.AddGossiper(&gsprI) // add removed gossiper
-	assert.NoError(t, err)
-}
-
-func TestGossip(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	tick := time.Millisecond
-	const tickN = 2
-	gspes := newStartedGossipEngines(t, ctx, 2, tick)
-
-	gsprI := newBasicGossip("0")
-	gsprJ := newBasicGossip("1")
-	err := gspes[0].AddGossiper(&gsprI)
-	err = gspes[1].AddGossiper(&gsprJ)
-	assert.NoError(t, err)
-	assert.NoError(t, err)
-
-	for _, gossip := range gsprI.getGossips() {
-		assert.NotContains(t, gsprJ.ReceivedGossips(), gossip)
-	}
-
-	<-time.After(tick * (tickN + 2))
-
-	for _, gossip := range gsprI.getGossips() {
-		assert.Contains(t, gsprJ.ReceivedGossips(), gossip)
-	}
-
-}
-
-func TestRemoveGossiper(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	tick := time.Millisecond
-	const tickN = 2
-	gspes := newStartedGossipEngines(t, ctx, 2, tick)
-
-	gsprI := newBasicGossip("0")
-	gsprJ := newBasicGossip("1")
-	err := gspes[0].AddGossiper(&gsprI)
-	err = gspes[1].AddGossiper(&gsprJ)
-	assert.NoError(t, err)
-	assert.NoError(t, err)
-
-	<-time.After(tick * (tickN + 10))
-	err = gspes[0].RemoveGossiper(gsprI.id())
-	assert.NoError(t, err)
-
-	rcvGossips1 := gsprJ.ReceivedGossips()
-	<-time.After(tick * (tickN + 1))
-	assert.Equal(t, len(rcvGossips1), len(gsprJ.ReceivedGossips()))
-	for _, gossip := range gsprJ.ReceivedGossips() {
-		assert.Contains(t, rcvGossips1, gossip)
-	}
-}
-
-type basicGossiper struct {
-	gsprId      string
-	recvGossips []Gossip
-	lock        sync.Mutex
-}
-
-func newBasicGossip(id string) basicGossiper {
-	return basicGossiper{gsprId: id, recvGossips: make([]Gossip, 0)}
-}
-
-func (gspr *basicGossiper) id() string {
-	return gspr.gsprId
-}
-
-func (gspr *basicGossiper) getGossips() []Gossip {
-	gossips := make([]Gossip, 1)
-	gossips[0] = Gossip{Tags: []string{}, Gossip: []byte(fmt.Sprintf("gossip %s", gspr.id()))}
-	return gossips
-}
-
-func (gspr *basicGossiper) gossipsUpdate(gossips []Gossip) {
-	gspr.lock.Lock()
-	gspr.recvGossips = append(gspr.recvGossips, gossips...)
-	gspr.lock.Unlock()
-}
-
-func (gspr basicGossiper) ReceivedGossips() []Gossip {
-	gspr.lock.Lock()
-	cp := make([]Gossip, len(gspr.recvGossips))
-	copy(cp, gspr.recvGossips)
-	gspr.lock.Unlock()
-	return cp
-}
-
-func newStartedGossipEngines(t *testing.T, ctx context.Context, amount int, tick time.Duration) []GossipEngine {
-	cluster := newCluster(t, ctx, amount)
-	gspes := make([]GossipEngine, len(cluster))
-
-	for i := 0; i < len(gspes); i++ {
-		gspes[i] = NewGossipEngine(cluster[i], &peerSource{cluster[i].Peerstore()})
-		err := gspes[i].Start(tick)
+func mustTestView(hs []host.Host) pex.View {
+	view := make(pex.View, len(hs))
+	mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
 		if err != nil {
-			t.Error(err)
+			return err
 		}
-	}
-	return gspes
+
+		select {
+		case v := <-sub.Out():
+			view[i], err = pex.NewGossipRecordFromEvent(v.(event.EvtLocalAddressesUpdated))
+			return err
+
+		case <-time.After(time.Second):
+			return fmt.Errorf("timeout waiting for host %d", i)
+		}
+	}).Must(context.Background(), hs)
+	return view
 }
 
-func newCluster(t *testing.T, ctx context.Context, amount int) []host.Host {
-	cluster := make([]host.Host, amount)
-	for i := 0; i < amount; i++ {
-		opts := []libp2p.Option{
-			libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", 49155+i)),
-		}
-		h, err := libp2p.New(ctx, opts...)
-		if err != nil {
-			t.Error(err)
-		}
-		cluster[i] = h
+func privkey(h host.Host) crypto.PrivKey {
+	return h.Peerstore().PrivKey(h.ID())
+}
+
+func incrHops(v pex.View) {
+	for i := range v {
+		v[i].Hop++ // need to use indexing; slice of non-ptr.
 	}
-	for i := 0; i < amount; i++ {
-		for j := 0; j < amount; j++ {
-			if i != j {
-				cluster[i].Peerstore().AddAddrs(cluster[j].ID(), cluster[j].Addrs(), 1*time.Minute) // Be careful with TTL: set high enough value!
-			}
-		}
-	}
-	return cluster
 }

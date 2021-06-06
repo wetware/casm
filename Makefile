@@ -1,3 +1,9 @@
+# Set a sensible default for the $GOPATH in case it's not exported.
+# If you're seeing path errors, try exporting your GOPATH.
+ifeq ($(origin GOPATH), undefined)
+	GOPATH := $(HOME)/Go
+endif
+
 all: mocks
 
 mocks: clean-mocks
@@ -9,3 +15,16 @@ mocks: clean-mocks
 
 clean-mocks:
 	@find . -name 'mock_*.go' | xargs -I{} rm {}
+
+capnp: capnp-cluster
+# N.B.:  compiling capnp schemas requires having github.com/capnproto/go-capnproto2 installed
+#		 on the GOPATH.
+
+clean-capnp: clean-capnp-cluster
+
+capnp-cluster:  clean-capnp-cluster
+	@mkdir -p internal/api/cluster
+	@capnp compile -I$(GOPATH)/src/github.com/capnproto/go-capnproto2/std -ogo:internal/api/cluster --src-prefix=api/ api/cluster.capnp
+
+clean-capnp-cluster:
+	@rm -rf internal/api/cluster

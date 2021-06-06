@@ -1,22 +1,22 @@
 package pex
 
-import "errors"
-
-var (
-	GossipRunningError     = errors.New("gossip engine is already running")
-	GossipNoRunningError   = errors.New("gossip engine is not running")
-	DuplicateGossiperError = errors.New("gossiper with same ID is already registered")
-	GossiperNotFoundError  = errors.New("gossiper was not found") // TODO: specify gossiper ID
+import (
+	"errors"
+	"fmt"
 )
 
-type GossipStoppedError struct{}
-
-func (e *GossipStoppedError) Error() string {
-	return "gossiper is stopped"
+type ValidationError struct {
+	Cause   error
+	Message string
 }
 
-type NoPeersError struct{}
+func (err ValidationError) Error() string {
+	if err.Cause != nil {
+		return fmt.Sprintf("%s: %s", err.Message, err.Cause)
+	}
 
-func (e *NoPeersError) Error() string {
-	return "there are no peers to gossip with"
+	return err.Message
 }
+
+func (err ValidationError) Unwrap() error        { return err.Cause }
+func (err ValidationError) Is(target error) bool { return errors.Is(err.Cause, target) }

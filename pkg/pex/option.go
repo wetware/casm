@@ -1,62 +1,44 @@
 package pex
 
 import (
-	"math/rand"
-	"sync"
 	"time"
+
+	"github.com/lthibault/log"
 )
 
-const (
-	defaultViewSize = 10
-	defaultTick     = time.Second
-)
+type Option func(pex *PeerExchange)
 
-type Option func(o *PeerExchange)
+// WithLogger sets the logger for the peer exchange.
+// If l == nil, a default logger is used.
+func WithLogger(l log.Logger) Option {
+	if l == nil {
+		l = log.New()
+	}
+
+	return func(pex *PeerExchange) {
+		pex.log = logger{l.WithField("id", pex.h.ID())}
+	}
+}
+
+// WithTick sets the interval between gossip rounds.
+// A lower value of 'd' improves cluster resiliency
+// at the cost of increased bandwidth usage.
+//
+// If d <= 0, a default value of 1m is used.  Users
+// SHOULD NOT alter this value without good reason.
+func WithTick(d time.Duration) Option {
+	if d <= 0 {
+		d = time.Minute
+	}
+
+	return func(pex *PeerExchange) {
+		pex.tick = d
+	}
+}
 
 func withDefaults(opt []Option) []Option {
-	return append([]Option{WithNamespace(""), WithViewSize(defaultViewSize), WithTick(defaultTick)}, opt...)
-}
-
-// WithNamespace sets the namespace of the neighborhood.
-//
-func WithNamespace(ns string) Option {
-	if ns == "" {
-		ns = "casm/gossip" // TODO: decide what namespace to use
-	}
-
-	return func(o *PeerExchange) {
-		o.ns = ns
-	}
-}
-
-func WithViewSize(viewSize int) Option {
-	return func(gspo *PeerExchange) {
-		gspo.viewSize = viewSize
-	}
-}
-
-func WithTick(tick time.Duration) Option {
-	return func(gspo *PeerExchange) {
-		gspo.tick = defaultTick
-	}
-}
-
-var GlobalAtomicRand = &atomicRand{r: rand.New(rand.NewSource(time.Now().UnixNano()))}
-
-type atomicRand struct {
-	r  *rand.Rand
-	mu sync.Mutex
-}
-
-func (ar *atomicRand) Intn(n int) int {
-	ar.mu.Lock()
-	defer ar.mu.Unlock()
-
-	return ar.r.Intn(n)
-}
-
-func (ar *atomicRand) Shuffle(n int, swap func(i, j int)) {
-	ar.mu.Lock()
-	ar.r.Shuffle(n, swap)
-	ar.mu.Unlock()
+	return append([]Option{
+		WithLogger(nil),
+		WithTick(-1),
+	}, opt...)
 }

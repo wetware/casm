@@ -3,265 +3,420 @@ package pex
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"sort"
-	"sync/atomic"
+	"errors"
+	"io"
+	"io/ioutil"
+	"math/rand"
+	"path"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/jbenet/goprocess"
+	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p-core/helpers"
+	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/libp2p/go-libp2p-core/record"
 
-	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/lthibault/jitterbug/v2"
+	"github.com/lthibault/log"
+	ctxutil "github.com/lthibault/util/ctx"
+	syncutil "github.com/lthibault/util/sync"
 
-	"github.com/libp2p/go-libp2p-core/peer"
+	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
 
+const (
+	Version               = "0.0.0"
+	baseProto protocol.ID = "/casm/pex"
+	Proto     protocol.ID = baseProto + "/" + Version
+
+	ViewSize = 16 // TODO(enhancement):  make this configurable per-PeerExchange?
+)
+
+var initializers = [...]initFunc{
+	checkHostIsListening,
+	initAtomics,
+	initSubscriptions,
+	initStreamHandlers,
+	initProcs,
+	waitReady,
+}
+
+// PeerExchange is a collection of passive views of various p2p clusters.
+//
+// For each namespace that is joined, PeerExchange maintains a bounded set
+// of random peer addresses via its gossip protocol.  Peers are not directly
+// monitored for liveness, so the addresses returned from FindPeers may be
+// stale.  However, the PeX gossip-protocol guarantees that stale addresses
+// are eventually expunged.
+//
+// Note that this is behavior reflects a fundamental trade-off in the design
+// of the PeX protocol.  PeX strives to maintain a passive view of clusters
+// that can be used to repair partitions and reconnect orphaned peers.  As a
+// result, it must not immediately expunge unreachable peers from its records,
+// else this would cause partitions to rapidly "forget" about each other.
+//
+// For the above reasons, we encourage users NOT to tune PeX parameters, as
+// these have been carefully selected to work in a broad range of applications
+// and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
-	host       host.Host
-	ns         string
-	engine     GossipEngine
-	atomicView atomic.Value
-	viewSize   int
-	tick       time.Duration
+	ns   string
+	log  logger
+	tick time.Duration
 
-	ctx       context.Context
-	ctxCancel context.CancelFunc
+	h      host.Host
+	proc   goprocess.Process
+	events event.Subscription
+	atomic atomicValues
 }
 
-func New(h host.Host, opt ...Option) (*PeerExchange, error) {
-	pex := &PeerExchange{host: h}
-	pex.setView(make(View, 0))
-	pex.viewSize = defaultViewSize
+// New peer exchange.
+func New(h host.Host, ns string, opt ...Option) (*PeerExchange, error) {
+	var px = &PeerExchange{
+		ns: ns,
+		h:  h,
+	}
+
+	// set options
 	for _, option := range withDefaults(opt) {
-		option(pex)
+		option(px)
 	}
 
-	err := pex.init()
-	return pex, err
-}
-
-func (pex *PeerExchange) init() error {
-	pex.engine = NewGossipEngine(pex.host, pex)
-	pex.ctx, pex.ctxCancel = context.WithCancel(context.Background())
-	err := pex.engine.Start(pex.tick)
-	if err != nil {
-		return err
-	}
-	err = pex.engine.AddGossiper(pex)
-	if err != nil {
-		return err
-	}
-	go pex.cancelDetector(pex.ctx)
-
-	return nil
-}
-
-func (pex *PeerExchange) Join(ctx context.Context, d discovery.Discoverer, opt ...discovery.Option) error {
-	peers, err := d.FindPeers(ctx, pex.ns, opt...)
-	if err != nil {
-		return err
+	// initialize peer exchange
+	var maybe breaker
+	for _, fn := range initializers {
+		maybe.Do(func() { maybe.Err = fn(px) })
 	}
 
-	for p := range peers {
-		pr := peer.PeerRecordFromAddrInfo(p)
-		pex.setView(append(pex.view(), pr))
+	return px, maybe.Err
+}
+
+func (px *PeerExchange) String() string             { return px.ns }
+func (px *PeerExchange) Process() goprocess.Process { return px.proc }
+func (px *PeerExchange) Close() error               { return px.proc.Close() }
+
+// View returns a passively-updated view of the cluster.
+func (px *PeerExchange) View() View {
+	immut := px.atomic.view.Load() // DO NOT mutate
+	v := make(View, len(immut))
+	copy(v, immut)
+	return v
+}
+
+// Join the namespace using a bootstrap peer.
+//
+// Join blocks until the underlying host is listening on at least one network
+// address.
+func (px *PeerExchange) Join(ctx context.Context, boot peer.AddrInfo) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		s     network.Stream
+		maybe breaker
+	)
+
+	for _, fn := range []func(){
+		func() { maybe.Err = px.h.Connect(ctx, boot) },                     // connect to boot peer
+		func() { s, maybe.Err = px.h.NewStream(ctx, boot.ID, px.proto()) }, // open pex stream
+		func() { maybe.Err = px.pushpull(ctx, s, px.atomic.view.Load()) },  // perform initial gossip round
+	} {
+		maybe.Do(fn)
 	}
-	return nil
+
+	return maybe.Err
 }
 
-func (pex *PeerExchange) FindPeers(_ context.Context, _ string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	view := pex.view()
-	options := discovery.Options{Limit: len(view)}
-	if err := options.Apply(opt...); err != nil {
-		return nil, err
-	}
+func (px *PeerExchange) gossip(ctx context.Context) (err error) {
+	view := px.atomic.view.Load() // do not mutate!
+	peers := view.IDs()
+	rand.Shuffle(len(peers), peers.Swap)
 
-	ch := make(chan peer.AddrInfo, min(options.Limit, len(view)))
-	for _, info := range view.addrInfos() {
-		ch <- info
-	}
-	close(ch)
-	return ch, nil
-}
-
-func (pex *PeerExchange) Close() {
-	pex.ctxCancel() // this triggers cancelDetector. This is made for being thread-safe
-}
-
-func (pex *PeerExchange) cancelDetector(ctx context.Context) {
-	<-ctx.Done()
-	_ = pex.engine.RemoveGossiper(pex.id())
-	pex.engine.Stop()
-}
-
-// next three methods: id(), getGossips(), updateGossips() are implementation of Gossiper interface needed for GossipEngine
-var gossiperID = "overlay/gossiper"    // TODO: decide proper gossiper ID
-var gossipTag = "overlay/gossip/peers" // TODO: decide proper tag
-
-func (pex *PeerExchange) id() string {
-	return gossiperID
-}
-
-func (pex *PeerExchange) getGossips() []Gossip {
-	gsps := make([]Gossip, 0, 1)
-	view := pex.view()
-	rawView := make([][]byte, len(view)+1)
-	for i := 0; i < len(view); i++ {
-		rawRec, err := pex.writeRecord(view[i])
-		if err != nil {
-			return gsps
+	for _, id := range peers {
+		switch err = px.gossipOne(ctx, id); err.(type) {
+		case nil:
+			return
+		case streamError:
+			px.log.With(err.(log.Loggable)).Debug("unable to connect")
+		default:
+			return
 		}
-		rawView[i] = rawRec
 	}
-	// add itself
-	rawRec, err := pex.writeRecord(&peer.PeerRecord{PeerID: pex.host.ID(), Addrs: pex.host.Addrs()})
-	if err != nil {
-		return gsps
-	}
-	rawView[len(rawView)-1] = rawRec
 
-	gossip, err := json.Marshal(rawView)
-	if err != nil {
-		return gsps
-	}
-	return append(gsps, Gossip{Tags: []string{gossipTag}, Gossip: gossip})
+	// we get here either if len(peers) == 0, or if all peers are unreachable.
+	return errors.New("orphaned host")
 }
 
-func (pex *PeerExchange) writeRecord(rec *peer.PeerRecord) ([]byte, error) {
-	env, err := record.Seal(rec, pex.host.Peerstore().PrivKey(pex.host.ID()))
+func (px *PeerExchange) gossipOne(ctx context.Context, id peer.ID) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*15)
+	defer cancel()
+
+	s, err := px.h.NewStream(ctx, id, px.proto())
 	if err != nil {
-		return nil, err
+		return streamError{Peer: id, error: err}
 	}
-	return env.Marshal()
+
+	return px.pushpull(ctx, s, px.atomic.view.Load())
 }
 
-func (pex *PeerExchange) gossipsUpdate(gossips []Gossip) {
-	for _, gossip := range gossips {
-		if containsTag(gossip) {
-			view, err := pex.readView(gossip.Gossip)
-			if err == nil {
-				pex.mergeView(view)
+func (px *PeerExchange) proto() protocol.ID {
+	return protoutil.AppendStrings(Proto, px.ns)
+}
+
+func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream, v View) error {
+	// NOTE:  v MUST NOT be mutated!
+	defer s.Close()
+
+	var (
+		t, _ = ctx.Deadline()
+		j    syncutil.Join
+	)
+
+	if err := s.SetDeadline(t); err != nil {
+		return err
+	}
+
+	// push
+	j.Go(func() error {
+		defer s.CloseWrite()
+
+		// copy view and append local peer's gossip record
+		rec := make(View, len(v), len(v)+1)
+		copy(rec, v)
+		rec = append(rec, px.atomic.record.Load())
+
+		// marshal & sign 'rec'
+		env, err := record.Seal(&rec, px.privkey())
+		if err != nil {
+			return err
+		}
+
+		b, err := env.Marshal()
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(s, bytes.NewReader(b))
+		return err
+	})
+
+	// pull
+	j.Go(func() error {
+		defer s.CloseRead()
+
+		var remote = make(View, 0, ViewSize*2)
+
+		// TODO(security): defensively limit buffer size
+		b, err := ioutil.ReadAll(s)
+		if err != nil {
+			return err
+		}
+
+		env, err := record.ConsumeTypedEnvelope(b, &remote)
+		if err != nil {
+			return err
+		}
+
+		if err = remote.Validate(env); err != nil {
+			//  TODO(security):  implement peer scoring system and punish peers
+			//					 whose messages fail validation.
+			return err
+		}
+
+		return px.merge(v, remote)
+	})
+
+	return j.Wait()
+}
+
+// merge views.  Note that concurrent gossip rounds might overwrite
+// each other (ABA problem).  This shouldn't matter, so we ignore it.
+func (px *PeerExchange) merge(local, remote View) (err error) {
+	/*
+	 *  CAUTION:  'local' MUST NOT be mutated!
+	 */
+
+	remote.incrHops()
+
+	// access sender now; 'remote' will mutate.
+	selector := remote.last().newSelector(px.h.ID())
+
+	remote = append(remote, local...) // merge local view into remote.
+
+	// Remove duplicate records.
+	merged := remote[:0]
+	for _, g := range remote {
+		have, found := merged.find(g)
+
+		/* Select if:
+
+		unique  ...   more recent   ...  less diffused  */
+		if !found || g.Seq > have.Seq || g.Hop < have.Hop {
+			merged = append(merged, g)
+		}
+	}
+
+	return px.selectView(merged, selector)
+}
+
+// Select the new view, using a variable strategy based on the XOR
+// distance.  By convention, the last record in the remote view is
+// the sender.
+func (px *PeerExchange) selectView(merged View, sel func(View) View) error {
+	if len(merged) > ViewSize {
+		merged = sel(merged)[:ViewSize]
+	}
+
+	return px.atomic.view.Store(merged)
+}
+
+func (px *PeerExchange) updateLocalRecord(ev event.EvtLocalAddressesUpdated) error {
+	g, err := NewGossipRecordFromEvent(ev)
+	if err == nil {
+		px.atomic.record.Store(g)
+	}
+	return err
+}
+
+func (px *PeerExchange) privkey() crypto.PrivKey {
+	return px.h.Peerstore().PrivKey(px.h.ID())
+}
+
+/*
+ * Set-up functions
+ */
+
+type initFunc func(*PeerExchange) error
+
+func checkHostIsListening(px *PeerExchange) (err error) {
+	if len(px.h.Addrs()) == 0 {
+		err = errors.New("host not accepting connections")
+	}
+	return
+}
+
+func initAtomics(px *PeerExchange) (err error) {
+	px.atomic, err = newAtomicValues(px.h.EventBus())
+	return
+}
+
+func initSubscriptions(px *PeerExchange) (err error) {
+	px.events, err = px.h.EventBus().Subscribe([]interface{}{
+		new(event.EvtLocalAddressesUpdated),
+		new(EvtViewUpdated),
+		new(EvtLocalRecordUpdated),
+	})
+
+	return
+}
+
+func initStreamHandlers(px *PeerExchange) error {
+	versionOK, err := helpers.MultistreamSemverMatcher(Proto)
+	if err == nil {
+		px.h.SetStreamHandlerMatch(
+			Proto,
+			func(s string) bool { return versionOK(path.Dir(s)) && px.ns == path.Base(s) },
+			func(s network.Stream) {
+				defer s.Close()
+
+				const d = time.Second * 15
+				ctx, cancel := context.WithTimeout(ctxutil.FromChan(px.proc.Closing()), d)
+				defer cancel()
+
+				if err := px.pushpull(ctx, s, px.atomic.view.Load()); err != nil {
+					px.log.WithStream(s).WithError(err).
+						Debug("error handling gosisp")
+				}
+			})
+	}
+
+	return err
+}
+
+func initProcs(px *PeerExchange) error {
+	px.proc = px.h.Network().Process().Go(func(proc goprocess.Process) {
+		defer px.h.RemoveStreamHandler(Proto)
+
+		<-proc.Closing()
+	})
+	px.proc.SetTeardown(px.atomic.CloseAll)
+
+	px.proc.Go(func(proc goprocess.Process) {
+		ctx := asClosingContext(proc)
+
+		ticker := jitterbug.New(px.tick, jitterbug.Uniform{
+			Min:    px.tick / 2,
+			Source: rand.New(rand.NewSource(time.Now().UnixNano())),
+		})
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := px.gossip(ctx); err != nil {
+					px.log.WithError(err).Debug("gossip round failed")
+				}
+
+			case <-ctx.Done():
+				return
 			}
 		}
-	}
-}
 
-func containsTag(gossip Gossip) bool {
-	for _, tag := range gossip.Tags {
-		if tag == gossipTag {
-			return true
-		}
-	}
-	return false
-}
-
-func (pex *PeerExchange) readView(gossip []byte) (View, error) {
-	rawView := make([][]byte, 0)
-	err := json.Unmarshal(gossip, &rawView)
-	if err != nil {
-		return nil, err
-	}
-	view := make(View, len(rawView))
-	for i, env := range rawView {
-		rec, err := pex.readRecord(env)
-		if err != nil {
-			return nil, err
-		}
-		view[i] = rec
-	}
-	return view, nil
-}
-
-func (pex *PeerExchange) readRecord(env []byte) (*peer.PeerRecord, error) {
-	_, rec, err := record.ConsumeEnvelope(env, peer.PeerRecordEnvelopeDomain)
-	if err != nil {
-		return nil, err
-	}
-	rec, ok := rec.(*peer.PeerRecord)
-	if !ok {
-
-		return nil, err
-	}
-	return rec.(*peer.PeerRecord), nil
-}
-
-func (pex *PeerExchange) mergeView(remoteView View) {
-	remoteView.increaseHopCount()
-	localView := pex.view()
-	source := remoteView[len(remoteView)-1] // by convention gossip source is last record in View
-	view := unique(append(localView, remoteView...))
-	if peersAreNear(pex.host.ID(), source.PeerID) {
-		GlobalAtomicRand.Shuffle(len(view), func(i, j int) {
-			view[i], view[j] = view[j], view[i]
-		})
-	} else {
-		sort.Sort(view)
-	}
-	pex.setView(view[:min(len(view), pex.viewSize)])
-}
-
-func peersAreNear(id1 peer.ID, id2 peer.ID) bool {
-	return bytes.Compare([]byte(id1), []byte(id2)) == 1 // TODO: implement a more sophisticated comparator?
-}
-
-func unique(view View) View {
-	uniqueView := make(View, 0)
-	temp := make(map[peer.ID]*peer.PeerRecord)
-	for _, rec := range view {
-		if value, ok := temp[rec.PeerID]; !ok || rec.Seq < value.Seq {
-			temp[rec.PeerID] = rec
-		}
-	}
-	for _, rec := range temp {
-		uniqueView = append(uniqueView, rec)
-	}
-	return uniqueView
-}
-
-// peers() implements PeersSource interface needed for GossipEngine
-func (pex *PeerExchange) peers() peer.IDSlice {
-	peers := pex.view().ids()
-	GlobalAtomicRand.Shuffle(len(peers), func(i, j int) {
-		peers[i], peers[j] = peers[j], peers[i]
 	})
-	return peers
+
+	px.proc.Go(func(proc goprocess.Process) {
+		for {
+			select {
+			case v := <-px.events.Out():
+				switch ev := v.(type) {
+				case event.EvtLocalAddressesUpdated:
+					if err := px.updateLocalRecord(ev); err != nil {
+						px.log.WithError(err).Error("invalid peer record in event")
+					}
+
+				case EvtViewUpdated:
+					px.log.With(ev).Trace("view updated")
+
+				case EvtLocalRecordUpdated:
+					px.log.With(ev).Trace("local record updated")
+
+				}
+
+			case <-proc.Closing():
+				return
+			}
+		}
+	}).SetTeardown(px.events.Close)
+
+	return nil
 }
 
-// view() and setView() are getter and setter for atomic View struct
-func (pex *PeerExchange) view() View {
-	return pex.atomicView.Load().(View)
-}
+func waitReady(px *PeerExchange) error {
+	sub, err := px.h.EventBus().Subscribe(new(EvtLocalRecordUpdated))
+	if err != nil {
+		return err
+	}
+	defer sub.Close()
 
-func (pex *PeerExchange) setView(view View) {
-	pex.atomicView.Store(view)
-}
+	// We know the event is coming, thanks to 'checkHostIsListening' and the
+	// fact that 'event.EvtLocalAddressUpdated' is stateful.
 
-type View []*peer.PeerRecord
+	select {
+	case <-px.proc.Closing():
+		return errors.New("closing")
 
-func (v View) Len() int { return len(v) }
+	case v, ok := <-sub.Out():
+		if !ok || v == nil {
+			panic("nil event")
+		}
 
-func (v View) Less(i, j int) bool { return v[i].Seq < v[j].Seq }
-
-func (v View) Swap(i, j int) { v[i], v[j] = v[j], v[i] }
-
-func (v View) increaseHopCount() {
-	for _, rec := range v {
-		rec.Seq += 1
+		return nil
 	}
 }
 
-func (v View) addrInfos() []peer.AddrInfo {
-	infos := make([]peer.AddrInfo, len(v))
-	for i, pr := range v {
-		infos[i] = peer.AddrInfo{pr.PeerID, pr.Addrs}
-	}
-	return infos
-}
-
-func (v View) ids() peer.IDSlice {
-	peers := make(peer.IDSlice, len(v))
-	for i, pr := range v {
-		peers[i] = pr.PeerID
-	}
-	return peers
+func asClosingContext(p goprocess.Process) context.Context {
+	return ctxutil.FromChan(p.Closing())
 }
