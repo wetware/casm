@@ -229,14 +229,13 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 		}
 
 		remote.incrHops()
-		return px.mergeAndSelect(remote,
-			newSelector(px.h.ID(), remote, ViewSize))
+		return px.mergeAndSelect(remote)
 	})
 
 	return j.Wait()
 }
 
-func (px *PeerExchange) mergeAndSelect(remote View, selectv func(View) View) error {
+func (px *PeerExchange) mergeAndSelect(remote View) error {
 	px.atomic.Lock()
 	defer px.atomic.Unlock()
 	/*
@@ -244,6 +243,8 @@ func (px *PeerExchange) mergeAndSelect(remote View, selectv func(View) View) err
 	 */
 
 	local := px.atomic.view.Load()
+	selectv := newSelector(px.h.ID(), remote, ViewSize)
+
 	return px.atomic.view.Store(selectv(merge(local, remote)))
 }
 
