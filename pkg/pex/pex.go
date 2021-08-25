@@ -32,8 +32,6 @@ const (
 	Version               = "0.0.0"
 	baseProto protocol.ID = "/casm/pex"
 	Proto     protocol.ID = baseProto + "/" + Version
-
-	ViewSize = 32 // TODO(enhancement):  make this configurable per-PeerExchange?
 )
 
 var initializers = [...]initFunc{
@@ -71,6 +69,9 @@ type PeerExchange struct {
 	proc   goprocess.Process
 	events event.Subscription
 	atomic atomicValues
+
+	maxSize     int
+	newSelector ViewSelectorFactory
 }
 
 // New peer exchange.
@@ -212,7 +213,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 		var remote View
 
 		// defensively limit buffer size; assume 1kb per record
-		b, err := ioutil.ReadAll(io.LimitReader(s, ViewSize*1024))
+		b, err := ioutil.ReadAll(io.LimitReader(s, int64(px.maxSize)*1024))
 		if err != nil {
 			return err
 		}
@@ -243,7 +244,8 @@ func (px *PeerExchange) mergeAndSelect(remote View) error {
 	 */
 
 	local := px.atomic.view.Load()
-	selectv := newSelector(px.h.ID(), remote, ViewSize)
+	sender := remote.last()
+	selectv := px.newSelector(px.h, &sender, px.maxSize)
 
 	return px.atomic.view.Store(selectv(px.merge(local, remote)))
 }
@@ -418,15 +420,4 @@ func waitReady(px *PeerExchange) error {
 
 func asClosingContext(p goprocess.Process) context.Context {
 	return ctxutil.FromChan(p.Closing())
-}
-
-func newSelector(id peer.ID, remote interface{ last() GossipRecord }, maxSize int) func(View) View {
-	selection := remote.last().newSelector(id)
-	return func(v View) View {
-		if v = selection(v); len(v) > maxSize {
-			v = v[:maxSize]
-		}
-
-		return v
-	}
 }

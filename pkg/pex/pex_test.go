@@ -183,7 +183,7 @@ func TestPeerExchange_Simulation(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			for i, px := range xs {
 				t.Logf("peer %s:  %d", hs[i].ID().ShortString(), px.View().Len())
-				if px.View().Len() != pex.ViewSize {
+				if px.View().Len() != 32 {
 					return false
 				}
 			}

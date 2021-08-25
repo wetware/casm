@@ -18,8 +18,6 @@ import (
  * utils.go contains unexported utility types
  */
 
-func lastbyte(id peer.ID) uint8 { return uint8(id[len(id)-1]) }
-
 // breaker is a helper type that is used to elide repeated
 // error checks.  Calls to Do() become a nop when Err != nil.
 //

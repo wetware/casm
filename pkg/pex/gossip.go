@@ -12,9 +12,15 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 )
+
+func init() {
+	record.RegisterType(&GossipRecord{})
+	record.RegisterType(&View{})
+}
 
 const (
 	viewRecordEnvelopeDomain   = "casm/pex/view"
@@ -28,9 +34,82 @@ var (
 	gossipRecordEnvelopePayloadType = []byte{0x03, 0x03}
 )
 
-func init() {
-	record.RegisterType(&GossipRecord{})
-	record.RegisterType(&View{})
+// DistanceProvider can report a distance metric between the local host
+// and a remote peer.
+type DistanceProvider interface {
+	Distance(host.Host) uint64
+}
+
+// ViewSelectorFactory is a factory type that dynamically creates a
+// selector.  Implementations MUST ensure the returned selector always
+// returns a view 'v' where v <= maxSize.
+type ViewSelectorFactory func(h host.Host, d DistanceProvider, maxSize int) ViewSelector
+
+func (f ViewSelectorFactory) Bind(next ViewSelector) ViewSelectorFactory {
+	return func(h host.Host, d DistanceProvider, maxSize int) ViewSelector {
+		return f(h, d, maxSize).Then(next)
+	}
+}
+
+// ViewSelector implements the view selection strategy during a gossip round.
+type ViewSelector func(View) View
+
+// Select receives merger of the local view and the remote view as input,
+// and returns the new view.
+func (f ViewSelector) Select(v View) View { return f(v) }
+
+// Then is a simple interface for composing selectors.
+func (f ViewSelector) Then(next ViewSelector) ViewSelector {
+	return func(v View) View {
+		return next(f(v))
+	}
+}
+
+// RandSelector uniformly shuffles the merged view.  If r == nil, the
+// default global source is used.
+//
+// RandSelector is extremely robust against partitions, but slower to
+// converge than 'TailSelector'.
+func RandSelector(r *rand.Rand) ViewSelector {
+	shuffle := rand.Shuffle
+	if r != nil {
+		shuffle = r.Shuffle
+	}
+
+	return func(v View) View {
+		shuffle(len(v), v.Swap)
+		return v
+	}
+}
+
+// SortSelector returns the view sorted in descending order of hop.
+// Elements towards the tail are more recent, and less diffused
+// throughout the overlay.
+func SortSelector() ViewSelector {
+	return func(v View) View {
+		sort.Sort(v)
+		return v
+	}
+}
+
+// TailSelector returns n elements from the view, starting at the
+// tail.  Panics if n <= 0.
+//
+// When applied to a view that was previously sorted by SortSelector,
+// the result is a selection strategy that converges quickly, but causes
+// partitions to 'forget' about each other rapidly as well.
+func TailSelector(n int) ViewSelector {
+	if n <= 0 {
+		panic("n must be greater than zero.")
+	}
+
+	return func(v View) View {
+		if n < len(v) {
+			v = v[len(v)-n:]
+		}
+
+		return v
+	}
 }
 
 type GossipRecord struct {
@@ -54,8 +133,8 @@ func (g *GossipRecord) Loggable() map[string]interface{} {
 }
 
 // Distance returns the XOR of the last byte from 'id' and the record's ID.
-func (g *GossipRecord) Distance(id peer.ID) uint8 {
-	return lastbyte(g.PeerID) ^ lastbyte(id)
+func (g *GossipRecord) Distance(h host.Host) uint64 {
+	return lastUint64(g.PeerID) ^ lastUint64(h.ID())
 }
 
 // Domain is the "signature domain" used when signing and verifying a particular
@@ -114,20 +193,20 @@ func (g *GossipRecord) UnmarshalRecord(b []byte) (err error) {
 	return maybe.Err
 }
 
-func (g GossipRecord) newSelector(id peer.ID) func(View) View {
-	// P = .5
-	if g.Distance(id) > 128 {
-		return func(v View) View {
-			sort.Sort(v)
-			return v
-		}
-	}
+// func (g GossipRecord) newSelector(id peer.ID) func(View) View {
+// 	// P = .5
+// 	if g.Distance(id) > 128 {
+// 		return func(v View) View {
+// 			sort.Sort(v)
+// 			return v
+// 		}
+// 	}
 
-	return func(v View) View {
-		rand.Shuffle(len(v), v.Swap)
-		return v
-	}
-}
+// 	return func(v View) View {
+// 		rand.Shuffle(len(v), v.Swap)
+// 		return v
+// 	}
+// }
 
 type View []GossipRecord
 
@@ -280,4 +359,13 @@ func validateIsSignedByPeer(want peer.ID, pk crypto.PubKey) error {
 	}
 
 	return nil
+}
+
+// convert last 8 bytes of a peer.ID into a unit64.
+func lastUint64(id peer.ID) (u uint64) {
+	for i := 0; i < 8; i++ {
+		u = (u << 8) | uint64(id[len(id)-i-1])
+	}
+
+	return
 }
