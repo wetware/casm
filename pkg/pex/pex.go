@@ -33,7 +33,7 @@ const (
 	baseProto protocol.ID = "/casm/pex"
 	Proto     protocol.ID = baseProto + "/" + Version
 
-	ViewSize = 16 // TODO(enhancement):  make this configurable per-PeerExchange?
+	ViewSize = 32 // TODO(enhancement):  make this configurable per-PeerExchange?
 )
 
 var initializers = [...]initFunc{
