@@ -26,10 +26,6 @@ var (
 	// https://github.com/multiformats/multicodec/blob/master/table.csv
 	viewRecordEnvelopePayloadType   = []byte{0x03, 0x04}
 	gossipRecordEnvelopePayloadType = []byte{0x03, 0x03}
-
-	// ErrInvalidRange is returned as a cause in a ValidationError when
-	// a field's value falls outside the expected range.
-	ErrInvalidRange = errors.New("invalid range")
 )
 
 func init() {

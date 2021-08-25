@@ -5,6 +5,12 @@ import (
 	"fmt"
 )
 
+var (
+	// ErrInvalidRange is returned as a cause in a ValidationError when
+	// a field's value falls outside the expected range.
+	ErrInvalidRange = errors.New("invalid range")
+)
+
 type ValidationError struct {
 	Cause   error
 	Message string
