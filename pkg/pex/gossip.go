@@ -285,3 +285,14 @@ func validateIsSignedByPeer(want peer.ID, pk crypto.PubKey) error {
 
 	return nil
 }
+
+func newSelector(id peer.ID, remote interface{ last() GossipRecord }, maxSize int) func(View) View {
+	selection := remote.last().newSelector(id)
+	return func(v View) View {
+		if v = selection(v); len(v) > maxSize {
+			v = v[:maxSize]
+		}
+
+		return v
+	}
+}

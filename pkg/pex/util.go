@@ -1,6 +1,7 @@
 package pex
 
 import (
+	"sync"
 	"sync/atomic"
 
 	"github.com/libp2p/go-eventbus"
@@ -51,7 +52,9 @@ func (l logger) WithField(s string, v interface{}) logger { return logger{l.Logg
 
 type atomicValues struct {
 	record atomicGossipRecord
-	view   atomicView
+
+	sync.Mutex // serialize writers to 'view'
+	view       atomicView
 }
 
 func newAtomicValues(bus event.Bus) (vs atomicValues, err error) {
@@ -61,7 +64,7 @@ func newAtomicValues(bus event.Bus) (vs atomicValues, err error) {
 	return
 }
 
-func (vs atomicValues) CloseAll() error {
+func (vs *atomicValues) CloseAll() error {
 	return multierr.Combine(
 		vs.view.Close(),
 		vs.record.Close(),
@@ -93,9 +96,10 @@ type atomicView struct {
 	evtUpdated event.Emitter
 }
 
-func newAtomicView(bus event.Bus) (atomicView, error) {
-	e, err := bus.Emitter(new(EvtViewUpdated))
-	return atomicView{evtUpdated: e}, err
+func newAtomicView(bus event.Bus) (v atomicView, err error) {
+	v.evtUpdated, err = bus.Emitter(new(EvtViewUpdated))
+	v.val.Store(View{})
+	return
 }
 
 func (av *atomicView) Load() (v View) {
@@ -105,10 +109,8 @@ func (av *atomicView) Load() (v View) {
 
 func (av *atomicView) Store(v View) error {
 	av.val.Store(v)
-
 	evt := make(EvtViewUpdated, len(v))
 	copy(evt, v)
-
 	return av.evtUpdated.Emit(evt)
 }
 

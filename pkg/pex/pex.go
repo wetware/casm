@@ -122,7 +122,7 @@ func (px *PeerExchange) Join(ctx context.Context, boot peer.AddrInfo) error {
 	for _, fn := range []func(){
 		func() { maybe.Err = px.h.Connect(ctx, boot) },                     // connect to boot peer
 		func() { s, maybe.Err = px.h.NewStream(ctx, boot.ID, px.proto()) }, // open pex stream
-		func() { maybe.Err = px.pushpull(ctx, s, px.atomic.view.Load()) },  // perform initial gossip round
+		func() { maybe.Err = px.pushpull(ctx, s) },                         // perform initial gossip round
 	} {
 		maybe.Do(fn)
 	}
@@ -159,14 +159,14 @@ func (px *PeerExchange) gossipOne(ctx context.Context, id peer.ID) error {
 		return streamError{Peer: id, error: err}
 	}
 
-	return px.pushpull(ctx, s, px.atomic.view.Load())
+	return px.pushpull(ctx, s)
 }
 
 func (px *PeerExchange) proto() protocol.ID {
 	return protoutil.AppendStrings(Proto, px.ns)
 }
 
-func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream, v View) error {
+func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	// NOTE:  v MUST NOT be mutated!
 	defer s.Close()
 
@@ -182,6 +182,8 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream, v View) 
 	// push
 	j.Go(func() error {
 		defer s.CloseWrite()
+
+		v := px.atomic.view.Load()
 
 		// copy view and append local peer's gossip record
 		rec := make(View, len(v), len(v)+1)
@@ -226,24 +228,26 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream, v View) 
 			return err
 		}
 
-		return px.merge(v, remote)
+		remote.incrHops()
+		return px.mergeAndSelect(remote,
+			newSelector(px.h.ID(), remote, ViewSize))
 	})
 
 	return j.Wait()
 }
 
-// merge views.  Note that concurrent gossip rounds might overwrite
-// each other (ABA problem).  This shouldn't matter, so we ignore it.
-func (px *PeerExchange) merge(local, remote View) (err error) {
+func (px *PeerExchange) mergeAndSelect(remote View, selectv func(View) View) error {
+	px.atomic.Lock()
+	defer px.atomic.Unlock()
 	/*
 	 *  CAUTION:  'local' MUST NOT be mutated!
 	 */
 
-	remote.incrHops()
+	local := px.atomic.view.Load()
+	return px.atomic.view.Store(selectv(merge(local, remote)))
+}
 
-	// access sender now; 'remote' will mutate.
-	selector := remote.last().newSelector(px.h.ID())
-
+func merge(local, remote View) View {
 	remote = append(remote, local...) // merge local view into remote.
 
 	// Remove duplicate records.
@@ -259,18 +263,7 @@ func (px *PeerExchange) merge(local, remote View) (err error) {
 		}
 	}
 
-	return px.selectView(merged, selector)
-}
-
-// Select the new view, using a variable strategy based on the XOR
-// distance.  By convention, the last record in the remote view is
-// the sender.
-func (px *PeerExchange) selectView(merged View, sel func(View) View) error {
-	if len(merged) > ViewSize {
-		merged = sel(merged)[:ViewSize]
-	}
-
-	return px.atomic.view.Store(merged)
+	return merged
 }
 
 func (px *PeerExchange) updateLocalRecord(ev event.EvtLocalAddressesUpdated) error {
@@ -326,7 +319,7 @@ func initStreamHandlers(px *PeerExchange) error {
 				ctx, cancel := context.WithTimeout(ctxutil.FromChan(px.proc.Closing()), d)
 				defer cancel()
 
-				if err := px.pushpull(ctx, s, px.atomic.view.Load()); err != nil {
+				if err := px.pushpull(ctx, s); err != nil {
 					px.log.WithStream(s).WithError(err).
 						Debug("error handling gosisp")
 				}
