@@ -3,6 +3,7 @@ package pex_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -144,37 +145,44 @@ func TestPeerExchange_Simulation(t *testing.T) {
 		sampleRate  = time.Millisecond * 100
 	)
 
-	dl, ok := t.Deadline()
-	if ok && simDuration < time.Until(dl) {
-		t.Skipf("simulation skipped due to test timeout (max: -timeout=%v)",
-			simDuration)
-	}
+	// dl, ok := t.Deadline()
+	// if ok && simDuration < time.Until(dl) {
+	// 	t.Skipf("simulation skipped due to test timeout (max: -timeout=%v)",
+	// 		simDuration)
+	// }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var (
+		s   simtest
 		sim = mx.New(ctx)
 		hs  = sim.MustHostSet(ctx, clusterSize)
 		xs  = make([]*pex.PeerExchange, clusterSize)
 	)
 
-	// initialize a peer exchange for each host in hs, and join
-	// the namespace.
-	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
-		xs[i], err = pex.New(h, ns, pex.WithTick(tick))
-		return
-	}).Go(func(ctx context.Context, i int, _ host.Host) (err error) {
-		if i > 0 {
-			err = xs[i].Join(ctx, *host.InfoFromHost(hs[i-1]))
-		}
-		return
-	}).Must(ctx, hs)
+	mx. // initialize a peer exchange for each host in hs
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			xs[i], err = pex.New(h, ns, pex.WithTick(tick))
+			return
+		}).
+		// join all hosts in a ring topology
+		Go(func(ctx context.Context, i int, _ host.Host) (err error) {
+			h := hs[len(hs)-1]
+			if i > 0 {
+				h = hs[i-1]
+			}
 
-	t.Run("ViewsAreEventuallyFull", func(t *testing.T) {
+			return xs[i].Join(ctx, *host.InfoFromHost(h))
+		}).
+		Must(ctx, hs)
+
+	s.Run(t, "ViewsAreEventuallyFull", func(t *testing.T) {
+		t.Parallel()
+
 		assert.Eventually(t, func() bool {
 			for i, px := range xs {
-				t.Logf("peer %s:  %d", hs[i].ID().Pretty(), px.View().Len())
+				t.Logf("peer %s:  %d", hs[i].ID().ShortString(), px.View().Len())
 				if px.View().Len() != pex.ViewSize {
 					return false
 				}
@@ -183,5 +191,22 @@ func TestPeerExchange_Simulation(t *testing.T) {
 		}, simDuration, sampleRate)
 	})
 
-	// TODO:  test that dead peers eventually disappear from cluster
+	s.Run(t, "DeadPeersEventuallyPurged", func(t *testing.T) {
+		t.Parallel()
+
+		t.Skip("NOT IMPLEMENTED") // TODO
+	})
+
+	s.Wait()
 }
+
+type simtest sync.WaitGroup
+
+func (s *simtest) Run(t *testing.T, name string, f func(t *testing.T)) {
+	(*sync.WaitGroup)(s).Add(1)
+	defer (*sync.WaitGroup)(s).Done()
+
+	t.Run(name, f)
+}
+
+func (s *simtest) Wait() { (*sync.WaitGroup)(s).Wait() }

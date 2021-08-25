@@ -163,7 +163,7 @@ func (v View) Validate(e *record.Envelope) error {
 	// Validate sender hop == 0
 	if v.last().Hop != 0 {
 		return ValidationError{
-			Message: fmt.Sprintf("sender %s", v.last().PeerID.Pretty()),
+			Message: fmt.Sprintf("sender %s", v.last().PeerID.ShortString()),
 			Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
 		}
 	}
@@ -172,7 +172,7 @@ func (v View) Validate(e *record.Envelope) error {
 	for _, g := range v[:len(v)-1] {
 		if g.Hop == 0 {
 			return ValidationError{
-				Message: fmt.Sprintf("peer %s", g.PeerID.Pretty()),
+				Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
 				Cause:   fmt.Errorf("%w: expected hop > 0", ErrInvalidRange),
 			}
 		}
@@ -280,19 +280,8 @@ func validateIsSignedByPeer(want peer.ID, pk crypto.PubKey) error {
 	}
 
 	if want != got {
-		return fmt.Errorf("record not signed by %s", want.Pretty())
+		return fmt.Errorf("record not signed by %s", want.ShortString())
 	}
 
 	return nil
-}
-
-func newSelector(id peer.ID, remote interface{ last() GossipRecord }, maxSize int) func(View) View {
-	selection := remote.last().newSelector(id)
-	return func(v View) View {
-		if v = selection(v); len(v) > maxSize {
-			v = v[:maxSize]
-		}
-
-		return v
-	}
 }

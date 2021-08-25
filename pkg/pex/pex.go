@@ -209,7 +209,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	j.Go(func() error {
 		defer s.CloseRead()
 
-		var remote = make(View, 0, ViewSize*2)
+		var remote View
 
 		// defensively limit buffer size; assume 1kb per record
 		b, err := ioutil.ReadAll(io.LimitReader(s, ViewSize*1024))
@@ -245,15 +245,20 @@ func (px *PeerExchange) mergeAndSelect(remote View) error {
 	local := px.atomic.view.Load()
 	selectv := newSelector(px.h.ID(), remote, ViewSize)
 
-	return px.atomic.view.Store(selectv(merge(local, remote)))
+	return px.atomic.view.Store(selectv(px.merge(local, remote)))
 }
 
-func merge(local, remote View) View {
+func (px *PeerExchange) merge(local, remote View) View {
 	remote = append(remote, local...) // merge local view into remote.
 
 	// Remove duplicate records.
 	merged := remote[:0]
 	for _, g := range remote {
+		// skip record if it came from us
+		if g.PeerID == px.h.ID() {
+			continue
+		}
+
 		have, found := merged.find(g)
 
 		/* Select if:
@@ -413,4 +418,15 @@ func waitReady(px *PeerExchange) error {
 
 func asClosingContext(p goprocess.Process) context.Context {
 	return ctxutil.FromChan(p.Closing())
+}
+
+func newSelector(id peer.ID, remote interface{ last() GossipRecord }, maxSize int) func(View) View {
+	selection := remote.last().newSelector(id)
+	return func(v View) View {
+		if v = selection(v); len(v) > maxSize {
+			v = v[:maxSize]
+		}
+
+		return v
+	}
 }
