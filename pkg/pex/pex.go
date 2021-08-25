@@ -211,8 +211,8 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 
 		var remote = make(View, 0, ViewSize*2)
 
-		// TODO(security): defensively limit buffer size
-		b, err := ioutil.ReadAll(s)
+		// defensively limit buffer size; assume 1kb per record
+		b, err := ioutil.ReadAll(io.LimitReader(s, ViewSize*1024))
 		if err != nil {
 			return err
 		}
