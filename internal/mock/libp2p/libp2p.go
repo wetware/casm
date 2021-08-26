@@ -896,3 +896,54 @@ func (mr *MockNetworkMockRecorder) StopNotify(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopNotify", reflect.TypeOf((*MockNetwork)(nil).StopNotify), arg0)
 }
+
+// MockEmitter is a mock of Emitter interface.
+type MockEmitter struct {
+	ctrl     *gomock.Controller
+	recorder *MockEmitterMockRecorder
+}
+
+// MockEmitterMockRecorder is the mock recorder for MockEmitter.
+type MockEmitterMockRecorder struct {
+	mock *MockEmitter
+}
+
+// NewMockEmitter creates a new mock instance.
+func NewMockEmitter(ctrl *gomock.Controller) *MockEmitter {
+	mock := &MockEmitter{ctrl: ctrl}
+	mock.recorder = &MockEmitterMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockEmitter) EXPECT() *MockEmitterMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockEmitter) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockEmitterMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockEmitter)(nil).Close))
+}
+
+// Emit mocks base method.
+func (m *MockEmitter) Emit(evt interface{}) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Emit", evt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Emit indicates an expected call of Emit.
+func (mr *MockEmitterMockRecorder) Emit(evt interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Emit", reflect.TypeOf((*MockEmitter)(nil).Emit), evt)
+}

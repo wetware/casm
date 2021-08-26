@@ -4,6 +4,7 @@
 package mock
 
 import (
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 )
@@ -13,4 +14,5 @@ type (
 	Conn    interface{ network.Conn }
 	Stream  interface{ network.Stream }
 	Network interface{ network.Network }
+	Emitter interface{ event.Emitter }
 )
