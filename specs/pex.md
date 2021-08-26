@@ -4,14 +4,14 @@ Gossip-based sampling service for robust connectivity.
 
 | Lifecycle Stage | Maturity       | Status | Latest Revision |
 |-----------------|----------------|--------|-----------------|
-| 1A              | Working Draft  | Active | r1, 2021-05-11  |
+| 1A              | Working Draft  | Active | r1, 2021-08-26  |
 
 Authors: [@aratz-lasa], [@lthibault]
 
 [@aratz-lasa]: https://github.com/aratz-lasa
 [@lthibault]: https://github.com/lthibault
 
-See Libp2p's [lifecycle document][lifecycle-spec] for context about maturity level
+See libp2p's [lifecycle document][lifecycle-spec] for context about maturity level
 and spec status.
 
 [lifecycle-spec]: https://github.com/libp2p/specs/blob/master/00-framework-01-spec-lifecycle.md
@@ -23,19 +23,21 @@ and spec status.
   - [Motivation](#motivation)
   - [Protocol Specification](#protocol-specification)
     - [Overview](#overview)
+    - [Conventions](#conventions)
     - [Definitions](#definitions)
     - [Gossiping](#gossiping)
       - [Mechanism](#mechanism)
       - [Peer Selection](#peer-selection)
       - [Merge Policy](#merge-policy)
       - [Node Age](#node-age)
-    - [Record Sequence](#record-sequence)
+      - [Record Sequence](#record-sequence)
     - [API](#api)
       - [Stream Identifier](#stream-identifier)
       - [Peer Exchange](#peer-exchange)
       - [Gossip Record](#gossip-record)
+      - [Wire Format](#wire-format)
   - [Known Issues](#known-issues)
-    - [Core Team](#core-team)
+  - [Core Team](#core-team)
   - [References](#references)
 
 ## Motivation
@@ -64,17 +66,15 @@ Scalability.  The global system should stabilize in better-than-linear time.
 Crucially, the PubSub router and the Kademlia DHT fail to satisfy one or more of these requirements.
 
 ## Protocol Specification
-
 ### Overview
-**pex** stands for *Peer-Exchange* and 
-takes care of maintaining a peer-to-peer unstructured overlay. In other words it is responsible for
-ensuring connectivity, so that all the nodes form a single connected random network.
-Also, it provides a [Discovery](https://github.com/libp2p/go-libp2p-core/blob/master/discovery/discovery.go) API 
-for providing a random set of nodes from the network at any given time. This is mainly used by other services 
-that need to discover new peers for staying connected in the network.
 
-To do this, it uses a gossiping protocol that forms an unstructured peer-to-peer overlay. 
-This protocol is based on [The Peer Sampling Service](https://dl.acm.org/doi/abs/10.5555/1045658.1045666).
+**PeX** stands for *Peer-Exchange* and takes care of maintaining a peer-to-peer unstructured overlay. In other words it is responsible for ensuring connectivity, so that all the nodes form a single connected random network. Also, it provides a [Discovery](https://github.com/libp2p/go-libp2p-core/blob/master/discovery/discovery.go) API for providing a random set of nodes from the network at any given time. This is mainly used by other services that need to discover new peers for staying connected in the network.
+
+To do this, it uses a gossiping protocol that forms an unstructured peer-to-peer overlay.  This protocol is based on [The Peer Sampling Service](https://dl.acm.org/doi/abs/10.5555/1045658.1045666).
+
+### Conventions
+
+>The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED",  "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) and [RFC 2119](https://datatracker.ietf.org/doc/html/rfc8174).
 
 ### Definitions
 - **Overlay**: a network that is layered on top of another network. The nodes within the overlay can be seen as connected to other nodes via logical paths or links, which correspond to a path in the underlying network.
@@ -143,7 +143,7 @@ When a node sends its local view to another, the sender adds itself to the local
 view with a Hop Counter of zero. This is a heartbeat mechanism. When adding
 itself, it will be the youngest peer of the local view that receives the other node.
 
-### Record Sequence
+#### Record Sequence
 
 **PeX** leverages the `Seq` counter in libp2p's `peer.Record` during view merging to deduplicate records and ensure the latest addressing information is preserved.  When merging views, peers should evict records that:
 
@@ -166,14 +166,16 @@ This ensures hosts can update their network address when it changes.
 /casm/pex/<version>/<ns>
 ```
 
-where `<version>` is a semantic version number and `<ns>` is the cluster's namespace string.
+The `<version>` path component MUST contain a valid [semantic version string](https://semver.org/spec/v2.0.0.html).  Hosts MUST reject connections from peers with incompatible versions.
+
+The `<ns>` component is an arbitrary string that designates a namespace.  This namespace string MUST be consistent across different layers of the CASM protocol stack.  It must notably match the namespace used by the clustering layer.
 
 #### Peer Exchange
 
 The **PeX** API is defined by four methods.  These are shown below in pseudocode using Go-likesyntax.
 
 ```go
-type PeerExchange interface{
+type PeerExchange interface {
   // New peer exchange.  The cluster is identified by 'ns'.
   New(h host.Host, ns string, opt ...Option) (*PeerExchange, error)	
 	
@@ -201,19 +203,47 @@ type GossipRecord struct {
 }
 ```
 
-When receiving a remote view, implementations should validate the following:
+When receiving a remote view, implementations MUST validate the following:
 
 1. The last record MUST have `Hop == 0`.
 2. All other records MUST have `Hop > 0`.
-3. The last record MUST be signed by the neighbor that sent it.
+3. Records MUST be signed the peer `GossipRecord.PeerID`.
+4. The last record sent MUST be signed by the sender.
 
 Future work will focus on implementing a peer scoring system similar to GossipSub, which will punish peers who send invalid views by refusing to gossip with them.
+
+
+#### Wire Format
+
+**PeX** uses a simple binary encoding to transmit data during gossip rounds.  Fixed-size values such as `Hop` are encoded using _unsigned_ 64-bit varints, and variable-length content is length-prefixed using _signed_ varints.
+
+Thus, the wire format for a single `GosspRecord` is the following:
+
+```
++---------------+--------------+--------------------------------+
+| Seq (uvarint) | len (varint) | signed record.Envelope (bytes) |
++---------------+--------------+--------------------------------+
+```
+
+The default encoding for `record.Envelope` is used (protocol buffers).
+
+Views are transmitted as a sequence of length-prefixed `GossipRecord` messages.  Receivers can check that they have received the expected number of records for a given view by validating that the final record refers to the sender and has a hop count of zero.  As noted above, all records MUST be signed by the peers they reference rather than the immediate sender.
+
+The wire format for a view is shown below.  The `...` indicates that the pattern can repeat an arbitrary number of times.
+
+```
++--------------+----------------------+-----+
+| len (varint) | GossipRecord (bytes) | ... |
++--------------+----------------------+-----+
+```
+
+To protect against DoS attacks, implementations SHOULD limit the length of encoded views received by neighbors to some fixed multiple of the maximum value size.  A value of 1024 (1 Kb) is RECOMMENDED.
 
 ## Known Issues
 
 None (...so far!)
 
-### Core Team
+## Core Team
 
 - [@lthibault](https://github.com/lthibault)
 - [@aratz-lasa](https://github.com/aratz-lasa) ★
