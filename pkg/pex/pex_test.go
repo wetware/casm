@@ -3,7 +3,6 @@ package pex_test
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -137,25 +136,16 @@ func TestPeerExchange_Simulation(t *testing.T) {
 	t.Helper()
 
 	const (
-		clusterSize = 32
+		clusterSize = 64
 		ns          = "casm.pex.test"
 
-		tick        = time.Millisecond * 1
-		simDuration = time.Second * 30
-		sampleRate  = time.Millisecond * 100
+		tick = time.Microsecond * 1
 	)
-
-	// dl, ok := t.Deadline()
-	// if ok && simDuration < time.Until(dl) {
-	// 	t.Skipf("simulation skipped due to test timeout (max: -timeout=%v)",
-	// 		simDuration)
-	// }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var (
-		s   simtest
 		sim = mx.New(ctx)
 		hs  = sim.MustHostSet(ctx, clusterSize)
 		xs  = make([]*pex.PeerExchange, clusterSize)
@@ -177,36 +167,34 @@ func TestPeerExchange_Simulation(t *testing.T) {
 		}).
 		Must(ctx, hs)
 
-	s.Run(t, "ViewsAreEventuallyFull", func(t *testing.T) {
-		t.Parallel()
+	t.Run("ViewsAreEventuallyFull", func(t *testing.T) {
+		err := mx.Go(func(ctx context.Context, i int, h host.Host) error {
+			sub, err := h.EventBus().Subscribe(new(pex.EvtViewUpdated))
+			if err != nil {
+				return err
+			}
+			defer sub.Close()
 
-		assert.Eventually(t, func() bool {
-			for i, px := range xs {
-				t.Logf("peer %s:  %d", hs[i].ID().ShortString(), px.View().Len())
-				if px.View().Len() != 32 {
-					return false
+			for {
+				select {
+				case v := <-sub.Out():
+					view := pex.View(v.(pex.EvtViewUpdated))
+
+					if view.Len() == 32 {
+						return nil
+					}
+
+				case <-ctx.Done():
+					return ctx.Err()
 				}
 			}
-			return true
-		}, simDuration, sampleRate)
+		}).Err(ctx, hs)
+
+		require.NoError(t, err)
 	})
 
-	s.Run(t, "DeadPeersEventuallyPurged", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("DeadPeersEventuallyPurged", func(t *testing.T) {
 		t.Skip("NOT IMPLEMENTED") // TODO
 	})
 
-	s.Wait()
 }
-
-type simtest sync.WaitGroup
-
-func (s *simtest) Run(t *testing.T, name string, f func(t *testing.T)) {
-	(*sync.WaitGroup)(s).Add(1)
-	defer (*sync.WaitGroup)(s).Done()
-
-	t.Run(name, f)
-}
-
-func (s *simtest) Wait() { (*sync.WaitGroup)(s).Wait() }
