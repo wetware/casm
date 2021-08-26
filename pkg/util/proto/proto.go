@@ -2,17 +2,21 @@
 package protoutil
 
 import (
+	"path"
 	"strings"
 
 	"github.com/libp2p/go-libp2p-core/protocol"
 )
 
-const sep = "/"
-
 // Join multiple protocol.IDs into one, using the path separator.
 func Join(ids ...protocol.ID) protocol.ID {
 	ss := protocol.ConvertToStrings(ids)
-	return protocol.ID(strings.Join(ss, sep))
+	return protocol.ID(path.Join(ss...))
+}
+
+// AppendStrings to a protocol.ID
+func AppendStrings(id protocol.ID, ss ...string) protocol.ID {
+	return Join(append([]protocol.ID{id}, protocol.ConvertFromStrings(ss)...)...)
 }
 
 // Parts splits the protocol.ID into its constituent components
