@@ -11,8 +11,8 @@ struct Announcement {
     # Heartbeat messages are periodically broadcast in a pubsub
     # topic whose name is the cluster's namespace string. This
     # is used to track the liveness of peers in a cluster, as
-    # well as build a routing table so that peers can connec to
-    # each other.  User-defined metadata can piggyback off of
+    # well as to build a routing table so that peers can connect
+    # to each other.  User-defined metadata can piggyback off of
     # these messages.  A common case is to include the node's
     # hostname.
     struct Heartbeat {
@@ -22,10 +22,13 @@ struct Announcement {
 
         # Heartbeat messages may contain arbitrary metadata.
         #
-        # - Use 'metaString' when sending human-readable values,
-        #   or text-encoded data like JSON and XML.
-        # - Use 'metaBytes' when sending non-capnp binary data,
+        # - Use 'text' when sending human-readable values, or
+        #   text-encoded data like JSON and XML.
+        # - Use 'binary' when sending non-capnp binary data,
         #   for example using CBOR, MSGPACK or Protocol Buffers.
+        #
+        # - Use 'pointer' to transmit an arbitrary Cap'n Proto
+        #   pointer type.
         #
         # This data will be broadcast to all pears at each heartbeat,
         # so users are encoraged to be very terse.
