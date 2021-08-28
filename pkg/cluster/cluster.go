@@ -22,7 +22,7 @@ type Iterator treap.Iterator
 func (i *Iterator) Next() (more bool)   { return (*treap.Iterator)(i).Next() }
 func (i *Iterator) More() bool          { return (*treap.Iterator)(i).More() }
 func (i *Iterator) Peer() peer.ID       { return idCastUnsafe((*treap.Iterator)(i).Key) }
-func (i *Iterator) Deadline() time.Time { return timeCastUnsafe((*treap.Iterator)(i).Node.Weight) }
+func (i *Iterator) Deadline() time.Time { return timeCastUnsafe((*treap.Iterator)(i).Weight) }
 
 func (i *Iterator) Record() Record {
 	return recordCastUnsafe((*treap.Iterator)(i).Value).Heartbeat.Record()
