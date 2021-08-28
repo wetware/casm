@@ -68,13 +68,10 @@ func (c *Cluster) Contains(id peer.ID) bool {
 
 func (c *Cluster) Iter() *Iterator { return (*Iterator)(handle.Iter(c.m.Load().n)) }
 
-// block until at least one peer is connected
-var pubOpt = pubsub.WithReadiness(pubsub.MinTopicSize(1))
-
 func (c *Cluster) announce(ctx context.Context, a announcement) error {
 	b, err := a.MarshalBinary()
 	if err == nil {
-		err = c.t.Publish(ctx, b, pubOpt)
+		err = c.t.Publish(ctx, b)
 	}
 
 	return err
