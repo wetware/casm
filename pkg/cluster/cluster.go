@@ -17,16 +17,13 @@ import (
 	"go.uber.org/multierr"
 )
 
-type Iterator treap.Iterator
+type Iterator struct{ it *treap.Iterator }
 
-func (i *Iterator) Next() (more bool)   { return (*treap.Iterator)(i).Next() }
-func (i *Iterator) More() bool          { return (*treap.Iterator)(i).More() }
-func (i *Iterator) Peer() peer.ID       { return idCastUnsafe((*treap.Iterator)(i).Key) }
-func (i *Iterator) Deadline() time.Time { return timeCastUnsafe((*treap.Iterator)(i).Weight) }
-
-func (i *Iterator) Record() Record {
-	return recordCastUnsafe((*treap.Iterator)(i).Value).Heartbeat.Record()
-}
+func (i *Iterator) Next() (more bool)   { return i.it.Next() }
+func (i *Iterator) More() bool          { return i.it.More() }
+func (i *Iterator) Peer() peer.ID       { return idCastUnsafe(i.it.Key) }
+func (i *Iterator) Deadline() time.Time { return timeCastUnsafe(i.it.Weight) }
+func (i *Iterator) Record() Record      { return recordCastUnsafe(i.it.Value).Heartbeat.Record() }
 
 type Cluster struct {
 	ns  string
@@ -66,7 +63,7 @@ func (c *Cluster) Contains(id peer.ID) bool {
 	return ok
 }
 
-func (c *Cluster) Iter() *Iterator { return (*Iterator)(handle.Iter(c.m.Load().n)) }
+func (c *Cluster) Iter() Iterator { return Iterator{handle.Iter(c.m.Load().n)} }
 
 func (c *Cluster) announce(ctx context.Context, a announcement) error {
 	b, err := a.MarshalBinary()
