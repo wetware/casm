@@ -40,8 +40,8 @@ func TestCluster_simulation(t *testing.T) {
 	t.Parallel()
 
 	const (
-		n   = 8 // // FIXME:  test fails when this is increased
-		lim = 4 // discovery limit
+		n   = 8 // FIXME:  test fails when this is increased
+		lim = 8 // FIXME:  test fails when n != lim
 		ttl = time.Millisecond * 200
 	)
 
