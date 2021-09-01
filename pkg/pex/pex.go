@@ -99,12 +99,12 @@ func (px *PeerExchange) String() string             { return px.ns }
 func (px *PeerExchange) Process() goprocess.Process { return px.proc }
 func (px *PeerExchange) Close() error               { return px.proc.Close() }
 
-// View returns a passively-updated view of the cluster.
+// View is the set of peers contained in the passive view.
 func (px *PeerExchange) View() View {
 	immut := px.atomic.view.Load() // DO NOT mutate
-	v := make(View, len(immut))
-	copy(v, immut)
-	return v
+	view := make(View, len(immut))
+	copy(view, immut)
+	return view
 }
 
 // Join the namespace using a bootstrap peer.

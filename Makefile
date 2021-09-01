@@ -16,11 +16,18 @@ mocks: clean-mocks
 clean-mocks:
 	@find . -name 'mock_*.go' | xargs -I{} rm {}
 
-capnp: capnp-cluster
+capnp: capnp-boot capnp-cluster
 # N.B.:  compiling capnp schemas requires having github.com/capnproto/go-capnproto2 installed
 #		 on the GOPATH.
 
-clean-capnp: clean-capnp-cluster
+clean-capnp: clean-capnp-boot clean-capnp-cluster
+
+capnp-boot:
+	@mkdir -p internal/api/boot
+	@capnp compile -I$(GOPATH)/src/github.com/capnproto/go-capnproto2/std -ogo:internal/api/boot --src-prefix=api/ api/boot.capnp
+
+clean-capnp-boot:
+	@rm -rf internal/api/boot
 
 capnp-cluster:  clean-capnp-cluster
 	@mkdir -p internal/api/cluster
