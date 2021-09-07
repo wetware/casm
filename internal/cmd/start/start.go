@@ -118,7 +118,7 @@ func newDiscovery(c *cli.Context, log log.Logger, h host.Host, dht *dual.DHT, lx
 		return nil, err
 	}
 
-	px, err := pex.New(h, c.String("ns"))
+	px, err := pex.New(h, pex.WithNamespace(c.String("ns")))
 	if err == nil {
 		lx.Append(closer(px))
 	}

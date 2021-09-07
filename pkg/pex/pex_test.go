@@ -15,6 +15,8 @@ import (
 	mx "github.com/wetware/matrix/pkg"
 )
 
+const ns = "casm.pex.test"
+
 func TestHost_LocalAddressesUpdated_stateful(t *testing.T) {
 	t.Parallel()
 
@@ -53,12 +55,10 @@ func TestPeerExchange_Init(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		const ns = "test"
-		px, err := pex.New(mx.New(ctx).MustHost(ctx), ns)
+		px, err := pex.New(mx.New(ctx).MustHost(ctx), pex.WithNamespace(ns))
 		require.NoError(t, err)
 
 		assert.Equal(t, ns, px.String(), "unexpected namespace")
-		assert.NotNil(t, px.Process(), "nil process")
 		assert.Empty(t, px.View(), "initialized view is non-empty")
 
 		err = px.Close()
@@ -73,7 +73,7 @@ func TestPeerExchange_Init(t *testing.T) {
 
 		sim := mx.New(ctx)
 
-		_, err := pex.New(sim.MustHost(ctx, libp2p.NoListenAddrs), "test")
+		_, err := pex.New(sim.MustHost(ctx, libp2p.NoListenAddrs), pex.WithNamespace(ns))
 		require.EqualError(t, err, "host not accepting connections")
 	})
 }
@@ -81,18 +81,16 @@ func TestPeerExchange_Init(t *testing.T) {
 func TestPeerExchange_Join(t *testing.T) {
 	t.Parallel()
 
-	const ns = "test"
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	sim := mx.New(ctx)
 	hs := sim.MustHostSet(ctx, 2)
 
-	ps := make([]*pex.PeerExchange, len(hs))
+	ps := make([]pex.PeerExchange, len(hs))
 	ss := make([]event.Subscription, len(hs))
 	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
-		ps[i], err = pex.New(h, ns)
+		ps[i], err = pex.New(h, pex.WithNamespace(ns))
 		return
 	}).Go(func(ctx context.Context, i int, h host.Host) (err error) {
 		ss[i], err = h.EventBus().Subscribe(new(pex.EvtViewUpdated))
@@ -137,9 +135,7 @@ func TestPeerExchange_Simulation(t *testing.T) {
 
 	const (
 		clusterSize = 64
-		ns          = "casm.pex.test"
-
-		tick = time.Microsecond * 1
+		tick        = time.Microsecond * 1
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -148,12 +144,12 @@ func TestPeerExchange_Simulation(t *testing.T) {
 	var (
 		sim = mx.New(ctx)
 		hs  = sim.MustHostSet(ctx, clusterSize)
-		xs  = make([]*pex.PeerExchange, clusterSize)
+		xs  = make([]pex.PeerExchange, clusterSize)
 	)
 
 	mx. // initialize a peer exchange for each host in hs
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			xs[i], err = pex.New(h, ns, pex.WithTick(tick))
+			xs[i], err = pex.New(h, pex.WithNamespace(ns), pex.WithTick(tick))
 			return
 		}).
 		// join all hosts in a ring topology

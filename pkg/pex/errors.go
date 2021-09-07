@@ -6,6 +6,10 @@ import (
 )
 
 var (
+	// ErrNoListenAddrs is returned from 'New' if the supplied host
+	// is not accepting peer connections.
+	ErrNoListenAddrs = errors.New("host not accepting connections")
+
 	// ErrInvalidRange is returned as a cause in a ValidationError when
 	// a field's value falls outside the expected range.
 	ErrInvalidRange = errors.New("invalid range")

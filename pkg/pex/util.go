@@ -55,14 +55,15 @@ type atomicValues struct {
 	view       atomicView
 }
 
-func newAtomicValues(bus event.Bus) (vs atomicValues, err error) {
+func newAtomicValues(bus event.Bus) (vs *atomicValues, err error) {
+	vs = new(atomicValues)
 	if vs.view, err = newAtomicView(bus); err == nil {
 		vs.record, err = newAtomicGossipRecord(bus)
 	}
 	return
 }
 
-func (vs *atomicValues) CloseAll() error {
+func (vs *atomicValues) Close() error {
 	return multierr.Combine(
 		vs.view.Close(),
 		vs.record.Close(),

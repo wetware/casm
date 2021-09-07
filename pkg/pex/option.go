@@ -10,6 +10,17 @@ import (
 
 type Option func(pex *PeerExchange)
 
+// WithNamespace sets the cluster namespace.
+// If ns == "", the default "casm" is used.
+func WithNamespace(ns string) Option {
+	if ns == "" {
+		ns = "casm"
+	}
+	return func(pex *PeerExchange) {
+		pex.ns = ns
+	}
+}
+
 // WithLogger sets the logger for the peer exchange.
 // If l == nil, a default logger is used.
 func WithLogger(l log.Logger) Option {
@@ -18,7 +29,7 @@ func WithLogger(l log.Logger) Option {
 	}
 
 	return func(pex *PeerExchange) {
-		pex.log = logger{l.WithField("id", pex.h.ID())}
+		pex.log = logger{l.With(pex)}
 	}
 }
 
@@ -82,9 +93,10 @@ func WithMaxViewSize(n uint) Option {
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
-		WithLogger(nil),
 		WithTick(-1),
+		WithLogger(nil),
 		WithSelector(nil),
+		WithNamespace(""),
 		WithMaxViewSize(0),
 	}, opt...)
 }

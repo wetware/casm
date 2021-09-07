@@ -10,7 +10,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/jbenet/goprocess"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/helpers"
@@ -19,6 +18,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/libp2p/go-libp2p-core/record"
+	"go.uber.org/fx"
 
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
@@ -33,15 +33,6 @@ const (
 	baseProto protocol.ID = "/casm/pex"
 	Proto     protocol.ID = baseProto + "/" + Version
 )
-
-var initializers = [...]initFunc{
-	checkHostIsListening,
-	initAtomics,
-	initSubscriptions,
-	initStreamHandlers,
-	initProcs,
-	waitReady,
-}
 
 // PeerExchange is a collection of passive views of various p2p clusters.
 //
@@ -65,42 +56,52 @@ type PeerExchange struct {
 	log  logger
 	tick time.Duration
 
-	h      host.Host
-	proc   goprocess.Process
-	events event.Subscription
-	atomic atomicValues
+	h  host.Host
+	pk crypto.PrivKey
 
 	maxSize     int
 	newSelector ViewSelectorFactory
+	atomic      *atomicValues
+
+	runtime fx.Shutdowner
 }
 
 // New peer exchange.
-func New(h host.Host, ns string, opt ...Option) (*PeerExchange, error) {
-	var px = &PeerExchange{
-		ns: ns,
-		h:  h,
+func New(h host.Host, opt ...Option) (pex PeerExchange, err error) {
+	var ctx = ctxutil.FromChan(h.Network().Process().Closing())
+	if err = ErrNoListenAddrs; len(h.Addrs()) > 0 {
+		err = fx.New(fx.NopLogger,
+			fx.Populate(&pex),
+			fx.Supply(opt),
+			fx.Provide(
+				newAtomics,
+				newPeerExchange,
+				newSubscriptions,
+				newHostComponents(h)),
+			fx.Invoke(
+				initGossipHandler,
+				startRecordUpdateLoop,
+				startGossipLoop,
+				waitReady)).
+			Start(ctx)
 	}
 
-	// set options
-	for _, option := range withDefaults(opt) {
-		option(px)
-	}
-
-	// initialize peer exchange
-	var maybe breaker
-	for _, fn := range initializers {
-		maybe.Do(func() { maybe.Err = fn(px) })
-	}
-
-	return px, maybe.Err
+	return
 }
 
-func (px *PeerExchange) String() string             { return px.ns }
-func (px *PeerExchange) Process() goprocess.Process { return px.proc }
-func (px *PeerExchange) Close() error               { return px.proc.Close() }
+func (px PeerExchange) String() string { return px.ns }
+func (px PeerExchange) Close() error   { return px.runtime.Shutdown() }
+
+func (px PeerExchange) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"id":       px.h.ID(),
+		"ns":       px.ns,
+		"max_view": px.maxSize,
+	}
+}
 
 // View is the set of peers contained in the passive view.
-func (px *PeerExchange) View() View {
+func (px PeerExchange) View() View {
 	immut := px.atomic.view.Load() // DO NOT mutate
 	view := make(View, len(immut))
 	copy(view, immut)
@@ -111,7 +112,7 @@ func (px *PeerExchange) View() View {
 //
 // Join blocks until the underlying host is listening on at least one network
 // address.
-func (px *PeerExchange) Join(ctx context.Context, boot peer.AddrInfo) error {
+func (px PeerExchange) Join(ctx context.Context, boot peer.AddrInfo) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -131,7 +132,7 @@ func (px *PeerExchange) Join(ctx context.Context, boot peer.AddrInfo) error {
 	return maybe.Err
 }
 
-func (px *PeerExchange) gossip(ctx context.Context) (err error) {
+func (px PeerExchange) gossip(ctx context.Context) (err error) {
 	view := px.atomic.view.Load() // do not mutate!
 	peers := view.IDs()
 	rand.Shuffle(len(peers), peers.Swap)
@@ -151,7 +152,7 @@ func (px *PeerExchange) gossip(ctx context.Context) (err error) {
 	return errors.New("orphaned host")
 }
 
-func (px *PeerExchange) gossipOne(ctx context.Context, id peer.ID) error {
+func (px PeerExchange) gossipOne(ctx context.Context, id peer.ID) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*15)
 	defer cancel()
 
@@ -163,11 +164,11 @@ func (px *PeerExchange) gossipOne(ctx context.Context, id peer.ID) error {
 	return px.pushpull(ctx, s)
 }
 
-func (px *PeerExchange) proto() protocol.ID {
+func (px PeerExchange) proto() protocol.ID {
 	return protoutil.AppendStrings(Proto, px.ns)
 }
 
-func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
+func (px PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	// NOTE:  v MUST NOT be mutated!
 	defer s.Close()
 
@@ -192,7 +193,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 		rec = append(rec, px.atomic.record.Load())
 
 		// marshal & sign 'rec'
-		env, err := record.Seal(&rec, px.privkey())
+		env, err := record.Seal(&rec, px.pk)
 		if err != nil {
 			return err
 		}
@@ -236,7 +237,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	return j.Wait()
 }
 
-func (px *PeerExchange) mergeAndSelect(remote View) error {
+func (px PeerExchange) mergeAndSelect(remote View) error {
 	px.atomic.Lock()
 	defer px.atomic.Unlock()
 	/*
@@ -250,7 +251,7 @@ func (px *PeerExchange) mergeAndSelect(remote View) error {
 	return px.atomic.view.Store(selectv(px.merge(local, remote)))
 }
 
-func (px *PeerExchange) merge(local, remote View) View {
+func (px PeerExchange) merge(local, remote View) View {
 	remote = append(remote, local...) // merge local view into remote.
 
 	// Remove duplicate records.
@@ -274,7 +275,7 @@ func (px *PeerExchange) merge(local, remote View) View {
 	return merged
 }
 
-func (px *PeerExchange) updateLocalRecord(ev event.EvtLocalAddressesUpdated) error {
+func (px PeerExchange) updateLocalRecord(ev event.EvtLocalAddressesUpdated) error {
 	g, err := NewGossipRecordFromEvent(ev)
 	if err == nil {
 		px.atomic.record.Store(g)
@@ -282,142 +283,174 @@ func (px *PeerExchange) updateLocalRecord(ev event.EvtLocalAddressesUpdated) err
 	return err
 }
 
-func (px *PeerExchange) privkey() crypto.PrivKey {
-	return px.h.Peerstore().PrivKey(px.h.ID())
-}
-
 /*
  * Set-up functions
  */
 
-type initFunc func(*PeerExchange) error
+// hostComponents is  needed in order for fx to correctly handle
+// the 'host.Host' interface.  Simply relying on 'fx.Supply' will
+// use the type of the underlying host implementation, which may
+// vary.
+type hostComponents struct {
+	fx.Out
 
-func checkHostIsListening(px *PeerExchange) (err error) {
-	if len(px.h.Addrs()) == 0 {
-		err = errors.New("host not accepting connections")
+	Bus     event.Bus
+	Host    host.Host
+	PrivKey crypto.PrivKey
+}
+
+func newHostComponents(h host.Host) func() hostComponents {
+	return func() hostComponents {
+		return hostComponents{
+			Host:    h,
+			Bus:     h.EventBus(),
+			PrivKey: h.Peerstore().PrivKey(h.ID()),
+		}
+	}
+}
+
+func newPeerExchange(h host.Host, k crypto.PrivKey, a *atomicValues, s fx.Shutdowner, opt []Option) PeerExchange {
+	var pex = PeerExchange{
+		h:       h,
+		pk:      k,
+		atomic:  a,
+		runtime: s,
+	}
+
+	for _, option := range withDefaults(opt) {
+		option(&pex)
+	}
+
+	return pex
+}
+
+func newAtomics(bus event.Bus, lx fx.Lifecycle) (vs *atomicValues, err error) {
+	if vs, err = newAtomicValues(bus); err == nil {
+		hook(lx, closer(vs))
 	}
 	return
 }
 
-func initAtomics(px *PeerExchange) (err error) {
-	px.atomic, err = newAtomicValues(px.h.EventBus())
+func newSubscriptions(bus event.Bus, lx fx.Lifecycle) (sub event.Subscription, err error) {
+	if sub, err = bus.Subscribe(new(event.EvtLocalAddressesUpdated)); err == nil {
+		hook(lx, closer(sub))
+	}
 	return
 }
 
-func initSubscriptions(px *PeerExchange) (err error) {
-	px.events, err = px.h.EventBus().Subscribe([]interface{}{
-		new(event.EvtLocalAddressesUpdated),
-		new(EvtViewUpdated),
-		new(EvtLocalRecordUpdated),
-	})
+func initGossipHandler(px PeerExchange, lx fx.Lifecycle) error {
+	const d = time.Second * 15
+	var (
+		ctx            = ctxutil.FromChan(px.h.Network().Process().Closing())
+		versionOK, err = helpers.MultistreamSemverMatcher(Proto)
+	)
 
-	return
-}
-
-func initStreamHandlers(px *PeerExchange) error {
-	versionOK, err := helpers.MultistreamSemverMatcher(Proto)
 	if err == nil {
-		px.h.SetStreamHandlerMatch(
-			Proto,
-			func(s string) bool { return versionOK(path.Dir(s)) && px.ns == path.Base(s) },
-			func(s network.Stream) {
-				defer s.Close()
+		px.h.SetStreamHandlerMatch(Proto, func(s string) bool {
+			return versionOK(path.Dir(s)) && px.ns == path.Base(s)
+		}, func(s network.Stream) {
+			defer s.Close()
 
-				const d = time.Second * 15
-				ctx, cancel := context.WithTimeout(ctxutil.FromChan(px.proc.Closing()), d)
-				defer cancel()
+			ctx, cancel := context.WithTimeout(ctx, d)
+			defer cancel()
 
-				if err := px.pushpull(ctx, s); err != nil {
-					px.log.WithStream(s).WithError(err).
-						Debug("error handling gosisp")
-				}
-			})
+			if err := px.pushpull(ctx, s); err != nil {
+				px.log.WithStream(s).WithError(err).
+					Debug("error handling gosisp")
+			}
+		})
+		hook(lx, deferred(func() { px.h.RemoveStreamHandler(Proto) }))
 	}
 
 	return err
 }
 
-func initProcs(px *PeerExchange) error {
-	px.proc = px.h.Network().Process().Go(func(proc goprocess.Process) {
-		defer px.h.RemoveStreamHandler(Proto)
-
-		<-proc.Closing()
+func startGossipLoop(px PeerExchange, lx fx.Lifecycle) {
+	ticker := jitterbug.New(px.tick, jitterbug.Uniform{
+		Min:    px.tick / 2,
+		Source: rand.New(rand.NewSource(time.Now().UnixNano())),
 	})
-	px.proc.SetTeardown(px.atomic.CloseAll)
 
-	px.proc.Go(func(proc goprocess.Process) {
-		ctx := asClosingContext(proc)
-
-		ticker := jitterbug.New(px.tick, jitterbug.Uniform{
-			Min:    px.tick / 2,
-			Source: rand.New(rand.NewSource(time.Now().UnixNano())),
-		})
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
+	hook(lx,
+		deferred(ticker.Stop),
+		goWithContext(func(ctx context.Context) {
+			for range ticker.C {
 				if err := px.gossip(ctx); err != nil {
 					px.log.WithError(err).Debug("gossip round failed")
 				}
+			}
+		}))
+}
 
-			case <-ctx.Done():
-				return
+func startRecordUpdateLoop(px PeerExchange, sub event.Subscription, lx fx.Lifecycle) {
+	hook(lx, goroutine(func() {
+		for v := range sub.Out() {
+			ev := v.(event.EvtLocalAddressesUpdated)
+			if err := px.updateLocalRecord(ev); err != nil {
+				px.log.WithError(err).Error("invalid peer record in event")
 			}
 		}
+	}))
+}
 
-	})
+func waitReady(px PeerExchange, bus event.Bus, lx fx.Lifecycle) {
+	hook(lx, setup(func(ctx context.Context) error {
+		sub, err := bus.Subscribe(new(EvtLocalRecordUpdated))
+		if err == nil {
+			defer sub.Close()
 
-	px.proc.Go(func(proc goprocess.Process) {
-		for {
 			select {
-			case v := <-px.events.Out():
-				switch ev := v.(type) {
-				case event.EvtLocalAddressesUpdated:
-					if err := px.updateLocalRecord(ev); err != nil {
-						px.log.WithError(err).Error("invalid peer record in event")
-					}
-
-				case EvtViewUpdated:
-					px.log.With(ev).Trace("view updated")
-
-				case EvtLocalRecordUpdated:
-					px.log.With(ev).Trace("local record updated")
-
+			case <-ctx.Done():
+				err = ctx.Err()
+			case _, ok := <-sub.Out():
+				if !ok {
+					err = errors.New("closing")
 				}
-
-			case <-proc.Closing():
-				return
 			}
 		}
-	}).SetTeardown(px.events.Close)
-
-	return nil
-}
-
-func waitReady(px *PeerExchange) error {
-	sub, err := px.h.EventBus().Subscribe(new(EvtLocalRecordUpdated))
-	if err != nil {
 		return err
+	}))
+
+}
+
+type hookFactory func(*fx.Hook)
+
+func hook(lx fx.Lifecycle, hfs ...hookFactory) {
+	var h fx.Hook
+	for _, apply := range hfs {
+		apply(&h)
 	}
-	defer sub.Close()
+	lx.Append(h)
+}
 
-	// We know the event is coming, thanks to 'checkHostIsListening' and the
-	// fact that 'event.EvtLocalAddressUpdated' is stateful.
+func setup(f func(context.Context) error) hookFactory {
+	return func(h *fx.Hook) { h.OnStart = f }
+}
 
-	select {
-	case <-px.proc.Closing():
-		return errors.New("closing")
+func goroutine(f func()) hookFactory {
+	return goWithContext(func(context.Context) { go f() })
+}
 
-	case v, ok := <-sub.Out():
-		if !ok || v == nil {
-			panic("nil event")
-		}
-
+func goWithContext(f func(context.Context)) hookFactory {
+	return setup(func(c context.Context) error {
+		go f(c)
 		return nil
+	})
+}
+
+func deferred(f func()) hookFactory {
+	return func(h *fx.Hook) {
+		h.OnStop = func(context.Context) error {
+			f()
+			return nil
+		}
 	}
 }
 
-func asClosingContext(p goprocess.Process) context.Context {
-	return ctxutil.FromChan(p.Closing())
+func closer(c io.Closer) hookFactory {
+	return func(h *fx.Hook) {
+		h.OnStop = func(context.Context) error {
+			return c.Close()
+		}
+	}
 }
