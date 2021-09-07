@@ -33,9 +33,9 @@ type state struct {
 	n *treap.Node
 }
 
-type model atomic.Value
+type routingTable atomic.Value
 
-func (m *model) NewValidator(e event.Emitter) pubsub.ValidatorEx {
+func (m *routingTable) NewValidator(e event.Emitter) pubsub.ValidatorEx {
 	return func(_ context.Context, id peer.ID, msg *pubsub.Message) pubsub.ValidationResult {
 		var a announcement
 		if err := a.UnmarshalBinary(msg.Data); err != nil {
@@ -67,7 +67,7 @@ func (m *model) NewValidator(e event.Emitter) pubsub.ValidatorEx {
 	}
 }
 
-func (m *model) Advance(t time.Time) {
+func (m *routingTable) Advance(t time.Time) {
 	var old, new state
 	for /* CAS loop */ {
 
@@ -88,7 +88,7 @@ func (m *model) Advance(t time.Time) {
 	}
 }
 
-func (m *model) Upsert(id peer.ID, r peerRecord) bool {
+func (m *routingTable) Upsert(id peer.ID, r peerRecord) bool {
 	var ok, created bool
 
 	for {
@@ -112,14 +112,14 @@ func (m *model) Upsert(id peer.ID, r peerRecord) bool {
 	return ok || created
 }
 
-func (m *model) Store(s state) { (*atomic.Value)(m).Store(s) }
+func (m *routingTable) Store(s state) { (*atomic.Value)(m).Store(s) }
 
-func (m *model) Load() state {
+func (m *routingTable) Load() state {
 	v := (*atomic.Value)(m).Load()
 	return *(*state)((*ifaceWords)(unsafe.Pointer(&v)).data)
 }
 
-func (m *model) CompareAndSwap(old, new state) bool {
+func (m *routingTable) CompareAndSwap(old, new state) bool {
 	return (*atomic.Value)(m).CompareAndSwap(old, new)
 }
 

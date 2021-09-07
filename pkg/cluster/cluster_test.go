@@ -57,7 +57,7 @@ func TestCluster_simulation(t *testing.T) {
 	hs := sim.MustHostSet(ctx, n)
 	ds := make([]discovery.Discovery, n)
 	ps := make([]*pubsub.PubSub, n)
-	cs := make([]*cluster.Cluster, n)
+	cs := make([]*cluster.Model, n)
 
 	mx.
 		// set up
@@ -122,7 +122,7 @@ func TestCluster_simulation(t *testing.T) {
 		Must(ctx, hs)
 }
 
-func count(c *cluster.Cluster) int {
+func count(c *cluster.Model) int {
 	var ps peer.IDSlice
 	for it := c.Iter(); it.Next(); {
 		ps = append(ps, it.Peer())

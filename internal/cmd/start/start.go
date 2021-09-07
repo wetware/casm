@@ -69,7 +69,7 @@ func run() cli.ActionFunc {
 				newCluster,
 				newPubSub,
 				newSub),
-			fx.Invoke(func(log log.Logger, c *cluster.Cluster, sub event.Subscription) {
+			fx.Invoke(func(log log.Logger, _ *cluster.Model, sub event.Subscription) {
 				go func() {
 					log.Info("started")
 					defer log.Warn("shutting down")
@@ -156,7 +156,7 @@ func newPubSub(c *cli.Context, h host.Host, d discovery.Discovery) (*pubsub.PubS
 		pubsub.WithDiscovery(d))
 }
 
-func newCluster(c *cli.Context, h host.Host, p *pubsub.PubSub) (*cluster.Cluster, error) {
+func newCluster(c *cli.Context, h host.Host, p *pubsub.PubSub) (*cluster.Model, error) {
 	return cluster.New(h, p, cluster.WithNamespace(c.String("ns")))
 }
 

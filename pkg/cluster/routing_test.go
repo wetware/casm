@@ -22,7 +22,7 @@ func TestValidator(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	var m model
+	var m routingTable
 	m.Store(state{})
 
 	t.Run("Heartbeat", func(t *testing.T) {
@@ -128,11 +128,11 @@ func TestValidator(t *testing.T) {
 	})
 }
 
-func TestModel(t *testing.T) {
+func TestRoutingTable(t *testing.T) {
 	t.Parallel()
 
 	var (
-		m  model
+		m  routingTable
 		id = newPeerID()
 	)
 
@@ -181,12 +181,12 @@ func TestModel(t *testing.T) {
 		"advancing by more than the TTL amount should cause eviction")
 }
 
-func contains(m *model, id peer.ID) bool {
+func contains(m *routingTable, id peer.ID) bool {
 	_, ok := handle.Get(m.Load().n, id)
 	return ok
 }
 
-func peers(m *model) (ps peer.IDSlice) {
+func peers(m *routingTable) (ps peer.IDSlice) {
 	for it := handle.Iter(m.Load().n); it.Next(); {
 		ps = append(ps, it.Key.(peer.ID))
 	}
