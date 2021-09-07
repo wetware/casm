@@ -2,12 +2,27 @@ package cluster
 
 import (
 	"time"
+
+	"github.com/lthibault/log"
+	"go.uber.org/fx"
 )
 
+// Config provides options to the dependency-injection
+// framework.
 type Config struct {
-	ns   string
-	ttl  time.Duration
-	hook func(Heartbeat)
+	fx.Out
+
+	NS   string
+	Log  log.Logger
+	TTL  time.Duration
+	Hook Hook
+}
+
+// Apply options to 'c', populating its fields.
+func (c *Config) Apply(opt []Option) {
+	for _, option := range withDefault(opt) {
+		option(c)
+	}
 }
 
 // Option type for Cluster.
@@ -21,7 +36,19 @@ func WithNamespace(ns string) Option {
 	}
 
 	return func(c *Config) {
-		c.ns = ns
+		c.NS = ns
+	}
+}
+
+// WithLogger sets the logger for the cluster model.
+// If l == nil, a default logger is used.
+func WithLogger(l log.Logger) Option {
+	if l == nil {
+		l = log.New()
+	}
+
+	return func(c *Config) {
+		c.Log = l
 	}
 }
 
@@ -38,7 +65,7 @@ func WithTTL(d time.Duration) Option {
 	}
 
 	return func(c *Config) {
-		c.ttl = d
+		c.TTL = d
 	}
 }
 
@@ -61,13 +88,14 @@ func WithHook(f func(Heartbeat)) Option {
 	}
 
 	return func(c *Config) {
-		c.hook = f
+		c.Hook = f
 	}
 }
 
 func withDefault(opt []Option) []Option {
 	return append([]Option{
 		WithNamespace(""),
+		WithLogger(nil),
 		WithTTL(0),
 		WithHook(nil),
 	}, opt...)

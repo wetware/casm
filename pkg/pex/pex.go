@@ -19,7 +19,6 @@ import (
 	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/libp2p/go-libp2p-core/record"
-
 	"go.uber.org/fx"
 
 	"github.com/lthibault/jitterbug/v2"
@@ -52,7 +51,7 @@ const (
 //
 // For the above reasons, we encourage users NOT to tune PeX parameters, as
 // these have been carefully selected to work in a broad range of applications
-// and any micro-optimizations are likely to be counterproductive.
+// and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
 	ns   string
 	log  logger
@@ -82,7 +81,7 @@ func New(h host.Host, opt ...Option) (pex PeerExchange, err error) {
 				newHostComponents(h)),
 			fx.Invoke(
 				initGossipHandler,
-				startRecordUpdateLoop,
+				startEventLoop,
 				startGossipLoop,
 				waitReady)).
 			Start(ctx)
@@ -254,13 +253,20 @@ func (px PeerExchange) mergeAndSelect(remote View) error {
 }
 
 func (px PeerExchange) merge(local, remote View) View {
+	/*
+	 * NOTE:
+	 *   (a) we are holding the lock in 'px.atomic'
+	 *   (b) 'local' MUST NOT mutate
+	 */
+
 	remote = append(remote, local...) // merge local view into remote.
 
 	// Remove duplicate records.
 	merged := remote[:0]
+	id := px.h.ID()
 	for _, g := range remote {
 		// skip record if it came from us
-		if g.PeerID == px.h.ID() {
+		if g.PeerID == id {
 			continue
 		}
 
@@ -296,19 +302,19 @@ func (px PeerExchange) updateLocalRecord(ev event.EvtLocalAddressesUpdated) erro
 type hostComponents struct {
 	fx.Out
 
-	Bus       event.Bus
-	Host      host.Host
-	PrivKey   crypto.PrivKey
-	CertStore ps.CertifiedAddrBook
+	Bus      event.Bus
+	Host     host.Host
+	PrivKey  crypto.PrivKey
+	CertBook ps.CertifiedAddrBook
 }
 
 func newHostComponents(h host.Host) func() hostComponents {
 	return func() hostComponents {
 		return hostComponents{
-			Host:      h,
-			Bus:       h.EventBus(),
-			PrivKey:   h.Peerstore().PrivKey(h.ID()),
-			CertStore: h.Peerstore().(ps.CertifiedAddrBook),
+			Host:     h,
+			Bus:      h.EventBus(),
+			PrivKey:  h.Peerstore().PrivKey(h.ID()),
+			CertBook: h.Peerstore().(ps.CertifiedAddrBook),
 		}
 	}
 }
@@ -389,7 +395,7 @@ func startGossipLoop(px PeerExchange, lx fx.Lifecycle) {
 		}))
 }
 
-func startRecordUpdateLoop(cb ps.CertifiedAddrBook, px PeerExchange, sub event.Subscription, lx fx.Lifecycle) {
+func startEventLoop(px PeerExchange, sub event.Subscription, cb ps.CertifiedAddrBook, lx fx.Lifecycle) {
 	hook(lx, goroutine(func() {
 		for v := range sub.Out() {
 			switch ev := v.(type) {
@@ -399,9 +405,9 @@ func startRecordUpdateLoop(cb ps.CertifiedAddrBook, px PeerExchange, sub event.S
 				}
 
 			case EvtViewUpdated:
-				for _, rec := range ev {
-					if _, err := cb.ConsumePeerRecord(rec.Envelope, ps.AddressTTL); err != nil {
-						px.log.WithError(err).Error("could not add record to peerstore")
+				for _, g := range ev {
+					if _, err := cb.ConsumePeerRecord(g.Envelope, ps.AddressTTL); err != nil {
+						px.log.WithError(err).Error("error storing gossiped PeerRecord")
 					}
 				}
 			}
@@ -429,9 +435,9 @@ func waitReady(px PeerExchange, bus event.Bus, lx fx.Lifecycle) {
 
 }
 
-type hookFactory func(*fx.Hook)
+type hookFunc func(*fx.Hook)
 
-func hook(lx fx.Lifecycle, hfs ...hookFactory) {
+func hook(lx fx.Lifecycle, hfs ...hookFunc) {
 	var h fx.Hook
 	for _, apply := range hfs {
 		apply(&h)
@@ -439,22 +445,22 @@ func hook(lx fx.Lifecycle, hfs ...hookFactory) {
 	lx.Append(h)
 }
 
-func setup(f func(context.Context) error) hookFactory {
+func setup(f func(context.Context) error) hookFunc {
 	return func(h *fx.Hook) { h.OnStart = f }
 }
 
-func goroutine(f func()) hookFactory {
+func goroutine(f func()) hookFunc {
 	return goWithContext(func(context.Context) { go f() })
 }
 
-func goWithContext(f func(context.Context)) hookFactory {
+func goWithContext(f func(context.Context)) hookFunc {
 	return setup(func(c context.Context) error {
 		go f(c)
 		return nil
 	})
 }
 
-func deferred(f func()) hookFactory {
+func deferred(f func()) hookFunc {
 	return func(h *fx.Hook) {
 		h.OnStop = func(context.Context) error {
 			f()
@@ -463,7 +469,7 @@ func deferred(f func()) hookFactory {
 	}
 }
 
-func closer(c io.Closer) hookFactory {
+func closer(c io.Closer) hookFunc {
 	return func(h *fx.Hook) {
 		h.OnStop = func(context.Context) error {
 			return c.Close()

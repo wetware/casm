@@ -8,6 +8,8 @@ import (
 	"github.com/wetware/casm/internal/api/cluster"
 )
 
+type Hook func(Heartbeat)
+
 type Heartbeat interface {
 	TTL() time.Duration
 	SetTTL(time.Duration)

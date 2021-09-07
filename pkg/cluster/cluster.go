@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/lthibault/jitterbug/v2"
+	"github.com/lthibault/log"
 	"github.com/lthibault/treap"
 	ctxutil "github.com/lthibault/util/ctx"
 	"go.uber.org/fx"
@@ -32,27 +33,25 @@ type Model struct {
 }
 
 // New cluster.
-func New(h host.Host, p *pubsub.PubSub, opt ...Option) (Model, error) {
-	var m Model
-
-	err := fx.New(fx.NopLogger,
+func New(h host.Host, p *pubsub.PubSub, opt ...Option) (m Model, err error) {
+	err = fx.New(fx.NopLogger,
 		fx.Supply(p, opt),
 		fx.Populate(&m),
 		fx.Provide(
+			newClock,
 			newModel,
 			newConfig,
-			newHeartbeat,
 			newEventEmitter,
 			newRoutingTable,
 			newClusterTopic,
+			newTopicEventHandler,
 			newHostComponents(h)),
 		fx.Invoke(
-			startClock,
-			monitorNeighbors,
-			start)).
+			neighborhoodHook,
+			heartbeatHooks)).
 		Start(hostctx(h))
 
-	return m, err
+	return
 }
 
 func (m Model) Topic() *pubsub.Topic { return m.t }
@@ -68,6 +67,7 @@ func (m Model) Iter() Iterator           { return Iterator{handle.Iter(m.r.Load(
 type hostComponents struct {
 	fx.Out
 
+	ID   peer.ID
 	Bus  event.Bus
 	Host host.Host
 }
@@ -75,6 +75,7 @@ type hostComponents struct {
 func newHostComponents(h host.Host) func() hostComponents {
 	return func() hostComponents {
 		return hostComponents{
+			ID:   h.ID(),
 			Host: h,
 			Bus:  h.EventBus(),
 		}
@@ -82,9 +83,7 @@ func newHostComponents(h host.Host) func() hostComponents {
 }
 
 func newConfig(opt []Option) (c Config) {
-	for _, option := range withDefault(opt) {
-		option(&c)
-	}
+	c.Apply(opt)
 	return
 }
 
@@ -96,13 +95,6 @@ func newModel(t *pubsub.Topic, r *routingTable, s fx.Shutdowner) Model {
 	}
 }
 
-func newHeartbeat() (a announcement, hb heartbeat, err error) {
-	if a, err = newAnnouncement(capnp.SingleSegment(nil)); err == nil {
-		hb, err = a.NewHeartbeat()
-	}
-	return
-}
-
 func newEventEmitter(bus event.Bus, lx fx.Lifecycle) (e event.Emitter, err error) {
 	if e, err = bus.Emitter(new(EvtMembershipChanged)); err == nil {
 		hook(lx, closer(e))
@@ -110,23 +102,51 @@ func newEventEmitter(bus event.Bus, lx fx.Lifecycle) (e event.Emitter, err error
 	return
 }
 
-func newRoutingTable(c Config, p *pubsub.PubSub, e event.Emitter, lx fx.Lifecycle) *routingTable {
-	t := new(routingTable)
-	t.Store(state{t: time.Now()})
+type clock struct {
+	fx.Out
+	Advance   *time.Ticker
+	Heartbeat *jitterbug.Ticker
+}
+
+func newClock(ttl time.Duration, lx fx.Lifecycle) clock {
+	ticker := time.NewTicker(time.Millisecond * 10)
+	jitter := jitterbug.New(ttl/2, jitterbug.Uniform{
+		Source: rand.New(rand.NewSource(time.Now().UnixNano())),
+		Min:    ttl / 3,
+	})
+
+	hook(lx, deferred(func() {
+		jitter.Stop()
+		ticker.Stop()
+	}))
+
+	return clock{Advance: ticker, Heartbeat: jitter}
+}
+
+func newRoutingTable(ns string, p *pubsub.PubSub, e event.Emitter, t *time.Ticker, lx fx.Lifecycle) *routingTable {
+	r := new(routingTable)
+	r.Store(state{t: time.Now()})
+
+	hook(lx,
+		goroutine(func() {
+			for t := range t.C {
+				r.Advance(t)
+			}
+		}))
 
 	hook(lx,
 		setup(func(context.Context) error {
-			return p.RegisterTopicValidator(c.ns, t.NewValidator(e))
+			return p.RegisterTopicValidator(ns, r.NewValidator(e))
 		}),
 		teardown(func(context.Context) error {
-			return p.UnregisterTopicValidator(c.ns)
+			return p.UnregisterTopicValidator(ns)
 		}))
 
-	return t
+	return r
 }
 
-func newClusterTopic(c Config, p *pubsub.PubSub, lx fx.Lifecycle) (t *pubsub.Topic, err error) {
-	if t, err = p.Join(c.ns); err == nil {
+func newClusterTopic(ns string, p *pubsub.PubSub, lx fx.Lifecycle) (t *pubsub.Topic, err error) {
+	if t, err = p.Join(ns); err == nil {
 		hook(lx, closer(t))
 	}
 
@@ -138,116 +158,142 @@ func newClusterTopic(c Config, p *pubsub.PubSub, lx fx.Lifecycle) (t *pubsub.Top
 	return
 }
 
-func monitorNeighbors(local host.Host, t *pubsub.Topic, r *routingTable, lx fx.Lifecycle) error {
+func newTopicEventHandler(t *pubsub.Topic, lx fx.Lifecycle) (h *pubsub.TopicEventHandler, err error) {
+	if h, err = t.EventHandler(); err == nil {
+		hook(lx, deferred(h.Cancel))
+	}
+
+	return
+}
+
+// monitor the local neighborhood for join/leave events.
+type monitor struct {
+	fx.In
+
+	Log log.Logger
+	ID  peer.ID
+	T   *pubsub.Topic
+	H   *pubsub.TopicEventHandler
+	R   *routingTable
+}
+
+func (m monitor) StartMonitorLoop(a announcement) func(context.Context) {
+	return func(ctx context.Context) {
+		var (
+			err error
+			ev  = EvtMembershipChanged{Observer: m.ID}
+		)
+
+		for {
+			if ev.PeerEvent, err = m.H.NextPeerEvent(ctx); err != nil {
+				break // always a context error
+			}
+
+			// Don't spam the cluster if we already know about
+			// the peer.  Others likely know about it already.
+			if m.R.Contains(ev.Peer) {
+				continue
+			}
+
+			switch ev.Type {
+			case pubsub.PeerJoin:
+				if err := a.SetJoin(ev.Peer); err != nil {
+					m.Log.WithError(err).Fatal("error writing to segment")
+				}
+
+			case pubsub.PeerLeave:
+				if err := a.SetLeave(ev.Peer); err != nil {
+					m.Log.WithError(err).Fatal("error writing to segment")
+				}
+			}
+
+			b, err := a.MarshalBinary()
+			if err != nil {
+				m.Log.WithError(err).Fatal("error marshalling capnp message")
+			}
+
+			if err = m.T.Publish(ctx, b); err != nil {
+				break
+			}
+		}
+	}
+}
+
+// neighborhookHook attaches a lifecycle hook that notifies us of changes to the local
+// peer's neighborhood.
+func neighborhoodHook(m monitor, lx fx.Lifecycle) error {
 	a, err := newAnnouncement(capnp.SingleSegment(nil))
-	if err != nil {
-		return err
-	}
-
-	h, err := t.EventHandler()
-	if err != nil {
-		return err
-	}
-
-	var (
-		ev     = EvtMembershipChanged{Observer: local.ID()}
-		cancel context.CancelFunc
-	)
-
-	hook(lx,
-		deferred(func() { cancel() }),
-		goroutineWithContext(func(ctx context.Context) {
-			ctx, cancel = context.WithCancel(ctx)
-			defer h.Cancel()
-
-			for {
-				if ev.PeerEvent, err = h.NextPeerEvent(ctx); err != nil {
-					break // always a context error
-				}
-
-				// Don't spam the cluster if we already know about
-				// the peer.  Others likely know about it already.
-				if r.Contains(ev.Peer) {
-					continue
-				}
-
-				switch ev.Type {
-				case pubsub.PeerJoin:
-					if err := a.SetJoin(ev.Peer); err != nil {
-						panic(err)
-					}
-
-				case pubsub.PeerLeave:
-					if err := a.SetLeave(ev.Peer); err != nil {
-						panic(err)
-					}
-				}
-
-				b, err := a.MarshalBinary()
-				if err != nil {
-					panic(err)
-				}
-
-				if err = t.Publish(ctx, b); err != nil {
-					break
-				}
-			}
-
-		}))
-
-	return nil
-}
-
-func startClock(r *routingTable, lx fx.Lifecycle) {
-	ticker := time.NewTicker(time.Millisecond * 10)
-	hook(lx,
-		deferred(ticker.Stop),
-		goroutine(func() {
-			for t := range ticker.C {
-				r.Advance(t)
-			}
-		}))
-}
-
-func start(h host.Host, c Config, t *pubsub.Topic, a announcement, hb heartbeat, lx fx.Lifecycle) error {
-	var ticker *jitterbug.Ticker
-
-	// start the heartbeat loop
-	hook(lx,
-		deferred(func() { ticker.Stop() }),
-		goroutineWithContext(func(ctx context.Context) {
-			ticker = jitterbug.New(c.ttl/2, jitterbug.Uniform{
-				Source: rand.New(rand.NewSource(time.Now().UnixNano())),
-				Min:    c.ttl / 3,
-			})
-
-			for range ticker.C {
-				c.hook(hb)
-				if err := announce(ctx, t, a); err != nil {
-					panic(err) // TODO:  log error
-				}
-			}
-		}))
-
-	// emit a one-off heartbeat to join the cluster
-	hb.SetTTL(c.ttl)
-	c.hook(hb)
-
-	return announce(hostctx(h), t, a)
-}
-
-func announce(ctx context.Context, t *pubsub.Topic, a announcement) error {
-	b, err := a.MarshalBinary()
 	if err == nil {
-		err = t.Publish(ctx, b)
+		hook(lx, goroutineWithContext(m.StartMonitorLoop(a)))
 	}
 
 	return err
 }
 
-type hookFactory func(*fx.Hook)
+type announcer struct {
+	fx.In
 
-func hook(lx fx.Lifecycle, hfs ...hookFactory) {
+	Log    log.Logger
+	T      *pubsub.Topic
+	TTL    time.Duration
+	Ticker *jitterbug.Ticker
+
+	Hook Hook
+}
+
+func (ar announcer) AnnounceHeartbeat(ctx context.Context, a announcement, hb heartbeat) error {
+	hb.SetTTL(ar.TTL)
+	ar.Hook(hb)
+
+	b, err := a.MarshalBinary()
+	if err == nil {
+		err = ar.T.Publish(ctx, b)
+	}
+
+	return err
+}
+
+func (ar announcer) StartHeartbeatLoop(a announcement, hb heartbeat) func(context.Context) {
+	return func(ctx context.Context) {
+		for range ar.Ticker.C {
+			if err := ar.AnnounceHeartbeat(ctx, a, hb); err != nil {
+				if err != context.Canceled {
+					ar.Log.WithError(err).Error("failed to emit heartbeat")
+				}
+			}
+		}
+	}
+}
+
+func heartbeatHooks(ar announcer, lx fx.Lifecycle) error {
+	a, err := newAnnouncement(capnp.SingleSegment(nil))
+	if err != nil {
+		return err
+	}
+
+	hb, err := a.NewHeartbeat()
+	if err == nil {
+		hook(lx,
+			// Make a _blocking_ call to AnnounceHeartbeat before starting
+			// the heartbeat loop. This ensures we are immediately visible
+			// to our peers.
+			setup(func(ctx context.Context) error {
+				ctx, cancel := context.WithTimeout(ctx, time.Second*15)
+				defer cancel()
+
+				return ar.AnnounceHeartbeat(ctx, a, hb)
+			}))
+
+		hook(lx,
+			goroutineWithContext(ar.StartHeartbeatLoop(a, hb)))
+	}
+
+	return err
+}
+
+type hookFunc func(*fx.Hook)
+
+func hook(lx fx.Lifecycle, hfs ...hookFunc) {
 	var h fx.Hook
 	for _, apply := range hfs {
 		apply(&h)
@@ -255,26 +301,26 @@ func hook(lx fx.Lifecycle, hfs ...hookFactory) {
 	lx.Append(h)
 }
 
-func setup(f func(context.Context) error) hookFactory {
+func setup(f func(context.Context) error) hookFunc {
 	return func(h *fx.Hook) { h.OnStart = f }
 }
 
-func teardown(f func(context.Context) error) hookFactory {
+func teardown(f func(context.Context) error) hookFunc {
 	return func(h *fx.Hook) { h.OnStop = f }
 }
 
-func goroutine(f func()) hookFactory {
+func goroutine(f func()) hookFunc {
 	return goroutineWithContext(func(context.Context) { go f() })
 }
 
-func goroutineWithContext(f func(context.Context)) hookFactory {
+func goroutineWithContext(f func(context.Context)) hookFunc {
 	return setup(func(c context.Context) error {
 		go f(c)
 		return nil
 	})
 }
 
-func deferred(f func()) hookFactory {
+func deferred(f func()) hookFunc {
 	return func(h *fx.Hook) {
 		h.OnStop = func(context.Context) error {
 			f()
@@ -283,7 +329,7 @@ func deferred(f func()) hookFactory {
 	}
 }
 
-func closer(c io.Closer) hookFactory {
+func closer(c io.Closer) hookFunc {
 	return func(h *fx.Hook) {
 		h.OnStop = func(context.Context) error {
 			return c.Close()
