@@ -16,8 +16,10 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
+	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/libp2p/go-libp2p-core/record"
+
 	"go.uber.org/fx"
 
 	"github.com/lthibault/jitterbug/v2"
@@ -50,7 +52,7 @@ const (
 //
 // For the above reasons, we encourage users NOT to tune PeX parameters, as
 // these have been carefully selected to work in a broad range of applications
-// and micro-optimizations are likely to be counterproductive.
+// and any micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
 	ns   string
 	log  logger
@@ -294,17 +296,19 @@ func (px PeerExchange) updateLocalRecord(ev event.EvtLocalAddressesUpdated) erro
 type hostComponents struct {
 	fx.Out
 
-	Bus     event.Bus
-	Host    host.Host
-	PrivKey crypto.PrivKey
+	Bus       event.Bus
+	Host      host.Host
+	PrivKey   crypto.PrivKey
+	CertStore ps.CertifiedAddrBook
 }
 
 func newHostComponents(h host.Host) func() hostComponents {
 	return func() hostComponents {
 		return hostComponents{
-			Host:    h,
-			Bus:     h.EventBus(),
-			PrivKey: h.Peerstore().PrivKey(h.ID()),
+			Host:      h,
+			Bus:       h.EventBus(),
+			PrivKey:   h.Peerstore().PrivKey(h.ID()),
+			CertStore: h.Peerstore().(ps.CertifiedAddrBook),
 		}
 	}
 }
@@ -332,7 +336,10 @@ func newAtomics(bus event.Bus, lx fx.Lifecycle) (vs *atomicValues, err error) {
 }
 
 func newSubscriptions(bus event.Bus, lx fx.Lifecycle) (sub event.Subscription, err error) {
-	if sub, err = bus.Subscribe(new(event.EvtLocalAddressesUpdated)); err == nil {
+	if sub, err = bus.Subscribe([]interface{}{
+		new(event.EvtLocalAddressesUpdated),
+		new(EvtViewUpdated),
+	}); err == nil {
 		hook(lx, closer(sub))
 	}
 	return
@@ -382,12 +389,21 @@ func startGossipLoop(px PeerExchange, lx fx.Lifecycle) {
 		}))
 }
 
-func startRecordUpdateLoop(px PeerExchange, sub event.Subscription, lx fx.Lifecycle) {
+func startRecordUpdateLoop(cb ps.CertifiedAddrBook, px PeerExchange, sub event.Subscription, lx fx.Lifecycle) {
 	hook(lx, goroutine(func() {
 		for v := range sub.Out() {
-			ev := v.(event.EvtLocalAddressesUpdated)
-			if err := px.updateLocalRecord(ev); err != nil {
-				px.log.WithError(err).Error("invalid peer record in event")
+			switch ev := v.(type) {
+			case event.EvtLocalAddressesUpdated:
+				if err := px.updateLocalRecord(ev); err != nil {
+					px.log.WithError(err).Error("invalid peer record in event")
+				}
+
+			case EvtViewUpdated:
+				for _, rec := range ev {
+					if _, err := cb.ConsumePeerRecord(rec.Envelope, ps.AddressTTL); err != nil {
+						px.log.WithError(err).Error("could not add record to peerstore")
+					}
+				}
 			}
 		}
 	}))
