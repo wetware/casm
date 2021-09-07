@@ -193,21 +193,6 @@ func (g *GossipRecord) UnmarshalRecord(b []byte) (err error) {
 	return maybe.Err
 }
 
-// func (g GossipRecord) newSelector(id peer.ID) func(View) View {
-// 	// P = .5
-// 	if g.Distance(id) > 128 {
-// 		return func(v View) View {
-// 			sort.Sort(v)
-// 			return v
-// 		}
-// 	}
-
-// 	return func(v View) View {
-// 		rand.Shuffle(len(v), v.Swap)
-// 		return v
-// 	}
-// }
-
 type View []GossipRecord
 
 func (v View) Loggable() map[string]interface{} {

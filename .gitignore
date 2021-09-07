@@ -16,4 +16,5 @@
 
 .envrc
 cmd/scratch/**
-.env.toml
+.vscode/**
+**/__debug_bin

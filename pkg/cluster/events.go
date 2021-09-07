@@ -6,6 +6,7 @@ import (
 	"github.com/wetware/casm/internal/api/cluster"
 )
 
+// EvtMembershipChanged is emitted when a peer joins or leaves the cluster.
 type EvtMembershipChanged struct {
 	pubsub.PeerEvent
 	Observer peer.ID
@@ -21,6 +22,25 @@ func newPeerEvent(id peer.ID, msg *pubsub.Message, a announcement) EvtMembership
 	}
 }
 
+func (ev EvtMembershipChanged) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"event":    ev.String(),
+		"peer_id":  ev.Peer,
+		"observer": ev.Observer,
+	}
+}
+
+func (ev EvtMembershipChanged) String() string {
+	switch ev.PeerEvent.Type {
+	case pubsub.PeerJoin:
+		return "join"
+	case pubsub.PeerLeave:
+		return "leave"
+	}
+
+	panic("unreachable")
+}
+
 func evtype(a announcement) pubsub.EventType {
 	switch a.Which() {
 	case cluster.Announcement_Which_join:
@@ -30,11 +50,4 @@ func evtype(a announcement) pubsub.EventType {
 	}
 
 	panic("unreachable")
-}
-
-func (ev EvtMembershipChanged) Loggable() map[string]interface{} {
-	return map[string]interface{}{
-		"peer_id":  ev.Peer,
-		"observer": ev.Observer,
-	}
 }
