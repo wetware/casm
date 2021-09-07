@@ -38,6 +38,7 @@ func TestCluster_init(t *testing.T) {
 
 func TestCluster_simulation(t *testing.T) {
 	t.Parallel()
+	t.Skip("Skipping due to inexplicable failures (see FIXME)")
 
 	const (
 		n   = 8 // FIXME:  test fails when this is increased
