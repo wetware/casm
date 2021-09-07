@@ -156,7 +156,7 @@ func newPubSub(c *cli.Context, h host.Host, d discovery.Discovery) (*pubsub.PubS
 		pubsub.WithDiscovery(d))
 }
 
-func newCluster(c *cli.Context, h host.Host, p *pubsub.PubSub) (*cluster.Model, error) {
+func newCluster(c *cli.Context, h host.Host, p *pubsub.PubSub) (cluster.Model, error) {
 	return cluster.New(h, p, cluster.WithNamespace(c.String("ns")))
 }
 

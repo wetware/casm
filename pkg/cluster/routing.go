@@ -67,12 +67,17 @@ func (m *routingTable) NewValidator(e event.Emitter) pubsub.ValidatorEx {
 	}
 }
 
-func (m *routingTable) Advance(t time.Time) {
+func (r *routingTable) Contains(id peer.ID) bool {
+	_, ok := handle.Get(r.Load().n, id)
+	return ok
+}
+
+func (r *routingTable) Advance(t time.Time) {
 	var old, new state
 	for /* CAS loop */ {
 
 		// is there any data?
-		if old = m.Load(); old.n != nil {
+		if old = r.Load(); old.n != nil {
 			// evict stale entries
 			for new = old; expired(t, new); {
 				new = merge(t, new)
@@ -82,26 +87,26 @@ func (m *routingTable) Advance(t time.Time) {
 			new = state{t: t, n: old.n}
 		}
 
-		if m.CompareAndSwap(old, new) {
+		if r.CompareAndSwap(old, new) {
 			break
 		}
 	}
 }
 
-func (m *routingTable) Upsert(id peer.ID, r peerRecord) bool {
+func (r *routingTable) Upsert(id peer.ID, rec peerRecord) bool {
 	var ok, created bool
 
 	for {
-		old := m.Load()
+		old := r.Load()
 		new := old
 
 		// upsert if seq is greater than the value stored in the treap -- non-blocking.
-		new.n, created = handle.UpsertIf(new.n, id, r, old.t.Add(r.Heartbeat.TTL()), func(n *treap.Node) bool {
-			ok = newer(n, r) // set return value for outer closure
+		new.n, created = handle.UpsertIf(new.n, id, rec, old.t.Add(rec.Heartbeat.TTL()), func(n *treap.Node) bool {
+			ok = newer(n, rec) // set return value for outer closure
 			return ok
 		})
 
-		if m.CompareAndSwap(old, new) { // atomic
+		if r.CompareAndSwap(old, new) { // atomic
 			break
 		}
 	}
@@ -112,15 +117,15 @@ func (m *routingTable) Upsert(id peer.ID, r peerRecord) bool {
 	return ok || created
 }
 
-func (m *routingTable) Store(s state) { (*atomic.Value)(m).Store(s) }
+func (r *routingTable) Store(s state) { (*atomic.Value)(r).Store(s) }
 
-func (m *routingTable) Load() state {
-	v := (*atomic.Value)(m).Load()
+func (r *routingTable) Load() state {
+	v := (*atomic.Value)(r).Load()
 	return *(*state)((*ifaceWords)(unsafe.Pointer(&v)).data)
 }
 
-func (m *routingTable) CompareAndSwap(old, new state) bool {
-	return (*atomic.Value)(m).CompareAndSwap(old, new)
+func (r *routingTable) CompareAndSwap(old, new state) bool {
+	return (*atomic.Value)(r).CompareAndSwap(old, new)
 }
 
 func merge(t time.Time, s state) state {

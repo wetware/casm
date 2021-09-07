@@ -2,11 +2,11 @@ package cluster
 
 import (
 	"context"
+	"io"
 	"math/rand"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/jbenet/goprocess"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -14,7 +14,7 @@ import (
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/treap"
 	ctxutil "github.com/lthibault/util/ctx"
-	"go.uber.org/multierr"
+	"go.uber.org/fx"
 )
 
 type Iterator struct{ it *treap.Iterator }
@@ -26,279 +26,271 @@ func (i *Iterator) Deadline() time.Time { return timeCastUnsafe(i.it.Weight) }
 func (i *Iterator) Record() Record      { return recordCastUnsafe(i.it.Value).Heartbeat.Record() }
 
 type Model struct {
-	ns  string
-	ttl time.Duration
-
-	h host.Host
-	p *pubsub.PubSub
-	t *pubsub.Topic
-
-	m    routingTable
-	proc goprocess.Process
-	hook func(Heartbeat)
+	t       *pubsub.Topic
+	r       *routingTable
+	runtime fx.Shutdowner
 }
 
 // New cluster.
-func New(h host.Host, p *pubsub.PubSub, opt ...Option) (*Model, error) {
-	var m = &Model{
-		h:    h,
-		p:    p,
-		proc: goprocess.WithParent(h.Network().Process()),
-	}
+func New(h host.Host, p *pubsub.PubSub, opt ...Option) (Model, error) {
+	var m Model
 
-	// set options
-	for _, option := range withDefault(opt) {
-		option(m)
-	}
+	err := fx.New(fx.NopLogger,
+		fx.Supply(p, opt),
+		fx.Populate(&m),
+		fx.Provide(
+			newModel,
+			newConfig,
+			newHeartbeat,
+			newEventEmitter,
+			newRoutingTable,
+			newClusterTopic,
+			newHostComponents(h)),
+		fx.Invoke(
+			startClock,
+			monitorNeighbors,
+			start)).
+		Start(hostctx(h))
 
-	return m, start(m)
+	return m, err
 }
 
-func (m *Model) String() string             { return m.t.String() }
-func (m *Model) Process() goprocess.Process { return m.proc }
-func (m *Model) Close() error               { return m.proc.Close() }
+func (m Model) Topic() *pubsub.Topic { return m.t }
+func (m Model) Close() error         { return m.runtime.Shutdown() }
 
-func (m *Model) Contains(id peer.ID) bool {
-	_, ok := handle.Get(m.m.Load().n, id)
-	return ok
-}
-
-func (m *Model) Iter() Iterator { return Iterator{handle.Iter(m.m.Load().n)} }
-
-func (m *Model) announce(ctx context.Context, a announcement) error {
-	b, err := a.MarshalBinary()
-	if err == nil {
-		err = m.t.Publish(ctx, b)
-	}
-
-	return err
-}
+func (m Model) Contains(id peer.ID) bool { return m.r.Contains(id) }
+func (m Model) Iter() Iterator           { return Iterator{handle.Iter(m.r.Load().n)} }
 
 /*
  * Set-up functions
  */
 
-func start(m *Model) error {
-	return (&initializer{}).Init(m)
+type hostComponents struct {
+	fx.Out
+
+	Bus  event.Bus
+	Host host.Host
 }
 
-type initFunc func(*Model)
-
-type initializer struct {
-	err error
-
-	e      event.Emitter
-	p      goprocess.Process
-	cancel pubsub.RelayCancelFunc
-	th     *pubsub.TopicEventHandler
-	ch     chan EvtMembershipChanged
-
-	joinLeave, heartbeat announcement
-	hb                   heartbeat
-}
-
-func (init *initializer) Do(m *Model, fs ...initFunc) {
-	for _, f := range fs {
-		if init.err == nil {
-			f(m)
+func newHostComponents(h host.Host) func() hostComponents {
+	return func() hostComponents {
+		return hostComponents{
+			Host: h,
+			Bus:  h.EventBus(),
 		}
 	}
 }
 
-// initialize the cluster
-func (init *initializer) Init(m *Model) error {
-	init.Do(m,
-		init.ClusterTopic,
-		init.Model,
-		init.Events,
-		init.Heartbeat)
-	return init.err
+func newConfig(opt []Option) (c Config) {
+	for _, option := range withDefault(opt) {
+		option(&c)
+	}
+	return
 }
 
-func (init *initializer) ClusterTopic(m *Model) {
-	init.Do(m,
-		init.topic,
-		init.emitter,
-		init.validator,
-		init.rootProc)
+func newModel(t *pubsub.Topic, r *routingTable, s fx.Shutdowner) Model {
+	return Model{
+		t:       t,
+		r:       r,
+		runtime: s,
+	}
 }
 
-func (init *initializer) Model(m *Model) {
-	init.Do(m,
-		init.modelState,
-		init.relay,
-		init.clock)
+func newHeartbeat() (a announcement, hb heartbeat, err error) {
+	if a, err = newAnnouncement(capnp.SingleSegment(nil)); err == nil {
+		hb, err = a.NewHeartbeat()
+	}
+	return
 }
 
-func (init *initializer) Events(m *Model) {
-	init.Do(m,
-		init.topicEventHandler,
-		init.monitorNeighbors,
-		init.announcements,
-		init.announceJoinLeave)
+func newEventEmitter(bus event.Bus, lx fx.Lifecycle) (e event.Emitter, err error) {
+	if e, err = bus.Emitter(new(EvtMembershipChanged)); err == nil {
+		hook(lx, closer(e))
+	}
+	return
 }
 
-func (init *initializer) Heartbeat(m *Model) {
-	init.Do(m,
-		init.firstHeartbeat,
-		init.heartbeatLoop)
+func newRoutingTable(c Config, p *pubsub.PubSub, e event.Emitter, lx fx.Lifecycle) *routingTable {
+	t := new(routingTable)
+	t.Store(state{t: time.Now()})
+
+	hook(lx,
+		setup(func(context.Context) error {
+			return p.RegisterTopicValidator(c.ns, t.NewValidator(e))
+		}),
+		teardown(func(context.Context) error {
+			return p.UnregisterTopicValidator(c.ns)
+		}))
+
+	return t
 }
 
-func (init *initializer) topic(m *Model) {
-	m.t, init.err = m.p.Join(m.ns)
+func newClusterTopic(c Config, p *pubsub.PubSub, lx fx.Lifecycle) (t *pubsub.Topic, err error) {
+	if t, err = p.Join(c.ns); err == nil {
+		hook(lx, closer(t))
+	}
+
+	var cancel pubsub.RelayCancelFunc
+	if cancel, err = t.Relay(); err == nil {
+		hook(lx, deferred(cancel))
+	}
+
+	return
 }
 
-func (init *initializer) emitter(m *Model) {
-	init.e, init.err = m.h.EventBus().Emitter(new(EvtMembershipChanged))
-}
+func monitorNeighbors(local host.Host, t *pubsub.Topic, r *routingTable, lx fx.Lifecycle) error {
+	a, err := newAnnouncement(capnp.SingleSegment(nil))
+	if err != nil {
+		return err
+	}
 
-func (init *initializer) validator(m *Model) {
-	init.err = m.p.RegisterTopicValidator(m.ns, m.m.NewValidator(init.e))
-}
+	h, err := t.EventHandler()
+	if err != nil {
+		return err
+	}
 
-func (init *initializer) rootProc(m *Model) {
-	// Hang a subprocess onto c.proc because library users
-	// may wish to set their own teardown functions on the
-	// cluster process.
-	init.p = goprocess.WithTeardown(func() error {
-		return multierr.Combine(
-			init.e.Close(),
-			m.p.UnregisterTopicValidator(m.ns),
-			m.t.Close())
-	})
+	var (
+		ev     = EvtMembershipChanged{Observer: local.ID()}
+		cancel context.CancelFunc
+	)
 
-	m.proc.AddChild(init.p)
-}
+	hook(lx,
+		deferred(func() { cancel() }),
+		goroutineWithContext(func(ctx context.Context) {
+			ctx, cancel = context.WithCancel(ctx)
+			defer h.Cancel()
 
-func (init *initializer) modelState(m *Model) {
-	m.m.Store(state{t: time.Now()})
-}
-
-func (init *initializer) relay(m *Model) {
-	init.cancel, init.err = m.t.Relay()
-}
-
-func (init *initializer) clock(m *Model) {
-	init.p.Go(func(p goprocess.Process) {
-		defer init.cancel()
-
-		ticker := time.NewTicker(time.Millisecond * 10)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case t := <-ticker.C:
-				m.m.Advance(t)
-
-			case <-p.Closing():
-				return
-			}
-		}
-	})
-}
-
-func (init *initializer) topicEventHandler(m *Model) {
-	init.ch = make(chan EvtMembershipChanged, 32)
-	init.th, init.err = m.t.EventHandler()
-}
-
-func (init *initializer) monitorNeighbors(m *Model) {
-	init.p.Go(func(p goprocess.Process) {
-		defer close(init.ch)
-		defer init.th.Cancel()
-
-		var (
-			err error
-			ctx = ctxutil.FromChan(p.Closing())
-			ev  = EvtMembershipChanged{Observer: m.h.ID()}
-		)
-
-		for {
-			if ev.PeerEvent, err = init.th.NextPeerEvent(ctx); err != nil {
-				break // always a context error
-			}
-
-			// Don't spam the cluster if we already know about
-			// the peer.  Others likely know about it already.
-			if !m.Contains(ev.Peer) {
-				select {
-				case init.ch <- ev:
-					_ = init.e.Emit(ev)
-				case <-ctx.Done():
+			for {
+				if ev.PeerEvent, err = h.NextPeerEvent(ctx); err != nil {
+					break // always a context error
 				}
-			}
-		}
-	})
-}
 
-func (init *initializer) announcements(m *Model) {
-	init.Do(m,
-		func(m *Model) { init.joinLeave, init.err = newAnnouncement(capnp.SingleSegment(nil)) },
-		func(m *Model) { init.heartbeat, init.err = newAnnouncement(capnp.SingleSegment(nil)) },
-		func(m *Model) { init.hb, init.err = init.heartbeat.NewHeartbeat() })
-}
+				// Don't spam the cluster if we already know about
+				// the peer.  Others likely know about it already.
+				if r.Contains(ev.Peer) {
+					continue
+				}
 
-func (init *initializer) announceJoinLeave(m *Model) {
-	init.p.Go(func(p goprocess.Process) {
-		ctx := ctxutil.FromChan(p.Closing())
+				switch ev.Type {
+				case pubsub.PeerJoin:
+					if err := a.SetJoin(ev.Peer); err != nil {
+						panic(err)
+					}
 
-		for ev := range init.ch {
-			switch ev.Type {
-			case pubsub.PeerJoin:
-				if err := init.joinLeave.SetJoin(ev.Peer); err != nil {
+				case pubsub.PeerLeave:
+					if err := a.SetLeave(ev.Peer); err != nil {
+						panic(err)
+					}
+				}
+
+				b, err := a.MarshalBinary()
+				if err != nil {
 					panic(err)
 				}
 
-			case pubsub.PeerLeave:
-				if err := init.joinLeave.SetLeave(ev.Peer); err != nil {
-					panic(err)
+				if err = t.Publish(ctx, b); err != nil {
+					break
 				}
 			}
 
-			switch err := m.announce(ctx, init.joinLeave); err {
-			case nil, pubsub.ErrTopicClosed, context.Canceled:
-			default:
-				panic(err)
+		}))
+
+	return nil
+}
+
+func startClock(r *routingTable, lx fx.Lifecycle) {
+	ticker := time.NewTicker(time.Millisecond * 10)
+	hook(lx,
+		deferred(ticker.Stop),
+		goroutine(func() {
+			for t := range ticker.C {
+				r.Advance(t)
 			}
-		}
-	})
+		}))
 }
 
-func (init *initializer) firstHeartbeat(m *Model) {
-	ctx, cancel := context.WithTimeout(ctxutil.FromChan(init.p.Closing()),
-		time.Second*30)
-	defer cancel()
+func start(h host.Host, c Config, t *pubsub.Topic, a announcement, hb heartbeat, lx fx.Lifecycle) error {
+	var ticker *jitterbug.Ticker
 
-	init.hb.SetTTL(m.ttl)
-	m.hook(init.hb)
+	// start the heartbeat loop
+	hook(lx,
+		deferred(func() { ticker.Stop() }),
+		goroutineWithContext(func(ctx context.Context) {
+			ticker = jitterbug.New(c.ttl/2, jitterbug.Uniform{
+				Source: rand.New(rand.NewSource(time.Now().UnixNano())),
+				Min:    c.ttl / 3,
+			})
 
-	init.err = m.announce(ctx, init.heartbeat)
-}
-
-func (init *initializer) heartbeatLoop(m *Model) {
-	init.p.Go(func(p goprocess.Process) {
-		ticker := jitterbug.New(m.ttl/2, jitterbug.Uniform{
-			Source: rand.New(rand.NewSource(time.Now().UnixNano())),
-			Min:    m.ttl / 3,
-		})
-		defer ticker.Stop()
-
-		ctx := ctxutil.FromChan(p.Closing())
-
-		for {
-			select {
-			case <-ticker.C:
-				m.hook(init.hb)
-
-				switch err := m.announce(ctx, init.heartbeat); err {
-				case nil, pubsub.ErrTopicClosed, context.Canceled:
-				default:
-					panic(err)
+			for range ticker.C {
+				c.hook(hb)
+				if err := announce(ctx, t, a); err != nil {
+					panic(err) // TODO:  log error
 				}
-
-			case <-p.Closing():
-				return
 			}
-		}
+		}))
+
+	// emit a one-off heartbeat to join the cluster
+	hb.SetTTL(c.ttl)
+	c.hook(hb)
+
+	return announce(hostctx(h), t, a)
+}
+
+func announce(ctx context.Context, t *pubsub.Topic, a announcement) error {
+	b, err := a.MarshalBinary()
+	if err == nil {
+		err = t.Publish(ctx, b)
+	}
+
+	return err
+}
+
+type hookFactory func(*fx.Hook)
+
+func hook(lx fx.Lifecycle, hfs ...hookFactory) {
+	var h fx.Hook
+	for _, apply := range hfs {
+		apply(&h)
+	}
+	lx.Append(h)
+}
+
+func setup(f func(context.Context) error) hookFactory {
+	return func(h *fx.Hook) { h.OnStart = f }
+}
+
+func teardown(f func(context.Context) error) hookFactory {
+	return func(h *fx.Hook) { h.OnStop = f }
+}
+
+func goroutine(f func()) hookFactory {
+	return goroutineWithContext(func(context.Context) { go f() })
+}
+
+func goroutineWithContext(f func(context.Context)) hookFactory {
+	return setup(func(c context.Context) error {
+		go f(c)
+		return nil
 	})
+}
+
+func deferred(f func()) hookFactory {
+	return func(h *fx.Hook) {
+		h.OnStop = func(context.Context) error {
+			f()
+			return nil
+		}
+	}
+}
+
+func closer(c io.Closer) hookFactory {
+	return func(h *fx.Hook) {
+		h.OnStop = func(context.Context) error {
+			return c.Close()
+		}
+	}
+}
+
+func hostctx(h host.Host) context.Context {
+	return ctxutil.FromChan(h.Network().Process().Closing())
 }

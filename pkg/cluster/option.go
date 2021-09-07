@@ -4,8 +4,14 @@ import (
 	"time"
 )
 
+type Config struct {
+	ns   string
+	ttl  time.Duration
+	hook func(Heartbeat)
+}
+
 // Option type for Cluster.
-type Option func(*Model)
+type Option func(*Config)
 
 // WithNamespace sets the namespace for the cluster.
 // If ns == "", a default namespace of "casm" is used.
@@ -14,8 +20,8 @@ func WithNamespace(ns string) Option {
 		ns = "casm"
 	}
 
-	return func(m *Model) {
-		m.ns = ns
+	return func(c *Config) {
+		c.ns = ns
 	}
 }
 
@@ -31,8 +37,8 @@ func WithTTL(d time.Duration) Option {
 		d = time.Second * 6
 	}
 
-	return func(m *Model) {
-		m.ttl = d
+	return func(c *Config) {
+		c.ttl = d
 	}
 }
 
@@ -54,8 +60,8 @@ func WithHook(f func(Heartbeat)) Option {
 		f = func(Heartbeat) {}
 	}
 
-	return func(m *Model) {
-		m.hook = f
+	return func(c *Config) {
+		c.hook = f
 	}
 }
 

@@ -12,8 +12,8 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/cluster"
+	"github.com/wetware/casm/pkg/cluster/boot"
 	mx "github.com/wetware/matrix/pkg"
-	"github.com/wetware/matrix/pkg/netsim"
 )
 
 func TestCluster_init(t *testing.T) {
@@ -30,8 +30,7 @@ func TestCluster_init(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c)
 
-	require.Equal(t, "casm", c.String())
-	require.NotNil(t, c.Process())
+	require.Equal(t, "casm", c.Topic().String())
 
 	require.NoError(t, c.Close())
 }
@@ -46,10 +45,6 @@ func TestCluster_simulation(t *testing.T) {
 		ttl = time.Millisecond * 200
 	)
 
-	var (
-		dopt = pubsub.WithDiscoveryOpts(discovery.Limit(lim))
-	)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -58,17 +53,22 @@ func TestCluster_simulation(t *testing.T) {
 	hs := sim.MustHostSet(ctx, n)
 	ds := make([]discovery.Discovery, n)
 	ps := make([]*pubsub.PubSub, n)
-	cs := make([]*cluster.Model, n)
+	cs := make([]cluster.Model, n)
 
 	mx.
 		// set up
 		Go(func(ctx context.Context, i int, h host.Host) error {
-			ds[i] = sim.NewDiscovery(h, &netsim.SelectRing{})
+			as := make(boot.StaticAddrs, lim)
+			for i, hh := range hs[:lim] {
+				as[i] = *host.InfoFromHost(hh)
+			}
+
+			ds[i] = as
 			return nil
 		}).
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			ps[i], err = pubsub.NewGossipSub(ctx, h,
-				pubsub.WithDiscovery(ds[i], dopt))
+			ps[i], err = pubsub.NewFloodSub(ctx, h,
+				pubsub.WithDiscovery(ds[i]))
 			return
 		}).
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
@@ -117,13 +117,10 @@ func TestCluster_simulation(t *testing.T) {
 				}
 			}
 		}).
-		// tear down
-		Go(func(ctx context.Context, i int, h host.Host) error { return cs[i].Close() }).
-		Go(func(ctx context.Context, i int, h host.Host) error { return h.Close() }).
 		Must(ctx, hs)
 }
 
-func count(c *cluster.Model) int {
+func count(c cluster.Model) int {
 	var ps peer.IDSlice
 	for it := c.Iter(); it.Next(); {
 		ps = append(ps, it.Peer())
