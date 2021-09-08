@@ -1,21 +1,21 @@
+//go:generate mockgen -source=multicast.go -destination=../../internal/mock/pkg/boot/multicast.go -package=mock_boot
+
 package boot
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"math/rand"
 	"net"
-	"reflect"
 	"sync/atomic"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/hashicorp/go-multierror"
 	"github.com/jpillora/backoff"
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
 	syncutil "github.com/lthibault/util/sync"
+	"go.uber.org/fx"
 
 	"github.com/pkg/errors"
 
@@ -50,300 +50,159 @@ func init() {
 	}
 }
 
+type (
+	Transport interface {
+		Dial() (Scatterer, error)
+		Listen() (Gatherer, error)
+	}
+
+	Scatterer interface {
+		Scatter(context.Context, *capnp.Message) error
+		Close() error
+	}
+
+	Gatherer interface {
+		Gather(context.Context) (*capnp.Message, error)
+		Close() error
+	}
+
+	transportFactory func() (Transport, error)
+)
+
 /*
  * Client & Service
  */
 
 type MulticastClient struct {
-	conn   io.Closer
-	client multicastClient
+	client
+	runtime fx.Shutdowner
 }
 
 // NewMulticast client takes a UDP multiaddr that designates a
 // multicast group and returns a multicast discovery client.
-func NewMulticastClient(m ma.Multiaddr, opt ...Option) (*MulticastClient, error) {
-	conn, err := newMulticastConn(m, opt)
-	if err != nil {
-		return nil, err
-	}
+func NewMulticastClient(opt ...Option) (c MulticastClient, err error) {
+	err = fx.New(fx.NopLogger,
+		fx.Supply(opt),
+		fx.Populate(&c.client, &c.runtime),
+		fx.Provide(
+			newConn,
+			newConfig,
+			newReceiver,
+			newClient),
+		fx.Invoke(
+			hookSender)).
+		Start(context.Background())
 
-	return &MulticastClient{
-		conn:   conn,
-		client: conn.NewClient(),
-	}, nil
+	return
 }
 
 func (m MulticastClient) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	return m.client.FindPeers(ctx, normalizeNS(ns), opt)
+	return m.client.FindPeers(ctx, normalizeNS(ns), opt...)
 }
 
-func (m MulticastClient) Close() error { return m.conn.Close() }
+func (m MulticastClient) Close() error { return m.runtime.Shutdown() }
 
 type Multicast struct {
-	conn   io.Closer
-	client multicastClient
-	server multicastServer
+	client
+	server
+
+	runtime fx.Shutdowner
 }
 
 // NewMulticast takes a UDP multiaddr that designates a
 // multicast group and returns a multicast discovery service.
-func NewMulticast(h host.Host, m ma.Multiaddr, opt ...Option) (*Multicast, error) {
-	conn, err := newMulticastConn(m, opt)
-	if err != nil {
-		return nil, err
-	}
+func NewMulticast(h host.Host, opt ...Option) (m Multicast, err error) {
+	err = fx.New(fx.NopLogger,
+		fx.Supply(opt),
+		fx.Populate(&m.client, &m.server, &m.runtime),
+		fx.Provide(
+			newConn,
+			newConfig,
+			newReceiver,
+			newSubscriptions,
+			newClient,
+			newServer,
+			newHostComponents(h)),
+		fx.Invoke(
+			hookSender)).
+		Start(context.Background())
 
-	server, err := conn.NewServer(h.EventBus())
-	return &Multicast{
-		conn:   conn,
-		client: conn.NewClient(),
-		server: server,
-	}, err
+	return
 }
 
 func (m Multicast) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	return m.server.Advertise(ctx, normalizeNS(ns), opt)
+	return m.server.Advertise(ctx, normalizeNS(ns), opt...)
 }
 func (m Multicast) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	return m.client.FindPeers(ctx, normalizeNS(ns), opt)
+	return m.client.FindPeers(ctx, normalizeNS(ns), opt...)
 }
 
-func (m Multicast) Close() error { return m.conn.Close() }
+func (m Multicast) Close() error { return m.runtime.Shutdown() }
 
-/*
- * Unexported client/server implementations & utilities.
- */
+type hostComponents struct {
+	fx.Out
 
-type multicastConn struct {
-	log log.Logger
-	out chan outgoing
-	*receiver
-	sender io.Closer
+	ID   peer.ID
+	Host host.Host
+	Bus  event.Bus
 }
 
-func newMulticastConn(m ma.Multiaddr, opt []Option) (*multicastConn, error) {
-	t, err := NewMulticastTransport(m)
-	if err != nil {
-		return nil, err
+func newHostComponents(h host.Host) func() hostComponents {
+	return func() hostComponents {
+		return hostComponents{
+			ID:   h.ID(),
+			Host: h,
+			Bus:  h.EventBus(),
+		}
 	}
-
-	out := make(chan outgoing, 8)
-
-	recv, err := newRecver(t, opt)
-	if err != nil {
-		return nil, err
-	}
-
-	send, err := newSender(t, out)
-	if err != nil {
-		return nil, err
-	}
-
-	return &multicastConn{
-		out:      out,
-		log:      recv.log,
-		receiver: recv,
-		sender:   send,
-	}, err
 }
 
-func (conn multicastConn) NewClient() multicastClient {
+func newConfig(opt []Option) (c Config) {
+	c.Apply(opt)
+	return
+}
+
+func newSubscriptions(bus event.Bus, lx fx.Lifecycle) (sub event.Subscription, err error) {
+	if sub, err = bus.Subscribe(new(event.EvtLocalAddressesUpdated)); err == nil {
+		hook(lx, closer(sub))
+	}
+
+	return
+}
+
+type conn struct {
+	fx.Out
+
+	Scatterer
+	Gatherer
+}
+
+func newConn(f transportFactory, lx fx.Lifecycle) (conn, error) {
 	var (
-		c = newMulticastClient(conn)
-		m = make(clientTopicManager)
+		t     Transport
+		s     Scatterer
+		g     Gatherer
+		maybe breaker
 	)
 
-	go func() {
-		defer m.Close()
-		defer close(c.rm)
-		defer close(c.add)
-		defer close(c.cq)
+	// new transport
+	maybe.Do(func() { t, maybe.Err = f() })
 
-		for {
-			select {
-			case add := <-c.add:
-				c.addSink(m, add)
+	// dial
+	maybe.Do(func() { s, maybe.Err = t.Dial() })
+	maybe.Do(func() { hook(lx, closer(s)) })
 
-			case free := <-c.rm:
-				free()
+	// listen
+	maybe.Do(func() { g, maybe.Err = t.Listen() })
+	maybe.Do(func() { hook(lx, closer(g)) })
 
-			case r, ok := <-c.recv.Responses:
-				if !ok {
-					return
-				}
-
-				if err := c.handleResponse(m, r); err != nil {
-					conn.log.WithError(err).Debug("malformed response")
-					continue
-				}
-			}
-		}
-	}()
-
-	return c
+	return conn{
+		Scatterer: s,
+		Gatherer:  g,
+	}, maybe.Err
 }
 
-func (conn multicastConn) NewServer(bus event.Bus) (multicastServer, error) {
-	m := multicastServer{
-		log:  conn.log,
-		cq:   make(chan struct{}),
-		ts:   make(map[string]*serverTopic),
-		add:  make(chan addServerTopic, 8),
-		recv: conn.receiver,
-	}
-
-	sub, err := bus.Subscribe(new(event.EvtLocalAddressesUpdated))
-	if err != nil {
-		return m, err
-	}
-
-	if v, ok := <-sub.Out(); ok { // doesn't block; stateful subscription
-		m.e = v.(event.EvtLocalAddressesUpdated).SignedPeerRecord
-
-		go func() {
-			defer sub.Close()
-			defer close(m.cq)
-
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case tick := <-ticker.C:
-					for _, t := range m.ts {
-						if t.Expired(tick) {
-							t.Cancel()
-						}
-					}
-
-				case v := <-sub.Out():
-					m.e = v.(event.EvtLocalAddressesUpdated).SignedPeerRecord
-					var j syncutil.Join
-					for _, t := range m.ts {
-						j.Go(m.setRecord(t))
-					}
-
-					if err := j.Wait(); err != nil {
-						conn.log.WithError(err).Debug("unable to set record")
-						continue
-					}
-
-				case add := <-m.add:
-					add.Err <- m.handleAddTopic(add.NS, add.TTL)
-
-				case pkt, ok := <-m.recv.Queries:
-					if !ok {
-						return
-					}
-
-					ns, _ := pkt.Query()
-					if t, ok := m.ts[ns]; ok {
-						t.Reply(conn.out)
-					}
-				}
-			}
-		}()
-	}
-
-	return m, err
-}
-
-func (conn multicastConn) Close() error {
-	return multierror.Append(
-		conn.receiver.Close(),
-		conn.sender.Close())
-}
-
-// scatterer and gatherer are interfaces because we may need to drop
-// down to the lower-level x/ip4 and x/ip6 libraries to fine-tune
-// multicast settings.
-type (
-	Scatterer interface {
-		Scatter(context.Context, *capnp.Message) error
-		io.Closer
-	}
-
-	Gatherer interface {
-		Gather(context.Context) (*capnp.Message, error)
-		io.Closer
-	}
-
-	multicastDialer interface {
-		DialMulticast() (Scatterer, error)
-	}
-
-	multicastListener interface {
-		ListenMulticast() (Gatherer, error)
-	}
-)
-
-type MulticastTransport interface {
-	DialMulticast() (Scatterer, error)
-	ListenMulticast() (Gatherer, error)
-}
-
-// NewMulticastTransport resolves 'm' into a generic transport for
-// multicast discovery.  Returns an error if 'm' is not of type P_MCAST.
-func NewMulticastTransport(m ma.Multiaddr) (MulticastTransport, error) {
-	m, err := resolveMulticastAddr(m)
-	if err != nil {
-		return nil, err
-	}
-
-	network, addr, err := manet.DialArgs(m)
-	if err != nil {
-		return nil, err
-	}
-
-	udpAddr, err := net.ResolveUDPAddr(network, addr)
-	if err != nil {
-		return nil, err
-	}
-
-	return &udpMulticastTransport{Group: udpAddr}, nil
-}
-
-type udpMulticastTransport struct {
-	local atomic.Value // net.Addr
-	Group *net.UDPAddr
-}
-
-func (u *udpMulticastTransport) DialMulticast() (Scatterer, error) {
-	conn, err := net.DialUDP(u.Group.Network(), nil, u.Group)
-	if err != nil {
-		return nil, err
-	}
-	u.local.Store(conn.LocalAddr())
-
-	if err = conn.SetWriteBuffer(maxDatagramSize); err != nil {
-		return nil, err
-	}
-
-	return scatterUDP{conn}, nil
-}
-
-func (u *udpMulticastTransport) ListenMulticast() (Gatherer, error) {
-	conn, err := net.ListenMulticastUDP(u.Group.Network(), nil, u.Group)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = conn.SetReadBuffer(maxDatagramSize); err != nil {
-		return nil, err
-	}
-
-	return gatherUDP{
-		UDPConn: conn,
-		local:   &u.local,
-	}, nil
-}
-
-func newSender(d multicastDialer, outq <-chan outgoing) (io.Closer, error) {
-	s, err := d.DialMulticast()
-	if err != nil {
-		return nil, err
-	}
-
+func hookSender(s Scatterer, outq chan outgoing, lx fx.Lifecycle) (io.Closer, error) {
 	// token-bucket rate limiter with burst factor of 8.
 	bucket := make(chan struct{}, 8)
 	for len(bucket) != cap(bucket) {
@@ -355,23 +214,23 @@ func newSender(d multicastDialer, outq <-chan outgoing) (io.Closer, error) {
 		Source: rand.New(rand.NewSource(time.Now().UnixNano())),
 	})
 
-	go func() {
-		defer close(bucket)
+	hook(lx,
+		deferred(ticker.Stop),
+		goroutine(func() {
+			defer close(bucket)
 
-		for range ticker.C {
-			select {
-			case bucket <- struct{}{}:
-			default:
+			for range ticker.C {
+				select {
+				case bucket <- struct{}{}:
+				default:
+				}
+
 			}
-
-		}
-	}()
+		}))
 
 	// writer loop waits for a token to become available and
 	// then sends a packet.
-	go func() {
-		defer ticker.Stop()
-
+	hook(lx, goroutine(func() {
 		for out := range outq {
 			select {
 			case <-out.C.Done():
@@ -379,56 +238,14 @@ func newSender(d multicastDialer, outq <-chan outgoing) (io.Closer, error) {
 				out.Err <- s.Scatter(out.C, out.M)
 			}
 		}
-	}()
+	}))
 
 	return s, nil
 }
 
-type scatterUDP struct{ *net.UDPConn }
-
-func (s scatterUDP) Scatter(ctx context.Context, msg *capnp.Message) error {
-	b, err := msg.MarshalPacked()
-	if err != nil {
-		return err
-	}
-
-	dl, _ := ctx.Deadline()
-	if err = s.SetWriteDeadline(dl); err == nil {
-		_, err = s.Write(b)
-	}
-
-	return err
-}
-
-type gatherUDP struct {
-	*net.UDPConn
-	local *atomic.Value
-}
-
-func (g gatherUDP) Gather(ctx context.Context) (*capnp.Message, error) {
-	b := make([]byte, maxDatagramSize) // TODO:  pool
-
-	for {
-		dl, _ := ctx.Deadline()
-		if err := g.SetReadDeadline(dl); err != nil {
-			return nil, err
-		}
-
-		n, ret, err := g.ReadFrom(b)
-		if err != nil {
-			return nil, err
-		}
-
-		// UDP packet did not come from us?
-		if v := g.local.Load(); v == nil || ret.String() != v.(net.Addr).String() {
-			return capnp.UnmarshalPacked(b[:n]) // TODO:  pool message
-		}
-	}
-}
-
-// multicastClient emits QUERY packets and awaits RESPONSE packet
+// client emits QUERY packets and awaits RESPONSE packet
 // from peers.
-type multicastClient struct {
+type client struct {
 	cq   chan struct{}
 	qs   chan<- outgoing // queries
 	add  chan addSink
@@ -436,17 +253,49 @@ type multicastClient struct {
 	recv *receiver
 }
 
-func newMulticastClient(conn multicastConn) multicastClient {
-	return multicastClient{
-		qs:   conn.out,
-		recv: conn.receiver,
+func newClient(log log.Logger, qs chan outgoing, r *receiver, lx fx.Lifecycle) client {
+	c := client{
+		qs:   qs,
+		recv: r,
 		cq:   make(chan struct{}),
 		add:  make(chan addSink),
 		rm:   make(chan func()),
 	}
+
+	hook(lx,
+		deferred(func() { close(qs) }),
+		goroutine(func() {
+			var m = make(clientTopicManager)
+			defer m.Close()
+			defer close(c.rm)
+			defer close(c.add)
+			defer close(c.cq)
+
+			for {
+				select {
+				case add := <-c.add:
+					c.addSink(m, add)
+
+				case free := <-c.rm:
+					free()
+
+				case r, ok := <-c.recv.Responses:
+					if !ok {
+						return
+					}
+
+					if err := c.handleResponse(m, r); err != nil {
+						log.WithError(err).Debug("malformed response")
+						continue
+					}
+				}
+			}
+		}))
+
+	return c
 }
 
-func (c multicastClient) FindPeers(ctx context.Context, ns string, opt []discovery.Option) (<-chan peer.AddrInfo, error) {
+func (c client) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	opts, err := c.options(opt)
 	if err != nil {
 		return nil, err
@@ -502,7 +351,7 @@ func (c multicastClient) FindPeers(ctx context.Context, ns string, opt []discove
 	return out, err
 }
 
-func (c multicastClient) options(opt []discovery.Option) (opts *discovery.Options, err error) {
+func (c client) options(opt []discovery.Option) (opts *discovery.Options, err error) {
 	opts = &discovery.Options{}
 	if err = opts.Apply(opt...); err == nil {
 		if opts.Limit == 0 {
@@ -512,7 +361,7 @@ func (c multicastClient) options(opt []discovery.Option) (opts *discovery.Option
 	return
 }
 
-func (c multicastClient) addSink(m clientTopicManager, add addSink) {
+func (c client) addSink(m clientTopicManager, add addSink) {
 	var (
 		err = errors.New("closing")
 		ctx = add.C
@@ -557,7 +406,7 @@ func (c multicastClient) addSink(m clientTopicManager, add addSink) {
 	add.Err <- err
 }
 
-func (c multicastClient) handleResponse(m clientTopicManager, p boot.MulticastPacket) error {
+func (c client) handleResponse(m clientTopicManager, p boot.MulticastPacket) error {
 	var rec peer.PeerRecord
 
 	res, err := p.Response()
@@ -692,9 +541,8 @@ type addSink struct {
 	Err chan<- error
 }
 
-// multicastServer awaits QUERY packets and
-// replies with RESPONSE packets
-type multicastServer struct {
+// server awaits QUERY packets and replies with RESPONSE packets
+type server struct {
 	log  log.Logger
 	cq   chan struct{}
 	ts   map[string]*serverTopic
@@ -703,7 +551,65 @@ type multicastServer struct {
 	recv *receiver
 }
 
-func (s multicastServer) Advertise(ctx context.Context, ns string, opt []discovery.Option) (time.Duration, error) {
+func newServer(log log.Logger, rs chan outgoing, r *receiver, sub event.Subscription, lx fx.Lifecycle) server {
+	m := server{
+		log:  log,
+		cq:   make(chan struct{}),
+		ts:   make(map[string]*serverTopic),
+		add:  make(chan addServerTopic, 8),
+		recv: r,
+	}
+
+	if v, ok := <-sub.Out(); ok { // doesn't block; stateful subscription
+		m.e = v.(event.EvtLocalAddressesUpdated).SignedPeerRecord
+		hook(lx, goroutine(func() {
+			defer close(m.cq)
+
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case tick := <-ticker.C:
+					for _, t := range m.ts {
+						if t.Expired(tick) {
+							t.Cancel()
+						}
+					}
+
+				case v := <-sub.Out():
+					m.e = v.(event.EvtLocalAddressesUpdated).SignedPeerRecord
+					var j syncutil.Join
+					for _, t := range m.ts {
+						j.Go(m.setRecord(t))
+					}
+
+					if err := j.Wait(); err != nil {
+						log.WithError(err).Debug("unable to set record")
+						continue
+					}
+
+				case add := <-m.add:
+					add.Err <- m.handleAddTopic(add.NS, add.TTL)
+
+				case pkt, ok := <-m.recv.Queries:
+					if !ok {
+						return
+					}
+
+					ns, _ := pkt.Query()
+					if t, ok := m.ts[ns]; ok {
+						t.Reply(rs)
+					}
+				}
+			}
+		}))
+	}
+
+	return m
+}
+
+func (s server) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
 	opts, err := s.options(opt)
 	if err != nil {
 		return 0, err
@@ -730,7 +636,7 @@ func (s multicastServer) Advertise(ctx context.Context, ns string, opt []discove
 	}
 }
 
-func (s multicastServer) options(opt []discovery.Option) (opts *discovery.Options, err error) {
+func (s server) options(opt []discovery.Option) (opts *discovery.Options, err error) {
 	opts = &discovery.Options{}
 	if err = opts.Apply(opt...); err == nil {
 		if opts.Ttl == 0 {
@@ -740,7 +646,7 @@ func (s multicastServer) options(opt []discovery.Option) (opts *discovery.Option
 	return
 }
 
-func (s multicastServer) handleAddTopic(ns string, ttl time.Duration) (err error) {
+func (s server) handleAddTopic(ns string, ttl time.Duration) (err error) {
 	t, ok := s.ts[ns]
 	if !ok {
 		if t, err = s.newServerTopic(ns, func() {
@@ -758,7 +664,7 @@ func (s multicastServer) handleAddTopic(ns string, ttl time.Duration) (err error
 	return
 }
 
-func (s multicastServer) setRecord(t *serverTopic) func() error {
+func (s server) setRecord(t *serverTopic) func() error {
 	return func() error { return t.SetRecord(s.e) }
 }
 
@@ -776,7 +682,7 @@ type serverTopic struct {
 	Cancel  func()
 }
 
-func (s multicastServer) newServerTopic(ns string, stop func()) (*serverTopic, error) {
+func (s server) newServerTopic(ns string, stop func()) (*serverTopic, error) {
 	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		return nil, err
@@ -887,86 +793,68 @@ type update struct {
 }
 
 type receiver struct {
-	log                log.Logger
-	cq                 chan struct{}
 	Queries, Responses chan boot.MulticastPacket
-	c                  io.Closer
 }
 
-func newRecver(l multicastListener, opt []Option) (*receiver, error) {
-	g, err := l.ListenMulticast()
-	if err != nil {
-		return nil, err
-	}
+func newReceiver(log log.Logger, g Gatherer, opt []Option, lx fx.Lifecycle) *receiver {
+	var (
+		cancel context.CancelFunc
 
-	r := &receiver{
-		cq:        make(chan struct{}),
-		Queries:   make(chan boot.MulticastPacket, 8),
-		Responses: make(chan boot.MulticastPacket, 8),
-		c:         g,
-	}
-
-	for _, option := range opt {
-		if err = option(r); err != nil {
-			return nil, err
+		r = &receiver{
+			Queries:   make(chan boot.MulticastPacket, 8),
+			Responses: make(chan boot.MulticastPacket, 8),
 		}
-	}
 
-	go func() {
-		defer close(r.Queries)
-		defer close(r.Responses)
-
-		var b = backoff.Backoff{
+		b = backoff.Backoff{
 			Factor: 2,
 			Jitter: true,
 			Min:    time.Second,
 			Max:    time.Minute * 5,
 		}
+	)
 
-		for {
-			msg, err := g.Gather(context.Background())
-			if err != nil {
-				if ne, ok := err.(net.Error); !ok || !ne.Temporary() {
+	hook(lx,
+		deferred(func() {
+			cancel()
+			close(r.Queries)
+			close(r.Responses)
+		}),
+		goWithContext(func(ctx context.Context) {
+			ctx, cancel = context.WithCancel(ctx)
+
+			for {
+				switch msg, err := g.Gather(ctx); err {
+				case context.Canceled, context.DeadlineExceeded:
 					return
+
+				case nil:
+					b.Reset()
+
+					if err = r.consume(ctx, msg); err != nil {
+						log.WithError(err).Warn("malformed packet")
+					}
+
+				default:
+					if ne, ok := err.(net.Error); ok && !ne.Temporary() {
+						log.WithError(err).Fatal("network error")
+					}
+
+					log.WithError(err).
+						WithField("backoff", b.ForAttempt(b.Attempt())).
+						Debug("entering backoff state")
+
+					select {
+					case <-time.After(b.Duration()):
+					case <-ctx.Done():
+					}
 				}
-
-				r.log.WithError(err).
-					WithField("backoff", b.ForAttempt(b.Attempt())).
-					Debug("entering backoff state")
-
-				select {
-				case <-time.After(b.Duration()):
-				case <-r.cq:
-				}
-
-				continue
 			}
+		}))
 
-			b.Reset()
-
-			if err = r.consume(msg); err != nil {
-				r.log.WithError(err).Debug("malformed packet")
-				return
-			}
-		}
-	}()
-
-	return r, nil
+	return r
 }
 
-func (r *receiver) SetOption(v interface{}) (err error) {
-	switch opt := v.(type) {
-	case log.Logger:
-		r.log = opt
-
-	default:
-		err = fmt.Errorf("invalid option '%s' for UDP multicast",
-			reflect.TypeOf(v))
-	}
-	return
-}
-
-func (r receiver) consume(msg *capnp.Message) error {
+func (r receiver) consume(ctx context.Context, msg *capnp.Message) error {
 	var (
 		p, err   = boot.ReadRootMulticastPacket(msg)
 		consumer chan<- boot.MulticastPacket
@@ -982,16 +870,12 @@ func (r receiver) consume(msg *capnp.Message) error {
 
 		select {
 		case consumer <- p:
-		case <-r.cq:
+		case <-ctx.Done():
+			err = ctx.Err()
 		}
 	}
 
 	return err
-}
-
-func (r receiver) Close() error {
-	close(r.cq)
-	return r.c.Close()
 }
 
 type outgoing struct {
@@ -1001,22 +885,108 @@ type outgoing struct {
 }
 
 /*
- * P_MCAST
+ * Transports
  */
 
-// resolveMulticastAddr of form /multicast/<multiaddr>
-func resolveMulticastAddr(m ma.Multiaddr) (resolved ma.Multiaddr, err error) {
-	ma.ForEach(m, func(c ma.Component) bool {
-		if c.Protocol().Code != P_MCAST {
-			err = errors.New("invalid multicast addr")
+type MulticastUDP struct {
+	local atomic.Value // net.Addr
+	Group *net.UDPAddr
+}
+
+// NewMulticastUDP transport.  The multiaddr 'm' MUST contain an
+// *unencapsulated* UDP address.
+//
+// For the avoidance of doubt:  NewMulticastUDP will return a non-nil
+// error if 'm' is of type P_MCAST.
+func NewMulticastUDP(m ma.Multiaddr) (*MulticastUDP, error) {
+	network, addr, err := manet.DialArgs(m)
+	if err != nil {
+		return nil, err
+	}
+
+	udpAddr, err := net.ResolveUDPAddr(network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MulticastUDP{Group: udpAddr}, nil
+}
+
+func (u *MulticastUDP) Dial() (Scatterer, error) {
+	conn, err := net.DialUDP(u.Group.Network(), nil, u.Group)
+	if err != nil {
+		return nil, err
+	}
+	u.local.Store(conn.LocalAddr())
+
+	if err = conn.SetWriteBuffer(maxDatagramSize); err != nil {
+		return nil, err
+	}
+
+	return scatterUDP{conn}, nil
+}
+
+func (u *MulticastUDP) Listen() (Gatherer, error) {
+	conn, err := net.ListenMulticastUDP(u.Group.Network(), nil, u.Group)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = conn.SetReadBuffer(maxDatagramSize); err != nil {
+		return nil, err
+	}
+
+	return gatherUDP{
+		UDPConn: conn,
+		local:   &u.local,
+	}, nil
+}
+
+type scatterUDP struct{ *net.UDPConn }
+
+func (s scatterUDP) Scatter(ctx context.Context, msg *capnp.Message) error {
+	b, err := msg.MarshalPacked()
+	if err != nil {
+		return err
+	}
+
+	dl, _ := ctx.Deadline()
+	if err = s.SetWriteDeadline(dl); err == nil {
+		_, err = s.Write(b)
+	}
+
+	return err
+}
+
+type gatherUDP struct {
+	*net.UDPConn
+	local *atomic.Value
+}
+
+func (g gatherUDP) Gather(ctx context.Context) (*capnp.Message, error) {
+	b := make([]byte, maxDatagramSize) // TODO:  pool
+
+	for {
+		dl, _ := ctx.Deadline()
+		if err := g.SetReadDeadline(dl); err != nil {
+			return nil, err
 		}
 
-		resolved, err = ma.NewMultiaddrBytes(c.RawValue())
-		return false
-	})
+		n, ret, err := g.ReadFrom(b)
+		if err != nil {
+			return nil, err
+		}
 
-	return
+		// UDP packet did not come from us?
+		if v := g.local.Load(); v == nil || ret.String() != v.(net.Addr).String() {
+			return capnp.UnmarshalPacked(b[:n]) // TODO:  pool message
+		}
+	}
 }
+
+/*
+ * P_MCAST
+ */
 
 func mcastStoB(s string) ([]byte, error) {
 	m, err := ma.NewMultiaddr(s)
@@ -1033,4 +1003,46 @@ func mcastBtoS(b []byte) (string, error) {
 		return "", err
 	}
 	return m.String(), nil
+}
+
+type hookFunc func(*fx.Hook)
+
+func hook(lx fx.Lifecycle, hfs ...hookFunc) {
+	var h fx.Hook
+	for _, apply := range hfs {
+		apply(&h)
+	}
+	lx.Append(h)
+}
+
+func setup(f func(context.Context) error) hookFunc {
+	return func(h *fx.Hook) { h.OnStart = f }
+}
+
+func goroutine(f func()) hookFunc {
+	return goWithContext(func(context.Context) { go f() })
+}
+
+func goWithContext(f func(context.Context)) hookFunc {
+	return setup(func(c context.Context) error {
+		go f(c)
+		return nil
+	})
+}
+
+func deferred(f func()) hookFunc {
+	return func(h *fx.Hook) {
+		h.OnStop = func(context.Context) error {
+			f()
+			return nil
+		}
+	}
+}
+
+func closer(c io.Closer) hookFunc {
+	return func(h *fx.Hook) {
+		h.OnStop = func(context.Context) error {
+			return c.Close()
+		}
+	}
 }
