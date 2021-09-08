@@ -18,8 +18,8 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/urfave/cli/v2"
 	logutil "github.com/wetware/casm/internal/util/log"
+	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/cluster"
-	"github.com/wetware/casm/pkg/cluster/boot"
 	"github.com/wetware/casm/pkg/pex"
 	"go.uber.org/fx"
 )

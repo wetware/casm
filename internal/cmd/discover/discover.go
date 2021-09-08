@@ -9,7 +9,7 @@ import (
 	"github.com/urfave/cli/v2"
 
 	cmdutil "github.com/wetware/casm/internal/util/cmd"
-	"github.com/wetware/casm/pkg/cluster/boot"
+	"github.com/wetware/casm/pkg/boot"
 )
 
 var (

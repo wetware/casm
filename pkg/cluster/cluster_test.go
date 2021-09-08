@@ -11,8 +11,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/stretchr/testify/require"
+	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/cluster"
-	"github.com/wetware/casm/pkg/cluster/boot"
 	mx "github.com/wetware/matrix/pkg"
 )
 
