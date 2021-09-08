@@ -1,14 +1,16 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/lthibault/log"
 	"github.com/urfave/cli/v2"
 
 	"github.com/wetware/casm/internal/cmd/discover"
 	"github.com/wetware/casm/internal/cmd/start"
-	cmdutil "github.com/wetware/casm/internal/util/cmd"
 )
 
 const version = "0.0.0"
@@ -56,8 +58,17 @@ func main() {
 
 func before() cli.BeforeFunc {
 	return func(c *cli.Context) error {
-		cmdutil.BindLogger(c)
-		cmdutil.BindSignals(c)
+		var cancel context.CancelFunc
+		c.Context, cancel = context.WithCancel(c.Context)
+
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+
+		go func() {
+			defer cancel()
+			<-ch
+		}()
+
 		return nil
 	}
 }

@@ -2,8 +2,6 @@
 package logutil
 
 import (
-	"context"
-
 	"github.com/lthibault/log"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
@@ -69,47 +67,6 @@ func WithFormat(c *cli.Context) log.Option {
 	return log.WithFormatter(fmt)
 }
 
-func WithLogger(ctx context.Context, log log.Logger) context.Context {
-	return context.WithValue(ctx, keyLogger{}, log)
-
-}
-
-func Logger(ctx context.Context) log.Logger {
-	if l, ok := ctx.Value(keyLogger{}).(log.Logger); ok {
-		return l
-	}
-	return nopLogger{}
-}
-
 func withErrWriter(c *cli.Context) log.Option {
 	return log.WithWriter(c.App.ErrWriter)
 }
-
-type (
-	keyLogger struct{}
-)
-
-type nopLogger struct{}
-
-func (nopLogger) Fatal(...interface{})                     {}
-func (nopLogger) Fatalf(string, ...interface{})            {}
-func (nopLogger) Fatalln(...interface{})                   {}
-func (nopLogger) Trace(...interface{})                     {}
-func (nopLogger) Tracef(string, ...interface{})            {}
-func (nopLogger) Traceln(...interface{})                   {}
-func (nopLogger) Debug(...interface{})                     {}
-func (nopLogger) Debugf(string, ...interface{})            {}
-func (nopLogger) Debugln(...interface{})                   {}
-func (nopLogger) Info(...interface{})                      {}
-func (nopLogger) Infof(string, ...interface{})             {}
-func (nopLogger) Infoln(...interface{})                    {}
-func (nopLogger) Warn(...interface{})                      {}
-func (nopLogger) Warnf(string, ...interface{})             {}
-func (nopLogger) Warnln(...interface{})                    {}
-func (nopLogger) Error(...interface{})                     {}
-func (nopLogger) Errorf(string, ...interface{})            {}
-func (nopLogger) Errorln(...interface{})                   {}
-func (nopLogger) With(log.Loggable) log.Logger             { return nopLogger{} }
-func (nopLogger) WithError(error) log.Logger               { return nopLogger{} }
-func (nopLogger) WithField(string, interface{}) log.Logger { return nopLogger{} }
-func (nopLogger) WithFields(logrus.Fields) log.Logger      { return nopLogger{} }

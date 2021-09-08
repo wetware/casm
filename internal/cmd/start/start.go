@@ -3,6 +3,7 @@ package start
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/libp2p/go-libp2p"
@@ -25,28 +26,34 @@ import (
 )
 
 var (
-	flags = []cli.Flag{
-		&cli.StringFlag{
-			Name:    "ns",
-			Usage:   "cluster namespace",
-			Value:   "casm",
-			EnvVars: []string{"WW_NS"},
-		},
-		&cli.StringFlag{
-			Name:    "discover",
-			Aliases: []string{"d"},
-			Usage:   "discovery service",
-			Value:   "/multicast/ip4/228.8.8.8/udp/8822",
-			EnvVars: []string{"WW_DISCOVER"},
-		},
-		&cli.StringSliceFlag{
-			Name:    "join",
-			Aliases: []string{"j"},
-			Usage:   "join via static bootstrap address",
-			EnvVars: []string{"WW_JOIN"},
-		},
-	}
+	app *fx.App
+
+	logger log.Logger
+	sub    event.Subscription
+	m      cluster.Model
 )
+
+var flags = []cli.Flag{
+	&cli.StringFlag{
+		Name:    "ns",
+		Usage:   "cluster namespace",
+		Value:   "casm",
+		EnvVars: []string{"WW_NS"},
+	},
+	&cli.StringFlag{
+		Name:    "discover",
+		Aliases: []string{"d"},
+		Usage:   "discovery service",
+		Value:   "/multicast/ip4/228.8.8.8/udp/8822",
+		EnvVars: []string{"WW_DISCOVER"},
+	},
+	&cli.StringSliceFlag{
+		Name:    "join",
+		Aliases: []string{"j"},
+		Usage:   "join via static bootstrap address",
+		EnvVars: []string{"WW_JOIN"},
+	},
+}
 
 // Command for 'client'.
 func Command() *cli.Command {
@@ -54,45 +61,52 @@ func Command() *cli.Command {
 		Name:   "start",
 		Usage:  "start a host process",
 		Flags:  flags,
+		Before: before(),
 		Action: run(),
+	}
+}
+
+func before() cli.BeforeFunc {
+	return func(c *cli.Context) error {
+		app = fx.New(fx.NopLogger,
+			fx.Supply(c),
+			fx.Populate(&logger, &sub, &m),
+			fx.Provide(
+				newLogger,
+				newRoutedHost,
+				newTransport,
+				newBootstrapper(c),
+				newDiscovery,
+				newCluster,
+				newPubSub,
+				newSub))
+		return app.Start(c.Context)
 	}
 }
 
 func run() cli.ActionFunc {
 	return func(c *cli.Context) error {
-		app := fx.New(fx.NopLogger,
-			fx.Supply(c),
-			fx.Provide(
-				newLogger,
-				newRoutedHost,
-				newDiscovery,
-				newCluster,
-				newPubSub,
-				newSub),
-			fx.Invoke(func(log log.Logger, _ *cluster.Model, sub event.Subscription) {
-				go func() {
-					log.Info("started")
-					defer log.Warn("shutting down")
+		logger.Info("started")
+		defer logger.Warn("shutting down")
 
-					for v := range sub.Out() {
-						switch ev := v.(type) {
-						case cluster.EvtMembershipChanged:
-							log.With(ev).Info("membership changed")
+		for {
+			select {
+			case v := <-sub.Out():
+				switch ev := v.(type) {
+				case cluster.EvtMembershipChanged:
+					logger.With(ev).Info("membership changed")
 
-						case pex.EvtLocalRecordUpdated:
-							log.With(ev).Debug("local record updated")
+				case pex.EvtLocalRecordUpdated:
+					logger.With(ev).Debug("local record updated")
 
-						case pex.EvtViewUpdated:
-							log.With(ev).Trace("passive view updated")
+				case pex.EvtViewUpdated:
+					logger.With(ev).Trace("passive view updated")
+				}
 
-						}
-					}
-				}()
-			}))
-
-		app.Run()
-
-		return app.Err()
+			case <-app.Done():
+				return app.Stop(context.Background())
+			}
+		}
 	}
 }
 
@@ -112,52 +126,33 @@ func newRoutedHost(c *cli.Context, lx fx.Lifecycle) (host.Host, *dual.DHT, error
 	return routedhost.Wrap(h, dht), dht, nil
 }
 
-func newDiscovery(c *cli.Context, log log.Logger, h host.Host, dht *dual.DHT, lx fx.Lifecycle) (discovery.Discovery, error) {
-	d, err := bootstrapper(c, log, h, lx)
-	if err != nil {
-		return nil, err
-	}
+func newLogger(c *cli.Context, h host.Host) log.Logger {
+	return logutil.New(c).
+		WithField("ns", c.String("ns")).
+		WithField("id", h.ID())
+}
 
+func newDiscovery(c *cli.Context, h host.Host, dht *dual.DHT, b discovery.Discovery, lx fx.Lifecycle) (boot.Dual, error) {
 	px, err := pex.New(h, pex.WithNamespace(c.String("ns")))
 	if err == nil {
 		lx.Append(closer(px))
 	}
 
 	return boot.Dual{
-		Boot:      boot.Cache{Discovery: d, Cache: px},
+		Boot:      boot.Cache{Discovery: b, Cache: px},
 		Discovery: discimpl.NewRoutingDiscovery(dht),
 	}, err
 }
 
-func bootstrapper(c *cli.Context, log log.Logger, h host.Host, lx fx.Lifecycle) (discovery.Discovery, error) {
-	if addrs := c.StringSlice("join"); len(addrs) > 0 {
-		return join(addrs)
-	}
-
-	if addr := c.String("discover"); addr != "" {
-		d, err := discover(log, h, addr)
-		if err == nil {
-			lx.Append(closer(d))
-		}
-		return d, err
-	}
-
-	return nil, errors.New("must supply -join or -discover")
-}
-
-func newLogger(c *cli.Context, h host.Host) log.Logger {
-	return logutil.Logger(c.Context).
-		WithField("ns", h.ID())
-}
-
-func newPubSub(c *cli.Context, h host.Host, d discovery.Discovery) (*pubsub.PubSub, error) {
+func newPubSub(c *cli.Context, h host.Host, d boot.Dual) (*pubsub.PubSub, error) {
 	return pubsub.NewGossipSub(c.Context, h,
 		pubsub.WithPeerExchange(false),
 		pubsub.WithDiscovery(d))
 }
 
 func newCluster(c *cli.Context, h host.Host, p *pubsub.PubSub) (cluster.Model, error) {
-	return cluster.New(h, p, cluster.WithNamespace(c.String("ns")))
+	return cluster.New(h, p,
+		cluster.WithNamespace(c.String("ns")))
 }
 
 func newSub(h host.Host, lx fx.Lifecycle) (event.Subscription, error) {
@@ -173,30 +168,63 @@ func newSub(h host.Host, lx fx.Lifecycle) (event.Subscription, error) {
 	return sub, err
 }
 
+func newBootstrapper(c *cli.Context) interface{} {
+	if len(c.String("d")) > 0 {
+		return newBootService
+	}
+
+	if len(c.StringSlice("join")) > 0 {
+		return newStaticBoot
+	}
+
+	return func() (discovery.Discovery, error) {
+		return nil, errors.New("must supply -join or -discover")
+	}
+}
+
+func newBootService(log log.Logger, h host.Host, t boot.Transport, lx fx.Lifecycle) (discovery.Discovery, error) {
+	m, err := boot.NewMulticast(h,
+		boot.WithLogger(log),
+		boot.WithTransport(t))
+
+	if err == nil {
+		lx.Append(closer(m))
+	}
+
+	return m, err
+}
+
+func newStaticBoot(c *cli.Context) (discovery.Discovery, error) {
+	var as boot.StaticAddrs
+
+	for _, s := range c.StringSlice("join") {
+		m, err := ma.NewMultiaddr(s)
+		if err != nil {
+			return nil, err
+		}
+
+		info, err := peer.AddrInfoFromP2pAddr(m)
+		if err != nil {
+			return nil, err
+		}
+
+		as = append(as, *info)
+	}
+
+	return as, nil
+}
+
+func newTransport(c *cli.Context) (boot.Transport, error) {
+	m, err := ma.NewMultiaddr(c.String("d"))
+	if err != nil {
+		return nil, fmt.Errorf("%w:  %s", err, m)
+	}
+
+	return boot.NewTransport(m)
+}
+
 func closer(c io.Closer) fx.Hook {
 	return fx.Hook{
-		OnStop: func(context.Context) error {
-			return c.Close()
-		},
+		OnStop: func(context.Context) error { return c.Close() },
 	}
-}
-
-func join(ss []string) (_ boot.StaticAddrs, err error) {
-	ms := make([]ma.Multiaddr, len(ss))
-	for i, s := range ss {
-		if ms[i], err = ma.NewMultiaddr(s); err != nil {
-			return
-		}
-	}
-
-	return peer.AddrInfosFromP2pAddrs(ms...)
-}
-
-func discover(log log.Logger, h host.Host, s string) (*boot.Multicast, error) {
-	m, err := ma.NewMultiaddr(s)
-	if err != nil {
-		return nil, err
-	}
-
-	return boot.NewMulticast(h, m, boot.WithLogger(log))
 }
