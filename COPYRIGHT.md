@@ -19,14 +19,14 @@ authorized contributors that is accessible via a public URL.
 
 Except as otherwise noted (below and/or in individual files), Wetware, CASM, and all other
 works under the [Wetware Organization](https://github.com/wetware) are bound by the
-[Wetware Contributor Agreement](#contributor-agreement, and are licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
+[Wetware Contributor Agreement](#contributor-agreement), and are licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 or  or the [MIT](http://opensource.org/licenses/MIT) license, at your option.
 
 ## Contributor Agreement
 
 This Wetware Contributor Agreement (WWCA) applies to any contribution that you make to any product or project managed by us (the "Project"),
 and sets out the intellectual property rights you grant us in the contributed materials.  The term "us" shall mean Louis Thibault.
-The term "you" shall mean the persons or entities identified in the [CONTRIBUTORS](#contributors) section of this document or the author of any git commit,
+The term "you" shall mean the persons or entities identified in the [Contributors](#contributors) section of this document or the author of any git commit,
 issue-tracker ticket or comment on any repository managed by the [Wetware Organization](http://github.com/wetware).
 
 Read this agreement **carefully** before making any contribution.  These terms and conditions constitute a **binding legal agreement**.
