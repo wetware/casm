@@ -19,7 +19,7 @@ authorized contributors that is accessible via a public URL.
 
 ### Instructions for submitting the agreement
 
-- Submit a PR adding your name to the [CONTRIBUTORS.md] file.
+- Submit a PR adding your name to the [CONTRIBUTORS](CONTRIBUTORS.md) file.
 
 ## Licensing
 
