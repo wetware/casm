@@ -29,7 +29,7 @@ func WithLogger(l log.Logger) Option {
 	}
 
 	return func(pex *PeerExchange) {
-		pex.log = logger{l.With(pex)}
+		pex.log = logger{l}
 	}
 }
 

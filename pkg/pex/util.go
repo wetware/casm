@@ -1,14 +1,11 @@
 package pex
 
 import (
-	"sync"
 	"sync/atomic"
 
-	"github.com/libp2p/go-eventbus"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"go.uber.org/multierr"
 
 	"github.com/lthibault/log"
 	"github.com/sirupsen/logrus"
@@ -48,57 +45,9 @@ func (l logger) WithError(err error) logger               { return logger{l.Logg
 func (l logger) WithFields(fs logrus.Fields) logger       { return logger{l.Logger.WithFields(fs)} }
 func (l logger) WithField(s string, v interface{}) logger { return logger{l.Logger.WithField(s, v)} }
 
-type atomicValues struct {
-	record atomicGossipRecord
-
-	sync.Mutex // serialize writers to 'view'
-	view       atomicView
-}
-
-func newAtomicValues(bus event.Bus) (vs *atomicValues, err error) {
-	vs = new(atomicValues)
-	if vs.view, err = newAtomicView(bus); err == nil {
-		vs.record, err = newAtomicGossipRecord(bus)
-	}
-	return
-}
-
-func (vs *atomicValues) Close() error {
-	return multierr.Combine(
-		vs.view.Close(),
-		vs.record.Close(),
-	)
-}
-
-type atomicGossipRecord struct {
-	val        atomic.Value
-	evtUpdated event.Emitter
-}
-
-func newAtomicGossipRecord(bus event.Bus) (atomicGossipRecord, error) {
-	e, err := bus.Emitter(new(EvtLocalRecordUpdated), eventbus.Stateful)
-	return atomicGossipRecord{evtUpdated: e}, err
-}
-
-func (rec *atomicGossipRecord) Load() GossipRecord { return rec.val.Load().(GossipRecord) }
-
-func (rec *atomicGossipRecord) Store(g GossipRecord) error {
-	rec.val.Store(g)
-	ev := EvtLocalRecordUpdated(g) // copy
-	return rec.evtUpdated.Emit(ev)
-}
-
-func (rec *atomicGossipRecord) Close() error { return rec.evtUpdated.Close() }
-
 type atomicView struct {
 	val        atomic.Value
 	evtUpdated event.Emitter
-}
-
-func newAtomicView(bus event.Bus) (v atomicView, err error) {
-	v.evtUpdated, err = bus.Emitter(new(EvtViewUpdated))
-	v.val.Store(View{})
-	return
 }
 
 func (av *atomicView) Load() (v View) {

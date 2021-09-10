@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
+	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/pex"
@@ -17,32 +18,57 @@ import (
 
 const ns = "casm.pex.test"
 
-func TestHost_LocalAddressesUpdated_stateful(t *testing.T) {
+func TestHostRegression(t *testing.T) {
 	t.Parallel()
 
 	/*
-	 * This is a regression test to ensure 'LocalAddressesUpdated' is
-	 * stateful.  See:  https://github.com/libp2p/go-libp2p/pull/1147.
+	 * This is a regression test to ensure the libp2p Host
+	 * supports all necessary features.
 	 */
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sim := mx.New(ctx)
+	h := mx.New(ctx).MustHost(ctx)
+	defer h.Close()
 
-	h0 := sim.MustHost(ctx)
-	defer h0.Close()
+	/*
+	 * First we validate that the host provides a stateful
+	 * event subscription for addres updates.  If not, the
+	 * pex constructor will block indefinitely.
+	 *
+	 * See:  https://github.com/libp2p/go-libp2p/pull/1147
+	 */
 
-	s, err := h0.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	s, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
 	require.NoError(t, err)
 
 	select {
 	case v := <-s.Out():
 		require.NotNil(t, v)
-		require.NotZero(t, v.(event.EvtLocalAddressesUpdated).Current)
+		require.IsType(t, event.EvtLocalAddressesUpdated{}, v)
+		ev := v.(event.EvtLocalAddressesUpdated)
+
+		require.NotZero(t, ev.Current)
+		require.NotZero(t, ev.SignedPeerRecord)
 	case <-time.After(time.Millisecond * 100):
 		t.Error("did not receive initial addrs")
 	}
+
+	/*
+	 * Once the event has been received, the host's signed
+	 * record should be contained within the address book,
+	 * provided it satisfies peerstore.CertifiedAddrBook.
+	 *
+	 * If this fails, we may experience panics as type
+	 * assertions fail.
+	 */
+
+	cb, ok := ps.GetCertifiedAddrBook(h.Peerstore())
+	require.True(t, ok)
+
+	env := cb.GetPeerRecord(h.ID())
+	require.NotNil(t, env)
 }
 
 func TestPeerExchange_Init(t *testing.T) {
@@ -89,7 +115,7 @@ func TestPeerExchange_Join(t *testing.T) {
 	sim := mx.New(ctx)
 	hs := sim.MustHostSet(ctx, 2)
 
-	ps := make([]pex.PeerExchange, len(hs))
+	ps := make([]*pex.PeerExchange, len(hs))
 	ss := make([]event.Subscription, len(hs))
 	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
 		ps[i], err = pex.New(ctx, h, pex.WithNamespace(ns))
@@ -131,13 +157,14 @@ func TestPeerExchange_Join(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestPeerExchange_Simulation(t *testing.T) {
+func TestPeerExchange_simulation(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
 	const (
-		clusterSize = 64
-		tick        = time.Microsecond * 1
+		n        = 16
+		viewSize = n / 2
+		// tick     = time.Millisecond * 10
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -145,16 +172,24 @@ func TestPeerExchange_Simulation(t *testing.T) {
 
 	var (
 		sim = mx.New(ctx)
-		hs  = sim.MustHostSet(ctx, clusterSize)
-		xs  = make([]pex.PeerExchange, clusterSize)
+		hs  = sim.MustHostSet(ctx, n)
+		xs  = make([]*pex.PeerExchange, n)
 	)
 
-	mx. // initialize a peer exchange for each host in hs
+	err := mx.
+		/*
+		 * Initialize a peer exchange for each host in hs
+		 */
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			xs[i], err = pex.New(ctx, h, pex.WithNamespace(ns), pex.WithTick(tick))
+			xs[i], err = pex.New(ctx, h,
+				pex.WithMaxViewSize(viewSize),
+				pex.WithNamespace(ns),
+				/*pex.WithTick(tick)*/)
 			return
 		}).
-		// join all hosts in a ring topology
+		/*
+		 * Arrange hosts into a ring topology
+		 */
 		Go(func(ctx context.Context, i int, _ host.Host) (err error) {
 			h := hs[len(hs)-1]
 			if i > 0 {
@@ -163,10 +198,10 @@ func TestPeerExchange_Simulation(t *testing.T) {
 
 			return xs[i].Join(ctx, *host.InfoFromHost(h))
 		}).
-		Must(ctx, hs)
-
-	t.Run("ViewsAreEventuallyFull", func(t *testing.T) {
-		err := mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		/*
+		 * Ensure views are eventually full.
+		 */
+		Go(func(ctx context.Context, i int, h host.Host) error {
 			sub, err := h.EventBus().Subscribe(new(pex.EvtViewUpdated))
 			if err != nil {
 				return err
@@ -178,7 +213,7 @@ func TestPeerExchange_Simulation(t *testing.T) {
 				case v := <-sub.Out():
 					view := pex.View(v.(pex.EvtViewUpdated))
 
-					if view.Len() == 32 {
+					if view.Len() == n {
 						return nil
 					}
 
@@ -188,11 +223,5 @@ func TestPeerExchange_Simulation(t *testing.T) {
 			}
 		}).Err(ctx, hs)
 
-		require.NoError(t, err)
-	})
-
-	t.Run("DeadPeersEventuallyPurged", func(t *testing.T) {
-		t.Skip("NOT IMPLEMENTED") // TODO
-	})
-
+	require.NoError(t, err)
 }

@@ -13,6 +13,8 @@ var (
 	// ErrInvalidRange is returned as a cause in a ValidationError when
 	// a field's value falls outside the expected range.
 	ErrInvalidRange = errors.New("invalid range")
+
+	errNoSignedAddrs = errors.New("host does not provide signed peer addrs")
 )
 
 type ValidationError struct {

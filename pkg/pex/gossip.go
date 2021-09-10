@@ -10,10 +10,9 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
 )
 
@@ -118,40 +117,53 @@ type GossipRecord struct {
 	*record.Envelope
 }
 
-func NewGossipRecordFromEvent(ev event.EvtLocalAddressesUpdated) (GossipRecord, error) {
-	g := GossipRecord{Envelope: ev.SignedPeerRecord}
-	return g, g.Envelope.TypedRecord(&g.PeerRecord)
+func NewGossipRecord(h host.Host) (rec GossipRecord, err error) {
+	cb, ok := ps.GetCertifiedAddrBook(h.Peerstore())
+	if !ok {
+		return rec, errNoSignedAddrs
+	}
+
+	if rec.Envelope = cb.GetPeerRecord(h.ID()); rec.Envelope == nil {
+		return rec, errors.New("record not found")
+	}
+
+	err = rec.TypedRecord(&rec.PeerRecord)
+	return
 }
 
-func (g *GossipRecord) Loggable() map[string]interface{} {
+func (g GossipRecord) Loggable() map[string]interface{} {
 	return map[string]interface{}{
-		"peer":  g.PeerRecord.PeerID,
-		"addrs": g.PeerRecord.Addrs,
-		"seq":   g.PeerRecord.Seq,
+		"peer":  g.PeerID,
+		"addrs": g.Addrs,
+		"seq":   g.Seq,
 		"hop":   g.Hop,
 	}
 }
 
+func (g GossipRecord) Validate() bool {
+	return g.PeerID.MatchesPublicKey(g.Envelope.PublicKey)
+}
+
 // Distance returns the XOR of the last byte from 'id' and the record's ID.
-func (g *GossipRecord) Distance(h host.Host) uint64 {
+func (g GossipRecord) Distance(h host.Host) uint64 {
 	return lastUint64(g.PeerID) ^ lastUint64(h.ID())
 }
 
 // Domain is the "signature domain" used when signing and verifying a particular
 // Record type. The Domain string should be unique to your Record type, and all
 // instances of the Record type must have the same Domain string.
-func (g *GossipRecord) Domain() string { return gossipRecordEnvelopeDomain }
+func (g GossipRecord) Domain() string { return gossipRecordEnvelopeDomain }
 
 // Codec is a binary identifier for this type of record, ideally a registered multicodec
 // (see https://github.com/multiformats/multicodec).
 // When a Record is put into an Envelope (see record.Seal), the Codec value will be used
 // as the Envelope's PayloadType. When the Envelope is later unsealed, the PayloadType
 // will be used to lookup the correct Record type to unmarshal the Envelope payload into.
-func (g *GossipRecord) Codec() []byte { return gossipRecordEnvelopePayloadType }
+func (g GossipRecord) Codec() []byte { return gossipRecordEnvelopePayloadType }
 
 // MarshalRecord converts a Record instance to a []byte, so that it can be used as an
 // Envelope payload.
-func (g *GossipRecord) MarshalRecord() ([]byte, error) {
+func (g GossipRecord) MarshalRecord() ([]byte, error) {
 	b := make([]byte, binary.MaxVarintLen64) // temp buffer for varints
 	buf := bytes.Buffer{}                    // TODO(performance):  pool ?
 
@@ -160,7 +172,7 @@ func (g *GossipRecord) MarshalRecord() ([]byte, error) {
 	buf.Write(b[:n])
 
 	// marshal & encode as binary netstring
-	tmp, err := g.Envelope.Marshal()
+	tmp, err := g.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +197,11 @@ func (g *GossipRecord) UnmarshalRecord(b []byte) (err error) {
 		func() { n, maybe.Err = binary.ReadVarint(r) },
 		func() { b, maybe.Err = ioutil.ReadAll(io.LimitReader(r, n)) },
 		func() { g.Envelope, maybe.Err = record.ConsumeTypedEnvelope(b, &g.PeerRecord) },
-		func() { maybe.Err = validateIsSignedByPeer(g.PeerID, g.Envelope.PublicKey) },
+		func() {
+			if !g.Validate() {
+				maybe.Err = errors.New("record not self-signed")
+			}
+		},
 	} {
 		maybe.Do(fn)
 	}
@@ -211,29 +227,41 @@ func (v View) Swap(i, j int)      { v[i], v[j] = v[j], v[i] }
 // by the sender, i.e. the last peer in the view.  For this reason
 // the PeerExchange.View().Validate() always fails.
 func (v View) Validate(e *record.Envelope) error {
-	// Validate outer signature.  This closes an attack vector whereby
-	// a network operator corrupts the hop field of legitimate peers so
-	// that they will be blacklisted by others.
-	if err := validateIsSignedByPeer(v.last().PeerID, e.PublicKey); err != nil {
-		return ValidationError{
-			Cause: fmt.Errorf("%w: %s", record.ErrInvalidSignature, err),
-		}
-	}
-
-	// Validate sender hop == 0
-	if v.last().Hop != 0 {
-		return ValidationError{
-			Message: fmt.Sprintf("sender %s", v.last().PeerID.ShortString()),
-			Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
-		}
-	}
-
-	// Validate hops from other peers > 0
-	for _, g := range v[:len(v)-1] {
-		if g.Hop == 0 {
+	for i, g := range v {
+		// Validate that all records are signed by the peers they describe.
+		if !g.Validate() {
 			return ValidationError{
-				Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
-				Cause:   fmt.Errorf("%w: expected hop > 0", ErrInvalidRange),
+				Message: fmt.Sprintf("peer %s", g.PeerID),
+				Cause:   errors.New("record not self-signed"),
+			}
+		}
+
+		// Non-senders should have a hop > 0
+		if i < len(v)-1 {
+			if g.Hop == 0 {
+				return ValidationError{
+					Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
+					Cause:   fmt.Errorf("%w: expected hop > 0", ErrInvalidRange),
+				}
+			}
+
+			continue
+		}
+
+		// Validate sender hop == 0
+		if g.Hop != 0 {
+			return ValidationError{
+				Message: fmt.Sprintf("sender %s", g.PeerID.ShortString()),
+				Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
+			}
+		}
+
+		// Validate outer signature.  This closes an attack vector whereby
+		// a network operator corrupts the hop field of legitimate peers so
+		// that they will be blacklisted by others.
+		if !g.PeerID.MatchesPublicKey(e.PublicKey) {
+			return ValidationError{
+				Cause: errors.New("view not signed by sender"),
 			}
 		}
 	}
@@ -331,19 +359,6 @@ func (v View) incrHops() {
 	for i := range v {
 		v[i].Hop++
 	}
-}
-
-func validateIsSignedByPeer(want peer.ID, pk crypto.PubKey) error {
-	got, err := peer.IDFromPublicKey(pk)
-	if err != nil {
-		return fmt.Errorf("pubkey: %w", err)
-	}
-
-	if want != got {
-		return fmt.Errorf("record not signed by %s", want.ShortString())
-	}
-
-	return nil
 }
 
 // convert last 8 bytes of a peer.ID into a unit64.

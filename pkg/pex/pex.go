@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/crypto"
@@ -61,37 +62,38 @@ type PeerExchange struct {
 
 	maxSize     int
 	newSelector ViewSelectorFactory
-	atomic      *atomicValues
+
+	mu   sync.Mutex
+	view atomicView
 
 	runtime fx.Shutdowner
 }
 
 // New peer exchange.
-func New(ctx context.Context, h host.Host, opt ...Option) (pex PeerExchange, err error) {
+func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err error) {
 	if err = ErrNoListenAddrs; len(h.Addrs()) > 0 {
 		err = fx.New(fx.NopLogger,
-			fx.Populate(&pex),
+			fx.Populate(&px),
 			fx.Supply(opt),
 			fx.Provide(
-				newAtomics,
 				newPeerExchange,
 				newSubscriptions,
 				newHostComponents(h)),
 			fx.Invoke(
+				waitReady,
 				initGossipHandler,
 				startEventLoop,
-				startGossipLoop,
-				waitReady)).
+				startGossipLoop)).
 			Start(ctx)
 	}
 
 	return
 }
 
-func (px PeerExchange) String() string { return px.ns }
-func (px PeerExchange) Close() error   { return px.runtime.Shutdown() }
+func (px *PeerExchange) String() string { return px.ns }
+func (px *PeerExchange) Close() error   { return px.runtime.Shutdown() }
 
-func (px PeerExchange) Loggable() map[string]interface{} {
+func (px *PeerExchange) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"id":       px.h.ID(),
 		"ns":       px.ns,
@@ -100,8 +102,8 @@ func (px PeerExchange) Loggable() map[string]interface{} {
 }
 
 // View is the set of peers contained in the passive view.
-func (px PeerExchange) View() View {
-	immut := px.atomic.view.Load() // DO NOT mutate
+func (px *PeerExchange) View() View {
+	immut := px.view.Load() // DO NOT mutate
 	view := make(View, len(immut))
 	copy(view, immut)
 	return view
@@ -111,7 +113,7 @@ func (px PeerExchange) View() View {
 //
 // Join blocks until the underlying host is listening on at least one network
 // address.
-func (px PeerExchange) Join(ctx context.Context, boot peer.AddrInfo) error {
+func (px *PeerExchange) Join(ctx context.Context, boot peer.AddrInfo) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -131,8 +133,8 @@ func (px PeerExchange) Join(ctx context.Context, boot peer.AddrInfo) error {
 	return maybe.Err
 }
 
-func (px PeerExchange) gossip(ctx context.Context) (err error) {
-	view := px.atomic.view.Load() // do not mutate!
+func (px *PeerExchange) gossip(ctx context.Context) (err error) {
+	view := px.view.Load() // do not mutate!
 	peers := view.IDs()
 	rand.Shuffle(len(peers), peers.Swap)
 
@@ -151,7 +153,7 @@ func (px PeerExchange) gossip(ctx context.Context) (err error) {
 	return errors.New("orphaned host")
 }
 
-func (px PeerExchange) gossipOne(ctx context.Context, id peer.ID) error {
+func (px *PeerExchange) gossipOne(ctx context.Context, id peer.ID) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*15)
 	defer cancel()
 
@@ -163,11 +165,11 @@ func (px PeerExchange) gossipOne(ctx context.Context, id peer.ID) error {
 	return px.pushpull(ctx, s)
 }
 
-func (px PeerExchange) proto() protocol.ID {
+func (px *PeerExchange) proto() protocol.ID {
 	return protoutil.AppendStrings(Proto, px.ns)
 }
 
-func (px PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
+func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	// NOTE:  v MUST NOT be mutated!
 	defer s.Close()
 
@@ -184,15 +186,20 @@ func (px PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	j.Go(func() error {
 		defer s.CloseWrite()
 
-		v := px.atomic.view.Load()
+		// get the local gossip record
+		rec, err := NewGossipRecord(px.h)
+		if err != nil {
+			return err
+		}
 
 		// copy view and append local peer's gossip record
-		rec := make(View, len(v), len(v)+1)
-		copy(rec, v)
-		rec = append(rec, px.atomic.record.Load())
+		v := px.view.Load()
+		vs := make(View, len(v), len(v)+1)
+		copy(vs, v)
+		vs = append(vs, rec)
 
-		// marshal & sign 'rec'
-		env, err := record.Seal(&rec, px.pk)
+		// marshal & sign view
+		env, err := record.Seal(&vs, px.pk)
 		if err != nil {
 			return err
 		}
@@ -236,21 +243,21 @@ func (px PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	return j.Wait()
 }
 
-func (px PeerExchange) mergeAndSelect(remote View) error {
-	px.atomic.Lock()
-	defer px.atomic.Unlock()
+func (px *PeerExchange) mergeAndSelect(remote View) error {
+	px.mu.Lock()
+	defer px.mu.Unlock()
 	/*
 	 *  CAUTION:  'local' MUST NOT be mutated!
 	 */
 
-	local := px.atomic.view.Load()
+	local := px.view.Load()
 	sender := remote.last()
 	selectv := px.newSelector(px.h, &sender, px.maxSize)
 
-	return px.atomic.view.Store(selectv(px.merge(local, remote)))
+	return px.view.Store(selectv(px.merge(local, remote)))
 }
 
-func (px PeerExchange) merge(local, remote View) View {
+func (px *PeerExchange) merge(local, remote View) View {
 	/*
 	 * NOTE:
 	 *   (a) we are holding the lock in 'px.atomic'
@@ -272,21 +279,13 @@ func (px PeerExchange) merge(local, remote View) View {
 
 		/* Select if:
 
-		unique  ...   more recent   ...  less diffused  */
+		unique   ...    more recent   ...  less diffused  */
 		if !found || g.Seq > have.Seq || g.Hop < have.Hop {
 			merged = append(merged, g)
 		}
 	}
 
 	return merged
-}
-
-func (px PeerExchange) updateLocalRecord(ev event.EvtLocalAddressesUpdated) error {
-	g, err := NewGossipRecordFromEvent(ev)
-	if err == nil {
-		px.atomic.record.Store(g)
-	}
-	return err
 }
 
 /*
@@ -306,42 +305,47 @@ type hostComponents struct {
 	CertBook ps.CertifiedAddrBook
 }
 
-func newHostComponents(h host.Host) func() hostComponents {
-	return func() hostComponents {
-		return hostComponents{
-			Host:     h,
-			Bus:      h.EventBus(),
-			PrivKey:  h.Peerstore().PrivKey(h.ID()),
-			CertBook: h.Peerstore().(ps.CertifiedAddrBook),
+func newHostComponents(h host.Host) func() (hostComponents, error) {
+	return func() (cs hostComponents, err error) {
+		cb, ok := ps.GetCertifiedAddrBook(h.Peerstore())
+		if err = errNoSignedAddrs; ok {
+			err = nil
+			cs = hostComponents{
+				Host:     h,
+				Bus:      h.EventBus(),
+				PrivKey:  h.Peerstore().PrivKey(h.ID()),
+				CertBook: cb,
+			}
 		}
+
+		return
 	}
 }
 
-func newPeerExchange(h host.Host, k crypto.PrivKey, a *atomicValues, s fx.Shutdowner, opt []Option) PeerExchange {
-	var pex = PeerExchange{
+func newPeerExchange(h host.Host, k crypto.PrivKey, s fx.Shutdowner, opt []Option, lx fx.Lifecycle) (px *PeerExchange, err error) {
+	px = &PeerExchange{
 		h:       h,
 		pk:      k,
-		atomic:  a,
 		runtime: s,
 	}
 
+	px.view.evtUpdated, err = h.EventBus().Emitter(new(EvtViewUpdated))
+	if err == nil {
+		hook(lx, closer(&px.view))
+		px.view.Store(View{})
+	}
+
 	for _, option := range withDefaults(opt) {
-		option(&pex)
+		option(px)
 	}
 
-	return pex
-}
+	px.log = px.log.With(px) // TODO:  maybe use Config struct instead
 
-func newAtomics(bus event.Bus, lx fx.Lifecycle) (vs *atomicValues, err error) {
-	if vs, err = newAtomicValues(bus); err == nil {
-		hook(lx, closer(vs))
-	}
 	return
 }
 
 func newSubscriptions(bus event.Bus, lx fx.Lifecycle) (sub event.Subscription, err error) {
 	if sub, err = bus.Subscribe([]interface{}{
-		new(event.EvtLocalAddressesUpdated),
 		new(EvtViewUpdated),
 	}); err == nil {
 		hook(lx, closer(sub))
@@ -349,7 +353,24 @@ func newSubscriptions(bus event.Bus, lx fx.Lifecycle) (sub event.Subscription, e
 	return
 }
 
-func initGossipHandler(px PeerExchange, lx fx.Lifecycle) error {
+// waitReady blocks until the local signed address has fully propagated.
+// The local CertifiedAddrBook is guaranteed to contain a signed record
+// for the local when this function returns a nil error.
+func waitReady(bus event.Bus) error {
+	sub, err := bus.Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err == nil {
+		defer sub.Close()
+
+		// subscription is stateful, so this is effectively non-blocking.
+		if _, ok := <-sub.Out(); !ok {
+			err = errors.New("host shutting down")
+		}
+	}
+
+	return err
+}
+
+func initGossipHandler(px *PeerExchange, lx fx.Lifecycle) error {
 	const d = time.Second * 15
 	var versionOK, err = helpers.MultistreamSemverMatcher(Proto)
 
@@ -378,7 +399,7 @@ func initGossipHandler(px PeerExchange, lx fx.Lifecycle) error {
 	return err
 }
 
-func startGossipLoop(px PeerExchange, lx fx.Lifecycle) {
+func startGossipLoop(px *PeerExchange, lx fx.Lifecycle) {
 	ticker := jitterbug.New(px.tick, jitterbug.Uniform{
 		Min:    px.tick / 2,
 		Source: rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -395,44 +416,20 @@ func startGossipLoop(px PeerExchange, lx fx.Lifecycle) {
 		}))
 }
 
-func startEventLoop(px PeerExchange, sub event.Subscription, cb ps.CertifiedAddrBook, lx fx.Lifecycle) {
+func startEventLoop(px *PeerExchange, sub event.Subscription, cb ps.CertifiedAddrBook, lx fx.Lifecycle) {
 	hook(lx, goroutine(func() {
 		for v := range sub.Out() {
-			switch ev := v.(type) {
-			case event.EvtLocalAddressesUpdated:
-				if err := px.updateLocalRecord(ev); err != nil {
-					px.log.WithError(err).Error("invalid peer record in event")
-				}
-
-			case EvtViewUpdated:
-				for _, g := range ev {
-					if _, err := cb.ConsumePeerRecord(g.Envelope, ps.AddressTTL); err != nil {
-						px.log.WithError(err).Error("error storing gossiped PeerRecord")
-					}
+			for _, g := range v.(EvtViewUpdated) {
+				if _, err := cb.ConsumePeerRecord(g.Envelope, ps.AddressTTL); err != nil {
+					// if !g.Validate() {
+					// 	px.log.With(g).Fatal()
+					// }
+					px.log.WithError(err).
+						Error("error storing gossiped record")
 				}
 			}
 		}
 	}))
-}
-
-func waitReady(px PeerExchange, bus event.Bus, lx fx.Lifecycle) {
-	hook(lx, setup(func(ctx context.Context) error {
-		sub, err := bus.Subscribe(new(EvtLocalRecordUpdated))
-		if err == nil {
-			defer sub.Close()
-
-			select {
-			case <-ctx.Done():
-				err = ctx.Err()
-			case _, ok := <-sub.Out():
-				if !ok {
-					err = errors.New("closing")
-				}
-			}
-		}
-		return err
-	}))
-
 }
 
 type hookFunc func(*fx.Hook)

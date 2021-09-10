@@ -96,9 +96,6 @@ func run() cli.ActionFunc {
 				case cluster.EvtMembershipChanged:
 					logger.With(ev).Info("membership changed")
 
-				case pex.EvtLocalRecordUpdated:
-					logger.With(ev).Debug("local record updated")
-
 				case pex.EvtViewUpdated:
 					logger.With(ev).Trace("passive view updated")
 				}
@@ -158,7 +155,6 @@ func newCluster(c *cli.Context, h host.Host, p *pubsub.PubSub) (cluster.Model, e
 func newSub(h host.Host, lx fx.Lifecycle) (event.Subscription, error) {
 	sub, err := h.EventBus().Subscribe([]interface{}{
 		new(cluster.EvtMembershipChanged),
-		new(pex.EvtLocalRecordUpdated),
 		new(pex.EvtViewUpdated),
 	})
 	if err == nil {

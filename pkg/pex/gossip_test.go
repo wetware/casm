@@ -2,19 +2,39 @@ package pex_test
 
 import (
 	"context"
-	"fmt"
+	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/wetware/casm/pkg/pex"
 
 	"github.com/stretchr/testify/require"
 	mx "github.com/wetware/matrix/pkg"
 )
+
+var r = rand.New(rand.NewSource(42))
+
+func TestNewGossipRecord(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := mx.New(ctx).MustHost(ctx)
+	waitReady(h)
+
+	rec, err := pex.NewGossipRecord(h)
+	require.NoError(t, err)
+
+	require.True(t, rec.Validate())
+
+	rec.PeerID = newPeerID()
+	require.False(t, rec.Validate())
+}
 
 func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	t.Parallel()
@@ -23,23 +43,10 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	defer cancel()
 
 	h := mx.New(ctx).MustHost(ctx)
+	waitReady(h)
 
-	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	want, err := pex.NewGossipRecord(h)
 	require.NoError(t, err)
-
-	var want pex.GossipRecord
-	select {
-	case v, ok := <-sub.Out():
-		require.True(t, ok, "event bus closed unexpectedly")
-		require.NotNil(t, v, "event was nil")
-
-		want, err = pex.NewGossipRecordFromEvent(v.(event.EvtLocalAddressesUpdated))
-		require.NoError(t, err)
-
-	case <-time.After(time.Second):
-		t.Error("timeout waiting for signed record")
-		t.FailNow()
-	}
 
 	// marshal
 	b, err := want.MarshalRecord()
@@ -70,23 +77,10 @@ func TestGossipRecord_SealUnseal(t *testing.T) {
 	defer cancel()
 
 	h := mx.New(ctx).MustHost(ctx)
+	waitReady(h)
 
-	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	want, err := pex.NewGossipRecord(h)
 	require.NoError(t, err)
-
-	var want pex.GossipRecord
-	select {
-	case v, ok := <-sub.Out():
-		require.True(t, ok, "event bus closed unexpectedly")
-		require.NotNil(t, v, "event was nil")
-
-		want, err = pex.NewGossipRecordFromEvent(v.(event.EvtLocalAddressesUpdated))
-		require.NoError(t, err)
-
-	case <-time.After(time.Second):
-		t.Error("timeout waiting for signed record")
-		t.FailNow()
-	}
 
 	// seal
 	e, err := record.Seal(&want, h.Peerstore().PrivKey(h.ID()))
@@ -119,21 +113,15 @@ func TestView_MarshalUnmarshal(t *testing.T) {
 	h1 := sim.MustHost(ctx)
 
 	view := make(pex.View, 2)
-	mx.Go(func(ctx context.Context, i int, h host.Host) error {
-		sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-		if err != nil {
-			return err
-		}
-
-		select {
-		case v := <-sub.Out():
-			view[i], err = pex.NewGossipRecordFromEvent(v.(event.EvtLocalAddressesUpdated))
-			return err
-
-		case <-time.After(time.Second):
-			return fmt.Errorf("timeout waiting for host %d", i)
-		}
-	}).Must(ctx, mx.Selection{h0, h1})
+	mx.
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			waitReady(h)
+			return nil
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			view[i], err = pex.NewGossipRecord(h)
+			return
+		}).Must(ctx, mx.Selection{h0, h1})
 
 	b, err := view.MarshalRecord()
 	require.NoError(t, err)
@@ -286,29 +274,23 @@ func TestView_SealUnseal(t *testing.T) {
 			require.True(t, got.Equal(want))
 
 			err = remote.Validate(got)
+			require.Error(t, err)
 			require.ErrorAs(t, err, &pex.ValidationError{})
-			require.ErrorIs(t, err, record.ErrInvalidSignature)
 		})
 	})
 }
 
 func mustTestView(hs []host.Host) pex.View {
 	view := make(pex.View, len(hs))
-	mx.Go(func(ctx context.Context, i int, h host.Host) error {
-		sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-		if err != nil {
-			return err
-		}
-
-		select {
-		case v := <-sub.Out():
-			view[i], err = pex.NewGossipRecordFromEvent(v.(event.EvtLocalAddressesUpdated))
-			return err
-
-		case <-time.After(time.Second):
-			return fmt.Errorf("timeout waiting for host %d", i)
-		}
-	}).Must(context.Background(), hs)
+	mx.
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			waitReady(h)
+			return nil
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			view[i], err = pex.NewGossipRecord(h)
+			return
+		}).Must(context.Background(), hs)
 	return view
 }
 
@@ -320,4 +302,29 @@ func incrHops(v pex.View) {
 	for i := range v {
 		v[i].Hop++ // need to use indexing; slice of non-ptr.
 	}
+}
+
+func waitReady(h host.Host) {
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		panic(err)
+	}
+	defer sub.Close()
+
+	<-sub.Out()
+}
+
+func newPeerID() peer.ID {
+	// use non-cryptographic source; it's just a test.
+	sk, _, err := crypto.GenerateECDSAKeyPair(r)
+	if err != nil {
+		panic(err)
+	}
+
+	id, err := peer.IDFromPrivateKey(sk)
+	if err != nil {
+		panic(err)
+	}
+
+	return id
 }
