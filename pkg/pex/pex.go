@@ -19,7 +19,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/protocol"
-	"github.com/libp2p/go-libp2p-core/record"
 	"go.uber.org/fx"
 
 	"github.com/lthibault/jitterbug/v2"
@@ -198,13 +197,8 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 		copy(vs, v)
 		vs = append(vs, rec)
 
-		// marshal & sign view
-		env, err := record.Seal(&vs, px.pk)
-		if err != nil {
-			return err
-		}
-
-		b, err := env.Marshal()
+		// marshal view
+		b, err := vs.Marshal()
 		if err != nil {
 			return err
 		}
@@ -225,12 +219,11 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 			return err
 		}
 
-		env, err := record.ConsumeTypedEnvelope(b, &remote)
-		if err != nil {
+		if err = remote.Unmarshal(b); err != nil {
 			return err
 		}
 
-		if err = remote.Validate(env); err != nil {
+		if err = remote.Validate(); err != nil {
 			//  TODO(security):  implement peer scoring system and punish peers
 			//					 whose messages fail validation.
 			return err

@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var r = rand.New(rand.NewSource(42))
+
 func TestStringCastUnsafe(t *testing.T) {
 	t.Parallel()
 
@@ -42,7 +44,7 @@ func TestPeerIDCastUnsafe(t *testing.T) {
 
 func newPeerID() peer.ID {
 	// use non-cryptographic source; it's just a test.
-	sk, _, err := crypto.GenerateECDSAKeyPair(rand.New(rand.NewSource(42)))
+	sk, _, err := crypto.GenerateECDSAKeyPair(r)
 	if err != nil {
 		panic(err)
 	}

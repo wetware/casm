@@ -18,18 +18,15 @@ import (
 
 func init() {
 	record.RegisterType(&GossipRecord{})
-	record.RegisterType(&View{})
 }
 
 const (
-	viewRecordEnvelopeDomain   = "casm/pex/view"
 	gossipRecordEnvelopeDomain = "casm/pex/gossip"
 )
 
 var (
 	// TODO:  verify that these identifiers are available.
 	// https://github.com/multiformats/multicodec/blob/master/table.csv
-	viewRecordEnvelopePayloadType   = []byte{0x03, 0x04}
 	gossipRecordEnvelopePayloadType = []byte{0x03, 0x03}
 )
 
@@ -222,11 +219,7 @@ func (v View) Less(i, j int) bool { return v[i].Hop < v[j].Hop }
 func (v View) Swap(i, j int)      { v[i], v[j] = v[j], v[i] }
 
 // Validate a View that was received during a gossip round.
-//
-// Note that validation is expected to fail if 'e' is not signed
-// by the sender, i.e. the last peer in the view.  For this reason
-// the PeerExchange.View().Validate() always fails.
-func (v View) Validate(e *record.Envelope) error {
+func (v View) Validate() error {
 	for i, g := range v {
 		// Validate that all records are signed by the peers they describe.
 		if !g.Validate() {
@@ -237,53 +230,26 @@ func (v View) Validate(e *record.Envelope) error {
 		}
 
 		// Non-senders should have a hop > 0
-		if i < len(v)-1 {
-			if g.Hop == 0 {
-				return ValidationError{
-					Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
-					Cause:   fmt.Errorf("%w: expected hop > 0", ErrInvalidRange),
-				}
-			}
-
-			continue
-		}
-
-		// Validate sender hop == 0
-		if g.Hop != 0 {
+		if i < len(v)-1 && g.Hop == 0 {
 			return ValidationError{
-				Message: fmt.Sprintf("sender %s", g.PeerID.ShortString()),
-				Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
+				Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
+				Cause:   fmt.Errorf("%w: expected hop > 0", ErrInvalidRange),
 			}
 		}
+	}
 
-		// Validate outer signature.  This closes an attack vector whereby
-		// a network operator corrupts the hop field of legitimate peers so
-		// that they will be blacklisted by others.
-		if !g.PeerID.MatchesPublicKey(e.PublicKey) {
-			return ValidationError{
-				Cause: errors.New("view not signed by sender"),
-			}
+	// Validate sender hop == 0
+	if g := v.last(); g.Hop != 0 {
+		return ValidationError{
+			Message: fmt.Sprintf("sender %s", g.PeerID.ShortString()),
+			Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
 		}
 	}
 
 	return nil
 }
 
-// Domain is the "signature domain" used when signing and verifying a particular
-// Record type. The Domain string should be unique to your Record type, and all
-// instances of the Record type must have the same Domain string.
-func (v View) Domain() string { return viewRecordEnvelopeDomain }
-
-// Codec is a binary identifier for this type of record, ideally a registered multicodec
-// (see https://github.com/multiformats/multicodec).
-// When a Record is put into an Envelope (see record.Seal), the Codec value will be used
-// as the Envelope's PayloadType. When the Envelope is later unsealed, the PayloadType
-// will be used to lookup the correct Record type to unmarshal the Envelope payload into.
-func (v View) Codec() []byte { return viewRecordEnvelopePayloadType }
-
-// MarshalRecord converts a Record instance to a []byte, so that it can be used as an
-// Envelope payload.
-func (v View) MarshalRecord() (b []byte, err error) {
+func (v View) Marshal() (b []byte, err error) {
 	var (
 		body []byte
 		hdr  = make([]byte, binary.MaxVarintLen64)
@@ -302,8 +268,7 @@ func (v View) MarshalRecord() (b []byte, err error) {
 	return
 }
 
-// UnmarshalRecord unmarshals a []byte payload into an instance of a particular Record type.
-func (v *View) UnmarshalRecord(b []byte) (err error) {
+func (v *View) Unmarshal(b []byte) (err error) {
 	var (
 		r = bytes.NewReader(b)
 		g GossipRecord

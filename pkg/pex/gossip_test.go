@@ -123,16 +123,21 @@ func TestView_MarshalUnmarshal(t *testing.T) {
 			return
 		}).Must(ctx, mx.Selection{h0, h1})
 
-	b, err := view.MarshalRecord()
+	b, err := view.Marshal()
 	require.NoError(t, err)
 	require.NotEmpty(t, b)
 
 	var remote pex.View
-	err = remote.UnmarshalRecord(b)
+	err = remote.Unmarshal(b)
 	require.NoError(t, err)
+
+	for i, got := range remote {
+		require.True(t, view[i].Envelope.Equal(got.Envelope))
+		require.Equal(t, view[i].Hop, got.Hop)
+	}
 }
 
-func TestView_SealUnseal(t *testing.T) {
+func TestView_validation(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
@@ -145,32 +150,17 @@ func TestView_SealUnseal(t *testing.T) {
 		sim := mx.New(ctx)
 
 		hs := sim.MustHostSet(ctx, 2)
-		sender := hs[len(hs)-1] // last record
 		view := mustTestView(hs)
 
 		// records from peers other than the sender MUST have hop > 0 in
 		// order to pass validation.
 		incrHops(view[:len(view)-1])
 
-		// marshal
-		want, err := record.Seal(&view, privkey(sender))
-		require.NoError(t, err)
-
-		b, err := want.Marshal()
-		require.NoError(t, err)
-		require.NotNil(t, b)
-
-		// unmarshal
-		var remote pex.View
-		got, err := record.ConsumeTypedEnvelope(b, &remote)
-		require.NoError(t, err)
-		require.True(t, got.Equal(want))
-
-		err = remote.Validate(got)
+		err := view.Validate()
 		require.NoError(t, err)
 	})
 
-	t.Run("Validation", func(t *testing.T) {
+	t.Run("Fail", func(t *testing.T) {
 		t.Helper()
 		t.Parallel()
 
@@ -183,7 +173,6 @@ func TestView_SealUnseal(t *testing.T) {
 			sim := mx.New(ctx)
 
 			hs := sim.MustHostSet(ctx, 2)
-			sender := hs[len(hs)-1] // last record
 			view := mustTestView(hs)
 
 			/*
@@ -192,21 +181,7 @@ func TestView_SealUnseal(t *testing.T) {
 			 */
 			incrHops(view)
 
-			// marshal
-			want, err := record.Seal(&view, privkey(sender))
-			require.NoError(t, err)
-
-			b, err := want.Marshal()
-			require.NoError(t, err)
-			require.NotNil(t, b)
-
-			// unmarshal
-			var remote pex.View
-			got, err := record.ConsumeTypedEnvelope(b, &remote)
-			require.NoError(t, err)
-			require.True(t, got.Equal(want))
-
-			err = remote.Validate(got)
+			err := view.Validate()
 			require.ErrorAs(t, err, &pex.ValidationError{})
 			require.ErrorIs(t, err, pex.ErrInvalidRange)
 		})
@@ -220,34 +195,18 @@ func TestView_SealUnseal(t *testing.T) {
 			sim := mx.New(ctx)
 
 			hs := sim.MustHostSet(ctx, 2)
-			sender := hs[len(hs)-1] // last record
-			view := mustTestView(hs)
 
 			/*
 			 * N.B.:  we don't increment the hops here; this should be
 			 *        caught in validation.
 			 */
 
-			// marshal
-			want, err := record.Seal(&view, privkey(sender))
-			require.NoError(t, err)
-
-			b, err := want.Marshal()
-			require.NoError(t, err)
-			require.NotNil(t, b)
-
-			// unmarshal
-			var remote pex.View
-			got, err := record.ConsumeTypedEnvelope(b, &remote)
-			require.NoError(t, err)
-			require.True(t, got.Equal(want))
-
-			err = remote.Validate(got)
+			err := mustTestView(hs).Validate()
 			require.ErrorAs(t, err, &pex.ValidationError{})
 			require.ErrorIs(t, err, pex.ErrInvalidRange)
 		})
 
-		t.Run("last_record_not_signed_by_sender", func(t *testing.T) {
+		t.Run("invalid_signature", func(t *testing.T) {
 			t.Parallel()
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -255,26 +214,11 @@ func TestView_SealUnseal(t *testing.T) {
 
 			sim := mx.New(ctx)
 
-			hs := sim.MustHostSet(ctx, 2)
-			notSender := hs[0]
+			hs := sim.MustHostSet(ctx, 1)
 			view := mustTestView(hs)
 
-			// marshal - note that we sign with the WRONG host key.
-			want, err := record.Seal(&view, privkey(notSender))
-			require.NoError(t, err)
-
-			b, err := want.Marshal()
-			require.NoError(t, err)
-			require.NotNil(t, b)
-
-			// unmarshal
-			var remote pex.View
-			got, err := record.ConsumeTypedEnvelope(b, &remote)
-			require.NoError(t, err)
-			require.True(t, got.Equal(want))
-
-			err = remote.Validate(got)
-			require.Error(t, err)
+			view[0].PeerID = newPeerID()
+			err := view.Validate()
 			require.ErrorAs(t, err, &pex.ValidationError{})
 		})
 	})
@@ -292,10 +236,6 @@ func mustTestView(hs []host.Host) pex.View {
 			return
 		}).Must(context.Background(), hs)
 	return view
-}
-
-func privkey(h host.Host) crypto.PrivKey {
-	return h.Peerstore().PrivKey(h.ID())
 }
 
 func incrHops(v pex.View) {
