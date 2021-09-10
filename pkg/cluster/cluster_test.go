@@ -26,7 +26,7 @@ func TestCluster_init(t *testing.T) {
 	p, err := pubsub.NewGossipSub(ctx, h)
 	require.NoError(t, err)
 
-	c, err := cluster.New(h, p)
+	c, err := cluster.New(ctx, h, p)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 
@@ -72,7 +72,7 @@ func TestCluster_simulation(t *testing.T) {
 			return
 		}).
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			cs[i], err = cluster.New(h, ps[i],
+			cs[i], err = cluster.New(ctx, h, ps[i],
 				cluster.WithTTL(ttl))
 			return
 		}).

@@ -55,7 +55,9 @@ func TestPeerExchange_Init(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		px, err := pex.New(mx.New(ctx).MustHost(ctx), pex.WithNamespace(ns))
+		h := mx.New(ctx).MustHost(ctx)
+
+		px, err := pex.New(ctx, h, pex.WithNamespace(ns))
 		require.NoError(t, err)
 
 		assert.Equal(t, ns, px.String(), "unexpected namespace")
@@ -71,9 +73,9 @@ func TestPeerExchange_Init(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		sim := mx.New(ctx)
+		h := mx.New(ctx).MustHost(ctx, libp2p.NoListenAddrs)
 
-		_, err := pex.New(sim.MustHost(ctx, libp2p.NoListenAddrs), pex.WithNamespace(ns))
+		_, err := pex.New(ctx, h, pex.WithNamespace(ns))
 		require.EqualError(t, err, "host not accepting connections")
 	})
 }
@@ -90,7 +92,7 @@ func TestPeerExchange_Join(t *testing.T) {
 	ps := make([]pex.PeerExchange, len(hs))
 	ss := make([]event.Subscription, len(hs))
 	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
-		ps[i], err = pex.New(h, pex.WithNamespace(ns))
+		ps[i], err = pex.New(ctx, h, pex.WithNamespace(ns))
 		return
 	}).Go(func(ctx context.Context, i int, h host.Host) (err error) {
 		ss[i], err = h.EventBus().Subscribe(new(pex.EvtViewUpdated))
@@ -149,7 +151,7 @@ func TestPeerExchange_Simulation(t *testing.T) {
 
 	mx. // initialize a peer exchange for each host in hs
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			xs[i], err = pex.New(h, pex.WithNamespace(ns), pex.WithTick(tick))
+			xs[i], err = pex.New(ctx, h, pex.WithNamespace(ns), pex.WithTick(tick))
 			return
 		}).
 		// join all hosts in a ring topology

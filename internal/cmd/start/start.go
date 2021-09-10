@@ -133,7 +133,7 @@ func newLogger(c *cli.Context, h host.Host) log.Logger {
 }
 
 func newDiscovery(c *cli.Context, h host.Host, dht *dual.DHT, b discovery.Discovery, lx fx.Lifecycle) (boot.Dual, error) {
-	px, err := pex.New(h, pex.WithNamespace(c.String("ns")))
+	px, err := pex.New(c.Context, h, pex.WithNamespace(c.String("ns")))
 	if err == nil {
 		lx.Append(closer(px))
 	}
@@ -151,7 +151,7 @@ func newPubSub(c *cli.Context, h host.Host, d boot.Dual) (*pubsub.PubSub, error)
 }
 
 func newCluster(c *cli.Context, h host.Host, p *pubsub.PubSub) (cluster.Model, error) {
-	return cluster.New(h, p,
+	return cluster.New(c.Context, h, p,
 		cluster.WithNamespace(c.String("ns")))
 }
 

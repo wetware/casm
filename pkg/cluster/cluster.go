@@ -14,7 +14,6 @@ import (
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
 	"github.com/lthibault/treap"
-	ctxutil "github.com/lthibault/util/ctx"
 	"go.uber.org/fx"
 )
 
@@ -33,7 +32,7 @@ type Model struct {
 }
 
 // New cluster.
-func New(h host.Host, p *pubsub.PubSub, opt ...Option) (m Model, err error) {
+func New(ctx context.Context, h host.Host, p *pubsub.PubSub, opt ...Option) (m Model, err error) {
 	err = fx.New(fx.NopLogger,
 		fx.Supply(p, opt),
 		fx.Populate(&m),
@@ -49,7 +48,7 @@ func New(h host.Host, p *pubsub.PubSub, opt ...Option) (m Model, err error) {
 		fx.Invoke(
 			neighborhoodHook,
 			heartbeatHooks)).
-		Start(hostctx(h))
+		Start(ctx)
 
 	return
 }
@@ -335,8 +334,4 @@ func closer(c io.Closer) hookFunc {
 			return c.Close()
 		}
 	}
-}
-
-func hostctx(h host.Host) context.Context {
-	return ctxutil.FromChan(h.Network().Process().Closing())
 }

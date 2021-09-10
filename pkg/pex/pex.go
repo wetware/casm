@@ -23,7 +23,6 @@ import (
 
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
-	ctxutil "github.com/lthibault/util/ctx"
 	syncutil "github.com/lthibault/util/sync"
 
 	protoutil "github.com/wetware/casm/pkg/util/proto"
@@ -68,8 +67,7 @@ type PeerExchange struct {
 }
 
 // New peer exchange.
-func New(h host.Host, opt ...Option) (pex PeerExchange, err error) {
-	var ctx = ctxutil.FromChan(h.Network().Process().Closing())
+func New(ctx context.Context, h host.Host, opt ...Option) (pex PeerExchange, err error) {
 	if err = ErrNoListenAddrs; len(h.Addrs()) > 0 {
 		err = fx.New(fx.NopLogger,
 			fx.Populate(&pex),
@@ -353,26 +351,28 @@ func newSubscriptions(bus event.Bus, lx fx.Lifecycle) (sub event.Subscription, e
 
 func initGossipHandler(px PeerExchange, lx fx.Lifecycle) error {
 	const d = time.Second * 15
-	var (
-		ctx            = ctxutil.FromChan(px.h.Network().Process().Closing())
-		versionOK, err = helpers.MultistreamSemverMatcher(Proto)
-	)
+	var versionOK, err = helpers.MultistreamSemverMatcher(Proto)
 
 	if err == nil {
-		px.h.SetStreamHandlerMatch(Proto, func(s string) bool {
-			return versionOK(path.Dir(s)) && px.ns == path.Base(s)
-		}, func(s network.Stream) {
-			defer s.Close()
+		hook(lx,
+			deferred(func() { px.h.RemoveStreamHandler(Proto) }),
+			setup(func(ctx context.Context) error {
+				px.h.SetStreamHandlerMatch(Proto, func(s string) bool {
+					return versionOK(path.Dir(s)) && px.ns == path.Base(s)
+				}, func(s network.Stream) {
+					defer s.Close()
 
-			ctx, cancel := context.WithTimeout(ctx, d)
-			defer cancel()
+					ctx, cancel := context.WithTimeout(ctx, d)
+					defer cancel()
 
-			if err := px.pushpull(ctx, s); err != nil {
-				px.log.WithStream(s).WithError(err).
-					Debug("error handling gosisp")
-			}
-		})
-		hook(lx, deferred(func() { px.h.RemoveStreamHandler(Proto) }))
+					if err := px.pushpull(ctx, s); err != nil {
+						px.log.WithStream(s).WithError(err).
+							Debug("error handling gosisp")
+					}
+				})
+
+				return nil
+			}))
 	}
 
 	return err
