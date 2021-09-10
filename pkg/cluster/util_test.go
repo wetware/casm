@@ -1,15 +1,13 @@
 package cluster
 
 import (
-	"math/rand"
+	"crypto/rand"
 	"testing"
 
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/stretchr/testify/assert"
 )
-
-var r = rand.New(rand.NewSource(42))
 
 func TestStringCastUnsafe(t *testing.T) {
 	t.Parallel()
@@ -44,7 +42,7 @@ func TestPeerIDCastUnsafe(t *testing.T) {
 
 func newPeerID() peer.ID {
 	// use non-cryptographic source; it's just a test.
-	sk, _, err := crypto.GenerateECDSAKeyPair(r)
+	sk, _, err := crypto.GenerateECDSAKeyPair(rand.Reader)
 	if err != nil {
 		panic(err)
 	}

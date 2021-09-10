@@ -1,39 +1,23 @@
 package pex
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"math/rand"
 	"sort"
 
+	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
-)
-
-func init() {
-	record.RegisterType(&GossipRecord{})
-}
-
-const (
-	gossipRecordEnvelopeDomain = "casm/pex/gossip"
-)
-
-var (
-	// TODO:  verify that these identifiers are available.
-	// https://github.com/multiformats/multicodec/blob/master/table.csv
-	gossipRecordEnvelopePayloadType = []byte{0x03, 0x03}
+	"github.com/wetware/casm/internal/api/pex"
 )
 
 // DistanceProvider can report a distance metric between the local host
 // and a remote peer.
 type DistanceProvider interface {
-	Distance(host.Host) uint64
+	Distance(peer.ID) uint64
 }
 
 // ViewSelectorFactory is a factory type that dynamically creates a
@@ -109,104 +93,92 @@ func TailSelector(n int) ViewSelector {
 }
 
 type GossipRecord struct {
-	Hop uint64
+	g pex.Gossip
 	peer.PeerRecord
 	*record.Envelope
 }
 
-func NewGossipRecord(h host.Host) (rec GossipRecord, err error) {
+func NewGossipRecord(h host.Host) (*GossipRecord, error) {
 	cb, ok := ps.GetCertifiedAddrBook(h.Peerstore())
 	if !ok {
-		return rec, errNoSignedAddrs
+		return nil, errNoSignedAddrs
 	}
 
-	if rec.Envelope = cb.GetPeerRecord(h.ID()); rec.Envelope == nil {
-		return rec, errors.New("record not found")
+	env := cb.GetPeerRecord(h.ID())
+	if env == nil {
+		return nil, errors.New("record not found")
 	}
 
-	err = rec.TypedRecord(&rec.PeerRecord)
-	return
-}
-
-func (g GossipRecord) Loggable() map[string]interface{} {
-	return map[string]interface{}{
-		"peer":  g.PeerID,
-		"addrs": g.Addrs,
-		"seq":   g.Seq,
-		"hop":   g.Hop,
-	}
-}
-
-func (g GossipRecord) Validate() bool {
-	return g.PeerID.MatchesPublicKey(g.Envelope.PublicKey)
-}
-
-// Distance returns the XOR of the last byte from 'id' and the record's ID.
-func (g GossipRecord) Distance(h host.Host) uint64 {
-	return lastUint64(g.PeerID) ^ lastUint64(h.ID())
-}
-
-// Domain is the "signature domain" used when signing and verifying a particular
-// Record type. The Domain string should be unique to your Record type, and all
-// instances of the Record type must have the same Domain string.
-func (g GossipRecord) Domain() string { return gossipRecordEnvelopeDomain }
-
-// Codec is a binary identifier for this type of record, ideally a registered multicodec
-// (see https://github.com/multiformats/multicodec).
-// When a Record is put into an Envelope (see record.Seal), the Codec value will be used
-// as the Envelope's PayloadType. When the Envelope is later unsealed, the PayloadType
-// will be used to lookup the correct Record type to unmarshal the Envelope payload into.
-func (g GossipRecord) Codec() []byte { return gossipRecordEnvelopePayloadType }
-
-// MarshalRecord converts a Record instance to a []byte, so that it can be used as an
-// Envelope payload.
-func (g GossipRecord) MarshalRecord() ([]byte, error) {
-	b := make([]byte, binary.MaxVarintLen64) // temp buffer for varints
-	buf := bytes.Buffer{}                    // TODO(performance):  pool ?
-
-	// encode fixed-length fields in big-endian binary
-	n := binary.PutUvarint(b, g.Hop)
-	buf.Write(b[:n])
-
-	// marshal & encode as binary netstring
-	tmp, err := g.Marshal()
+	r, err := env.Record()
 	if err != nil {
 		return nil, err
 	}
 
-	n = binary.PutVarint(b, int64(len(tmp)))
-	buf.Write(b[:n])
-	buf.Write(tmp)
-
-	return buf.Bytes(), nil
-}
-
-// UnmarshalRecord unmarshals a []byte payload into an instance of a particular Record type.
-func (g *GossipRecord) UnmarshalRecord(b []byte) (err error) {
-	var (
-		n     int64
-		r     = bytes.NewReader(b)
-		maybe breaker
-	)
-
-	for _, fn := range []func(){
-		func() { g.Hop, maybe.Err = binary.ReadUvarint(r) },
-		func() { n, maybe.Err = binary.ReadVarint(r) },
-		func() { b, maybe.Err = ioutil.ReadAll(io.LimitReader(r, n)) },
-		func() { g.Envelope, maybe.Err = record.ConsumeTypedEnvelope(b, &g.PeerRecord) },
-		func() {
-			if !g.Validate() {
-				maybe.Err = errors.New("record not self-signed")
-			}
-		},
-	} {
-		maybe.Do(fn)
+	rec, ok := r.(*peer.PeerRecord)
+	if !ok {
+		return nil, errors.New("not a peer record")
 	}
 
-	return maybe.Err
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return nil, err
+	}
+
+	g, err := pex.NewRootGossip(seg)
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := env.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	err = g.SetEnvelope(b)
+
+	return &GossipRecord{
+		g:          g,
+		PeerRecord: *rec,
+		Envelope:   env,
+	}, err
 }
 
-type View []GossipRecord
+func (g *GossipRecord) Hop() uint64 { return g.g.Hop() }
+func (g *GossipRecord) IncrHop()    { g.g.SetHop(g.g.Hop() + 1) }
+
+// Distance returns the XOR of the last byte from 'id' and the record's ID.
+func (g *GossipRecord) Distance(id peer.ID) uint64 {
+	return lastUint64(g.PeerID) ^ lastUint64(id)
+}
+
+func (g *GossipRecord) Message() *capnp.Message { return g.g.Message() }
+
+func (g *GossipRecord) ReadMessage(m *capnp.Message) (err error) {
+	if g.g, err = pex.ReadRootGossip(m); err != nil {
+		return
+	}
+
+	var b []byte
+	if b, err = g.g.Envelope(); err != nil {
+		return
+	}
+
+	if g.Envelope, err = record.ConsumeTypedEnvelope(b, &g.PeerRecord); err != nil {
+		return
+	}
+
+	// is record self-signed?
+	if g.PeerID.MatchesPublicKey(g.Envelope.PublicKey) {
+		return
+	}
+
+	return ValidationError{
+		Cause: fmt.Errorf("%w: peer id does not match public key for record",
+			record.ErrInvalidSignature),
+	}
+}
+
+type View []*GossipRecord
 
 func (v View) Loggable() map[string]interface{} {
 	return map[string]interface{}{
@@ -215,22 +187,14 @@ func (v View) Loggable() map[string]interface{} {
 }
 
 func (v View) Len() int           { return len(v) }
-func (v View) Less(i, j int) bool { return v[i].Hop < v[j].Hop }
+func (v View) Less(i, j int) bool { return v[i].Hop() < v[j].Hop() }
 func (v View) Swap(i, j int)      { v[i], v[j] = v[j], v[i] }
 
 // Validate a View that was received during a gossip round.
 func (v View) Validate() error {
-	for i, g := range v {
-		// Validate that all records are signed by the peers they describe.
-		if !g.Validate() {
-			return ValidationError{
-				Message: fmt.Sprintf("peer %s", g.PeerID),
-				Cause:   errors.New("record not self-signed"),
-			}
-		}
-
-		// Non-senders should have a hop > 0
-		if i < len(v)-1 && g.Hop == 0 {
+	// Non-senders should have a hop > 0
+	for _, g := range v[:len(v)-1] {
+		if g.Hop() == 0 {
 			return ValidationError{
 				Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
 				Cause:   fmt.Errorf("%w: expected hop > 0", ErrInvalidRange),
@@ -239,7 +203,7 @@ func (v View) Validate() error {
 	}
 
 	// Validate sender hop == 0
-	if g := v.last(); g.Hop != 0 {
+	if g := v.last(); g.Hop() != 0 {
 		return ValidationError{
 			Message: fmt.Sprintf("sender %s", g.PeerID.ShortString()),
 			Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
@@ -247,55 +211,6 @@ func (v View) Validate() error {
 	}
 
 	return nil
-}
-
-func (v View) Marshal() (b []byte, err error) {
-	var (
-		body []byte
-		hdr  = make([]byte, binary.MaxVarintLen64)
-	)
-
-	for _, g := range v {
-		if body, err = g.MarshalRecord(); err != nil {
-			break
-		}
-
-		n := binary.PutVarint(hdr, int64(len(body)))
-		b = append(b, hdr[:n]...)
-		b = append(b, body...)
-	}
-
-	return
-}
-
-func (v *View) Unmarshal(b []byte) (err error) {
-	var (
-		r = bytes.NewReader(b)
-		g GossipRecord
-		n int64
-	)
-
-	for {
-		if n, err = binary.ReadVarint(r); err != nil {
-			break
-		}
-
-		if b, err = ioutil.ReadAll(io.LimitReader(r, n)); err != nil {
-			break
-		}
-
-		if err = g.UnmarshalRecord(b); err != nil {
-			break
-		}
-
-		*v = append(*v, g)
-	}
-
-	if errors.Is(err, io.EOF) {
-		err = nil
-	}
-
-	return
 }
 
 func (v View) IDs() peer.IDSlice {
@@ -306,7 +221,7 @@ func (v View) IDs() peer.IDSlice {
 	return ps
 }
 
-func (v View) find(g GossipRecord) (have GossipRecord, found bool) {
+func (v View) find(g *GossipRecord) (have *GossipRecord, found bool) {
 	seek := g.PeerID
 	for _, have = range v {
 		if found = seek == have.PeerID; found {
@@ -318,11 +233,11 @@ func (v View) find(g GossipRecord) (have GossipRecord, found bool) {
 }
 
 // n.b.:  panics if v is empty.
-func (v View) last() GossipRecord { return v[len(v)-1] }
+func (v View) last() *GossipRecord { return v[len(v)-1] }
 
 func (v View) incrHops() {
-	for i := range v {
-		v[i].Hop++
+	for _, g := range v {
+		g.IncrHop()
 	}
 }
 

@@ -35,3 +35,10 @@ capnp-cluster:  clean-capnp-cluster
 
 clean-capnp-cluster:
 	@rm -rf internal/api/cluster
+
+capnp-pex:  clean-capnp-pex
+	@mkdir -p internal/api/pex
+	@capnp compile -I$(GOPATH)/src/github.com/capnproto/go-capnproto2/std -ogo:internal/api/pex --src-prefix=api/ api/pex.capnp
+
+clean-capnp-pex:
+	@rm -rf internal/api/pex

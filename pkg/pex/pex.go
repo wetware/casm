@@ -1,16 +1,15 @@
 package pex
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"path"
 	"sync"
 	"time"
 
+	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/helpers"
@@ -32,6 +31,8 @@ const (
 	Version               = "0.0.0"
 	baseProto protocol.ID = "/casm/pex"
 	Proto     protocol.ID = baseProto + "/" + Version
+
+	maxMessageSize = 2048
 )
 
 // PeerExchange is a collection of passive views of various p2p clusters.
@@ -193,17 +194,16 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 
 		// copy view and append local peer's gossip record
 		v := px.view.Load()
-		vs := make(View, len(v), len(v)+1)
-		copy(vs, v)
-		vs = append(vs, rec)
+		view := make(View, len(v), len(v)+1)
+		copy(view, v)
 
-		// marshal view
-		b, err := vs.Marshal()
-		if err != nil {
-			return err
+		enc := capnp.NewPackedEncoder(s)
+		for _, g := range append(view, rec) {
+			if err = enc.Encode(g.Message()); err != nil {
+				break
+			}
 		}
 
-		_, err = io.Copy(s, bytes.NewReader(b))
 		return err
 	})
 
@@ -211,26 +211,40 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	j.Go(func() error {
 		defer s.CloseRead()
 
-		var remote View
+		var (
+			gs View
+			r  = io.LimitReader(s, int64(px.maxSize)*maxMessageSize)
+		)
 
-		// defensively limit buffer size; assume 1kb per record
-		b, err := ioutil.ReadAll(io.LimitReader(s, int64(px.maxSize)*1024))
-		if err != nil {
-			return err
+		dec := capnp.NewPackedDecoder(r)
+		dec.MaxMessageSize = maxMessageSize
+		dec.ReuseBuffer()
+
+		for {
+			msg, err := dec.Decode()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return err
+			}
+
+			g := new(GossipRecord) // TODO(performance):  pool?
+			if err = g.ReadMessage(msg); err != nil {
+				return err
+			}
+
+			gs = append(gs, g)
 		}
 
-		if err = remote.Unmarshal(b); err != nil {
-			return err
-		}
-
-		if err = remote.Validate(); err != nil {
+		if err := gs.Validate(); err != nil {
 			//  TODO(security):  implement peer scoring system and punish peers
 			//					 whose messages fail validation.
 			return err
 		}
 
-		remote.incrHops()
-		return px.mergeAndSelect(remote)
+		gs.incrHops()
+		return px.mergeAndSelect(gs)
 	})
 
 	return j.Wait()
@@ -245,7 +259,7 @@ func (px *PeerExchange) mergeAndSelect(remote View) error {
 
 	local := px.view.Load()
 	sender := remote.last()
-	selectv := px.newSelector(px.h, &sender, px.maxSize)
+	selectv := px.newSelector(px.h, sender, px.maxSize)
 
 	return px.view.Store(selectv(px.merge(local, remote)))
 }
@@ -273,7 +287,7 @@ func (px *PeerExchange) merge(local, remote View) View {
 		/* Select if:
 
 		unique   ...    more recent   ...  less diffused  */
-		if !found || g.Seq > have.Seq || g.Hop < have.Hop {
+		if !found || g.Seq > have.Seq || g.Hop() < have.Hop() {
 			merged = append(merged, g)
 		}
 	}
@@ -414,11 +428,7 @@ func startEventLoop(px *PeerExchange, sub event.Subscription, cb ps.CertifiedAdd
 		for v := range sub.Out() {
 			for _, g := range v.(EvtViewUpdated) {
 				if _, err := cb.ConsumePeerRecord(g.Envelope, ps.AddressTTL); err != nil {
-					// if !g.Validate() {
-					// 	px.log.With(g).Fatal()
-					// }
-					px.log.WithError(err).
-						Error("error storing gossiped record")
+					px.log.WithError(err).Error("error storing gossiped record")
 				}
 			}
 		}

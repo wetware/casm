@@ -62,7 +62,7 @@ func WithSelector(f ViewSelectorFactory) Option {
 		const thresh = math.MaxUint64 / 2
 
 		f = func(h host.Host, d DistanceProvider, maxSize int) ViewSelector {
-			if d.Distance(h)/math.MaxUint64 > thresh {
+			if d.Distance(h.ID())/math.MaxUint64 > thresh {
 				return RandSelector(nil).Then(TailSelector(maxSize))
 			}
 

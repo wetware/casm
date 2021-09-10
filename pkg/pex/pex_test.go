@@ -137,11 +137,17 @@ func TestPeerExchange_Join(t *testing.T) {
 		case v, ok := <-ss[i].Out():
 			require.True(t, ok)
 			require.NotEmpty(t, v.(pex.EvtViewUpdated))
+			require.IsType(t, pex.EvtViewUpdated{}, v)
+			view := pex.View(v.(pex.EvtViewUpdated))
 
 			// do we have an updated view?
-			view := ps[i].View()
 			require.Len(t, view, len(hs)-1, // host doesn't include itself in view
 				"unexpected length %d for host %d", len(view), i)
+
+			// is the event the same as the local view?
+			for ii, g := range ps[i].View() {
+				require.True(t, view[ii].Envelope.Equal(g.Envelope))
+			}
 
 		case <-ctx.Done():
 			err = ctx.Err()
@@ -162,9 +168,9 @@ func TestPeerExchange_simulation(t *testing.T) {
 	t.Helper()
 
 	const (
-		n        = 16
-		viewSize = n / 2
-		// tick     = time.Millisecond * 10
+		n        = 8
+		viewSize = n
+		tick     = time.Millisecond * 10
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -184,19 +190,17 @@ func TestPeerExchange_simulation(t *testing.T) {
 			xs[i], err = pex.New(ctx, h,
 				pex.WithMaxViewSize(viewSize),
 				pex.WithNamespace(ns),
-				/*pex.WithTick(tick)*/)
+				pex.WithTick(tick))
 			return
 		}).
 		/*
-		 * Arrange hosts into a ring topology
+		 * Connect all hosts to h[0]
 		 */
 		Go(func(ctx context.Context, i int, _ host.Host) (err error) {
-			h := hs[len(hs)-1]
 			if i > 0 {
-				h = hs[i-1]
+				err = xs[i].Join(ctx, *host.InfoFromHost(hs[0]))
 			}
-
-			return xs[i].Join(ctx, *host.InfoFromHost(h))
+			return
 		}).
 		/*
 		 * Ensure views are eventually full.
