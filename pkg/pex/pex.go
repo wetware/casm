@@ -218,7 +218,6 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 
 		dec := capnp.NewPackedDecoder(r)
 		dec.MaxMessageSize = maxMessageSize
-		dec.ReuseBuffer()
 
 		for {
 			msg, err := dec.Decode()

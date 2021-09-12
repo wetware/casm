@@ -53,6 +53,11 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 
 	want, err := pex.NewGossipRecord(h)
 	require.NoError(t, err)
+	require.NotZero(t, want.Seq)
+
+	// increment hop to ensure that it is properly encoded.
+	want.IncrHop()
+	require.Equal(t, uint64(1), want.Hop())
 
 	var buf bytes.Buffer
 
