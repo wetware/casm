@@ -18,6 +18,7 @@ import (
 	peer "github.com/libp2p/go-libp2p-core/peer"
 	peerstore "github.com/libp2p/go-libp2p-core/peerstore"
 	protocol "github.com/libp2p/go-libp2p-core/protocol"
+	record "github.com/libp2p/go-libp2p-core/record"
 	multiaddr "github.com/multiformats/go-multiaddr"
 )
 
@@ -946,4 +947,56 @@ func (m *MockEmitter) Emit(evt interface{}) error {
 func (mr *MockEmitterMockRecorder) Emit(evt interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Emit", reflect.TypeOf((*MockEmitter)(nil).Emit), evt)
+}
+
+// MockCertifiedAddrBook is a mock of CertifiedAddrBook interface.
+type MockCertifiedAddrBook struct {
+	ctrl     *gomock.Controller
+	recorder *MockCertifiedAddrBookMockRecorder
+}
+
+// MockCertifiedAddrBookMockRecorder is the mock recorder for MockCertifiedAddrBook.
+type MockCertifiedAddrBookMockRecorder struct {
+	mock *MockCertifiedAddrBook
+}
+
+// NewMockCertifiedAddrBook creates a new mock instance.
+func NewMockCertifiedAddrBook(ctrl *gomock.Controller) *MockCertifiedAddrBook {
+	mock := &MockCertifiedAddrBook{ctrl: ctrl}
+	mock.recorder = &MockCertifiedAddrBookMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCertifiedAddrBook) EXPECT() *MockCertifiedAddrBookMockRecorder {
+	return m.recorder
+}
+
+// ConsumePeerRecord mocks base method.
+func (m *MockCertifiedAddrBook) ConsumePeerRecord(s *record.Envelope, ttl time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsumePeerRecord", s, ttl)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConsumePeerRecord indicates an expected call of ConsumePeerRecord.
+func (mr *MockCertifiedAddrBookMockRecorder) ConsumePeerRecord(s, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsumePeerRecord", reflect.TypeOf((*MockCertifiedAddrBook)(nil).ConsumePeerRecord), s, ttl)
+}
+
+// GetPeerRecord mocks base method.
+func (m *MockCertifiedAddrBook) GetPeerRecord(p peer.ID) *record.Envelope {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPeerRecord", p)
+	ret0, _ := ret[0].(*record.Envelope)
+	return ret0
+}
+
+// GetPeerRecord indicates an expected call of GetPeerRecord.
+func (mr *MockCertifiedAddrBookMockRecorder) GetPeerRecord(p interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerRecord", reflect.TypeOf((*MockCertifiedAddrBook)(nil).GetPeerRecord), p)
 }

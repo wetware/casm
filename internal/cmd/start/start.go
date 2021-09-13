@@ -130,7 +130,7 @@ func newLogger(c *cli.Context, h host.Host) log.Logger {
 }
 
 func newDiscovery(c *cli.Context, h host.Host, dht *dual.DHT, b discovery.Discovery, lx fx.Lifecycle) (boot.Dual, error) {
-	px, err := pex.New(c.Context, h, pex.WithNamespace(c.String("ns")))
+	px, err := pex.New(h, pex.WithNamespace(c.String("ns")))
 	if err == nil {
 		lx.Append(closer(px))
 	}

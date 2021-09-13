@@ -1,14 +1,31 @@
 package pex
 
 import (
-	"math"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/host"
+	ds "github.com/ipfs/go-datastore"
 	"github.com/lthibault/log"
+	"go.uber.org/fx"
 )
 
-type Option func(pex *PeerExchange)
+// Config supplies options to the dependency-injection framework.
+type Config struct {
+	fx.Out
+
+	NS      string
+	Log     log.Logger
+	Tick    time.Duration
+	MaxSize int
+	Store   ds.Batching
+}
+
+func (c *Config) Apply(opt []Option) {
+	for _, option := range withDefaults(opt) {
+		option(c)
+	}
+}
+
+type Option func(c *Config)
 
 // WithNamespace sets the cluster namespace.
 // If ns == "", the default "casm" is used.
@@ -16,8 +33,8 @@ func WithNamespace(ns string) Option {
 	if ns == "" {
 		ns = "casm"
 	}
-	return func(pex *PeerExchange) {
-		pex.ns = ns
+	return func(c *Config) {
+		c.NS = ns
 	}
 }
 
@@ -28,8 +45,21 @@ func WithLogger(l log.Logger) Option {
 		l = log.New()
 	}
 
-	return func(pex *PeerExchange) {
-		pex.log = logger{l}
+	return func(c *Config) {
+		c.Log = l
+	}
+}
+
+// WithDatastore sets the storage backend for gossip
+// records.  If s == nil, a volatile storage backend
+// is used.
+func WithDatastore(s ds.Batching) Option {
+	if s == nil {
+		s = ds.NewMapDatastore()
+	}
+
+	return func(c *Config) {
+		c.Store = s
 	}
 }
 
@@ -44,34 +74,8 @@ func WithTick(d time.Duration) Option {
 		d = time.Minute
 	}
 
-	return func(pex *PeerExchange) {
-		pex.tick = d
-	}
-}
-
-// WithSelector sets the view selector to be used
-// during gossip rounds.  If sel == nil, a default
-// hybrid strategy is used.
-//
-// Note that view selection strategy can have a
-// drastic effect on performance and stability.
-// Users SHOULD NOT use this option unless they
-// know what they are doing.
-func WithSelector(f ViewSelectorFactory) Option {
-	if f == nil {
-		const thresh = math.MaxUint64 / 2
-
-		f = func(h host.Host, d DistanceProvider, maxSize int) ViewSelector {
-			if d.Distance(h.ID())/math.MaxUint64 > thresh {
-				return RandSelector(nil).Then(TailSelector(maxSize))
-			}
-
-			return SortSelector().Then(TailSelector(maxSize))
-		}
-	}
-
-	return func(pex *PeerExchange) {
-		pex.newSelector = f
+	return func(c *Config) {
+		c.Tick = d
 	}
 }
 
@@ -86,8 +90,8 @@ func WithMaxViewSize(n uint) Option {
 		n = 32
 	}
 
-	return func(pex *PeerExchange) {
-		pex.maxSize = int(n)
+	return func(c *Config) {
+		c.MaxSize = int(n)
 	}
 }
 
@@ -95,8 +99,8 @@ func withDefaults(opt []Option) []Option {
 	return append([]Option{
 		WithTick(-1),
 		WithLogger(nil),
-		WithSelector(nil),
 		WithNamespace(""),
+		WithDatastore(nil),
 		WithMaxViewSize(0),
 	}, opt...)
 }

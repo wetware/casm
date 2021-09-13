@@ -9,12 +9,11 @@ import (
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
 	syncutil "github.com/lthibault/util/sync"
-	"github.com/wetware/casm/pkg/pex"
 )
 
 // ViewProvider can provide a snapshot of an overlay's view.
 type ViewProvider interface {
-	View() pex.View
+	View() ([]peer.AddrInfo, error)
 }
 
 // PassiveOverlay provides a local view of the cluster.  It is
@@ -108,8 +107,8 @@ func (c Cache) FindPeers(ctx context.Context, ns string, opt ...discovery.Option
 
 	// try cache before falling back on d?
 	if c.isClusterNS(ns) {
-		if ps := c.lookup(); len(ps) > 0 {
-			return staticChan(limited(os, ps)), nil
+		if ps, err := c.lookup(); len(ps) > 0 || err != nil {
+			return staticChan(limited(os, ps)), err
 		}
 	}
 
@@ -123,19 +122,14 @@ func (c Cache) FindPeers(ctx context.Context, ns string, opt ...discovery.Option
 
 func (c Cache) isClusterNS(ns string) bool { return c.String() == ns }
 
-func (c Cache) lookup() []peer.AddrInfo {
-	recs := c.Cache.View()
-	rand.Shuffle(len(recs), func(i, j int) {
-		recs[i], recs[j] = recs[j], recs[i]
+func (c Cache) lookup() ([]peer.AddrInfo, error) {
+	view, err := c.Cache.View()
+
+	rand.Shuffle(len(view), func(i, j int) {
+		view[i], view[j] = view[j], view[i]
 	})
 
-	ps := make([]peer.AddrInfo, len(recs), 0)
-	for i, rec := range recs {
-		ps[i].ID = rec.PeerID
-		ps[i].Addrs = rec.Addrs
-	}
-
-	return ps
+	return view, err
 }
 
 func (c Cache) interceptAndJoin(ctx context.Context, ch <-chan peer.AddrInfo) <-chan peer.AddrInfo {

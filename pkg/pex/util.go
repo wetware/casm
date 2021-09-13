@@ -1,14 +1,7 @@
 package pex
 
 import (
-	"sync/atomic"
-
-	"github.com/libp2p/go-libp2p-core/event"
-	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-
-	"github.com/lthibault/log"
-	"github.com/sirupsen/logrus"
 )
 
 /*
@@ -26,43 +19,6 @@ func (b *breaker) Do(f func()) {
 		f()
 	}
 }
-
-type logger struct{ log.Logger }
-
-func (l logger) WithStream(s network.Stream) logger {
-	return l.WithConn(s.Conn()).
-		WithField("stream", s.ID()).
-		WithField("proto", s.Protocol())
-}
-
-func (l logger) WithConn(c network.Conn) logger {
-	return l.WithField("conn", c.ID()).
-		WithField("peer", c.RemotePeer())
-}
-
-func (l logger) With(v log.Loggable) logger               { return logger{l.Logger.With(v)} }
-func (l logger) WithError(err error) logger               { return logger{l.Logger.WithError(err)} }
-func (l logger) WithFields(fs logrus.Fields) logger       { return logger{l.Logger.WithFields(fs)} }
-func (l logger) WithField(s string, v interface{}) logger { return logger{l.Logger.WithField(s, v)} }
-
-type atomicView struct {
-	val        atomic.Value
-	evtUpdated event.Emitter
-}
-
-func (av *atomicView) Load() (v View) {
-	v, _ = av.val.Load().(View)
-	return
-}
-
-func (av *atomicView) Store(v View) error {
-	av.val.Store(v)
-	evt := make(EvtViewUpdated, len(v))
-	copy(evt, v)
-	return av.evtUpdated.Emit(evt)
-}
-
-func (av *atomicView) Close() error { return av.evtUpdated.Close() }
 
 // streamError is a sentinel value used by PeerExchange.gossip.
 type streamError struct {

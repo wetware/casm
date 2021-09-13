@@ -1,15 +1,17 @@
-package pex_test
+package pex
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/wetware/casm/pkg/pex"
+	"github.com/libp2p/go-libp2p-core/peerstore"
+	"github.com/libp2p/go-libp2p-core/record"
 
 	"github.com/stretchr/testify/require"
 	mx "github.com/wetware/matrix/pkg"
@@ -23,9 +25,10 @@ func TestNewGossipRecord(t *testing.T) {
 	defer cancel()
 
 	h := mx.New(ctx).MustHost(ctx)
-	waitReady(h)
+	e, err := getSignedRecord(h)
+	require.NoError(t, err)
 
-	g, err := pex.NewGossipRecord(h)
+	g, err := NewGossipRecord(e)
 	require.NoError(t, err)
 	require.NotNil(t, g.Envelope)
 
@@ -49,9 +52,10 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	defer cancel()
 
 	h := mx.New(ctx).MustHost(ctx)
-	waitReady(h)
+	e, err := getSignedRecord(h)
+	require.NoError(t, err)
 
-	want, err := pex.NewGossipRecord(h)
+	want, err := NewGossipRecord(e)
 	require.NoError(t, err)
 	require.NotZero(t, want.Seq)
 
@@ -71,7 +75,7 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	msg, err := capnp.NewPackedDecoder(&buf).Decode()
 	require.NoError(t, err)
 
-	var got pex.GossipRecord
+	var got GossipRecord
 	err = got.ReadMessage(msg)
 	require.NoError(t, err)
 
@@ -134,6 +138,15 @@ func TestView_validation(t *testing.T) {
 		t.Helper()
 		t.Parallel()
 
+		t.Run("empty", func(t *testing.T) {
+			t.Parallel()
+
+			var v view
+			err := v.Validate()
+			require.ErrorAs(t, err, &ValidationError{})
+			require.EqualError(t, err, "empty view")
+		})
+
 		t.Run("sender_invalid_hop_range", func(t *testing.T) {
 			t.Parallel()
 
@@ -152,8 +165,8 @@ func TestView_validation(t *testing.T) {
 			incrHops(view)
 
 			err := view.Validate()
-			require.ErrorAs(t, err, &pex.ValidationError{})
-			require.ErrorIs(t, err, pex.ErrInvalidRange)
+			require.ErrorAs(t, err, &ValidationError{})
+			require.ErrorIs(t, err, ErrInvalidRange)
 		})
 
 		t.Run("invalid_hop_range", func(t *testing.T) {
@@ -172,27 +185,31 @@ func TestView_validation(t *testing.T) {
 			 */
 
 			err := mustTestView(hs).Validate()
-			require.ErrorAs(t, err, &pex.ValidationError{})
-			require.ErrorIs(t, err, pex.ErrInvalidRange)
+			require.ErrorAs(t, err, &ValidationError{})
+			require.ErrorIs(t, err, ErrInvalidRange)
 		})
 	})
 }
 
-func mustTestView(hs []host.Host) pex.View {
-	view := make(pex.View, len(hs))
+func mustTestView(hs []host.Host) view {
+	view := make([]*GossipRecord, len(hs))
 	mx.
 		Go(func(ctx context.Context, i int, h host.Host) error {
 			waitReady(h)
 			return nil
 		}).
-		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			view[i], err = pex.NewGossipRecord(h)
-			return
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			e, err := getSignedRecord(h)
+			if err == nil {
+				view[i], err = NewGossipRecord(e)
+			}
+
+			return err
 		}).Must(context.Background(), hs)
 	return view
 }
 
-func incrHops(v pex.View) {
+func incrHops(v []*GossipRecord) {
 	for _, g := range v {
 		g.IncrHop()
 	}
@@ -206,4 +223,14 @@ func waitReady(h host.Host) {
 	defer sub.Close()
 
 	<-sub.Out()
+}
+
+func getSignedRecord(h host.Host) (*record.Envelope, error) {
+	waitReady(h)
+
+	if cab, ok := peerstore.GetCertifiedAddrBook(h.Peerstore()); ok {
+		return cab.GetPeerRecord(h.ID()), nil
+	}
+
+	return nil, errors.New("no certified addrbook")
 }

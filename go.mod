@@ -9,10 +9,12 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/huin/goupnp v1.0.2 // indirect
+	github.com/ipfs/go-datastore v0.4.6
 	github.com/jbenet/goprocess v0.1.4
 	github.com/jpillora/backoff v1.0.0
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/koron/go-ssdp v0.0.2 // indirect
+	github.com/libp2p/go-eventbus v0.2.1
 	github.com/libp2p/go-libp2p v0.15.0
 	github.com/libp2p/go-libp2p-core v0.9.0
 	github.com/libp2p/go-libp2p-discovery v0.5.1
@@ -56,7 +58,6 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/ipfs/go-cid v0.1.0 // indirect
-	github.com/ipfs/go-datastore v0.4.6 // indirect
 	github.com/ipfs/go-ipfs-util v0.0.2 // indirect
 	github.com/ipfs/go-ipns v0.1.2 // indirect
 	github.com/ipfs/go-log v1.0.5 // indirect
@@ -68,7 +69,6 @@ require (
 	github.com/libp2p/go-buffer-pool v0.0.2 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect
 	github.com/libp2p/go-conn-security-multistream v0.2.1 // indirect
-	github.com/libp2p/go-eventbus v0.2.1 // indirect
 	github.com/libp2p/go-flow-metrics v0.0.3 // indirect
 	github.com/libp2p/go-libp2p-asn-util v0.0.0-20210818120414-1f382a4aa43a // indirect
 	github.com/libp2p/go-libp2p-autonat v0.4.2 // indirect

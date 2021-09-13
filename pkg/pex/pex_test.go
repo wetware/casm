@@ -83,11 +83,14 @@ func TestPeerExchange_Init(t *testing.T) {
 
 		h := mx.New(ctx).MustHost(ctx)
 
-		px, err := pex.New(ctx, h, pex.WithNamespace(ns))
+		px, err := pex.New(h, pex.WithNamespace(ns))
 		require.NoError(t, err)
 
 		assert.Equal(t, ns, px.String(), "unexpected namespace")
-		assert.Empty(t, px.View(), "initialized view is non-empty")
+
+		view, err := px.View()
+		require.NoError(t, err)
+		assert.Empty(t, view, "initialized view is non-empty")
 
 		err = px.Close()
 		assert.NoError(t, err, "error closing PeerExchange")
@@ -101,12 +104,12 @@ func TestPeerExchange_Init(t *testing.T) {
 
 		h := mx.New(ctx).MustHost(ctx, libp2p.NoListenAddrs)
 
-		_, err := pex.New(ctx, h, pex.WithNamespace(ns))
+		_, err := pex.New(h, pex.WithNamespace(ns))
 		require.EqualError(t, err, "host not accepting connections")
 	})
 }
 
-func TestPeerExchange_Join(t *testing.T) {
+func TestPeerExchange_join(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -118,7 +121,7 @@ func TestPeerExchange_Join(t *testing.T) {
 	ps := make([]*pex.PeerExchange, len(hs))
 	ss := make([]event.Subscription, len(hs))
 	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
-		ps[i], err = pex.New(ctx, h, pex.WithNamespace(ns))
+		ps[i], err = pex.New(h, pex.WithNamespace(ns))
 		return
 	}).Go(func(ctx context.Context, i int, h host.Host) (err error) {
 		ss[i], err = h.EventBus().Subscribe(new(pex.EvtViewUpdated))
@@ -138,16 +141,11 @@ func TestPeerExchange_Join(t *testing.T) {
 			require.True(t, ok)
 			require.NotEmpty(t, v.(pex.EvtViewUpdated))
 			require.IsType(t, pex.EvtViewUpdated{}, v)
-			view := pex.View(v.(pex.EvtViewUpdated))
+			gs := ([]*pex.GossipRecord)(v.(pex.EvtViewUpdated))
 
 			// do we have an updated view?
-			require.Len(t, view, len(hs)-1, // host doesn't include itself in view
-				"unexpected length %d for host %d", len(view), i)
-
-			// is the event the same as the local view?
-			for ii, g := range ps[i].View() {
-				require.True(t, view[ii].Envelope.Equal(g.Envelope))
-			}
+			require.Len(t, gs, len(hs)-1, // host doesn't include itself in view
+				"unexpected length %d for host %d", len(gs), i)
 
 		case <-ctx.Done():
 			err = ctx.Err()
@@ -168,9 +166,8 @@ func TestPeerExchange_simulation(t *testing.T) {
 	t.Helper()
 
 	const (
-		n        = 8
-		viewSize = n
-		tick     = time.Millisecond * 10
+		n    = 8
+		tick = time.Millisecond * 10
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -180,6 +177,7 @@ func TestPeerExchange_simulation(t *testing.T) {
 		sim = mx.New(ctx)
 		hs  = sim.MustHostSet(ctx, n)
 		xs  = make([]*pex.PeerExchange, n)
+		ss  = make([]event.Subscription, n)
 	)
 
 	err := mx.
@@ -187,39 +185,40 @@ func TestPeerExchange_simulation(t *testing.T) {
 		 * Initialize a peer exchange for each host in hs
 		 */
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			xs[i], err = pex.New(ctx, h,
-				pex.WithMaxViewSize(viewSize),
+			xs[i], err = pex.New(h,
+				pex.WithMaxViewSize(n-1), // self not counted in view
 				pex.WithNamespace(ns),
 				pex.WithTick(tick))
 			return
 		}).
-		/*
-		 * Connect all hosts to h[0]
-		 */
-		Go(func(ctx context.Context, i int, _ host.Host) (err error) {
-			if i > 0 {
-				err = xs[i].Join(ctx, *host.InfoFromHost(hs[0]))
-			}
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			ss[i], err = h.EventBus().Subscribe(new(pex.EvtViewUpdated))
 			return
+		}).
+		/*
+		 * Create a ring topology
+		 */
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			if i == 0 {
+				return xs[i].Join(ctx, *host.InfoFromHost(hs[len(hs)-1]))
+			}
+
+			return xs[i].Join(ctx, *host.InfoFromHost(hs[i-1]))
 		}).
 		/*
 		 * Ensure views are eventually full.
 		 */
 		Go(func(ctx context.Context, i int, h host.Host) error {
-			sub, err := h.EventBus().Subscribe(new(pex.EvtViewUpdated))
-			if err != nil {
-				return err
-			}
-			defer sub.Close()
-
 			for {
 				select {
-				case v := <-sub.Out():
-					view := pex.View(v.(pex.EvtViewUpdated))
+				case v := <-ss[i].Out():
+					ev := v.(pex.EvtViewUpdated)
 
-					if view.Len() == n {
+					if len(ev) == n {
 						return nil
 					}
+
+					t.Logf("%s GOT: %d", h.ID().ShortString(), len(ev))
 
 				case <-ctx.Done():
 					return ctx.Err()

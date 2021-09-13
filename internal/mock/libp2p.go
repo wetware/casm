@@ -7,12 +7,14 @@ import (
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p-core/peerstore"
 )
 
 type (
-	Host    interface{ host.Host }
-	Conn    interface{ network.Conn }
-	Stream  interface{ network.Stream }
-	Network interface{ network.Network }
-	Emitter interface{ event.Emitter }
+	Host              interface{ host.Host }
+	Conn              interface{ network.Conn }
+	Stream            interface{ network.Stream }
+	Network           interface{ network.Network }
+	Emitter           interface{ event.Emitter }
+	CertifiedAddrBook interface{ peerstore.CertifiedAddrBook }
 )

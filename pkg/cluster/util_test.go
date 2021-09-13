@@ -41,7 +41,6 @@ func TestPeerIDCastUnsafe(t *testing.T) {
 }
 
 func newPeerID() peer.ID {
-	// use non-cryptographic source; it's just a test.
 	sk, _, err := crypto.GenerateECDSAKeyPair(rand.Reader)
 	if err != nil {
 		panic(err)
