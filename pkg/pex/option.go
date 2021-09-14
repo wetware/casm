@@ -4,6 +4,9 @@ import (
 	"time"
 
 	ds "github.com/ipfs/go-datastore"
+	nsds "github.com/ipfs/go-datastore/namespace"
+	"github.com/ipfs/go-datastore/sync"
+	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/lthibault/log"
 	"go.uber.org/fx"
 )
@@ -12,11 +15,11 @@ import (
 type Config struct {
 	fx.Out
 
-	NS      string
-	Log     log.Logger
-	Tick    time.Duration
-	MaxSize int
-	Store   ds.Batching
+	Log       log.Logger
+	MaxSize   int
+	Tick      time.Duration
+	Store     ds.Batching
+	Discovery discovery.Discoverer
 }
 
 func (c *Config) Apply(opt []Option) {
@@ -26,17 +29,6 @@ func (c *Config) Apply(opt []Option) {
 }
 
 type Option func(c *Config)
-
-// WithNamespace sets the cluster namespace.
-// If ns == "", the default "casm" is used.
-func WithNamespace(ns string) Option {
-	if ns == "" {
-		ns = "casm"
-	}
-	return func(c *Config) {
-		c.NS = ns
-	}
-}
 
 // WithLogger sets the logger for the peer exchange.
 // If l == nil, a default logger is used.
@@ -53,13 +45,26 @@ func WithLogger(l log.Logger) Option {
 // WithDatastore sets the storage backend for gossip
 // records.  If s == nil, a volatile storage backend
 // is used.
+//
+// Note that s MUST be thread-safe.
 func WithDatastore(s ds.Batching) Option {
 	if s == nil {
-		s = ds.NewMapDatastore()
+		s = sync.MutexWrap(ds.NewMapDatastore())
 	}
 
 	return func(c *Config) {
-		c.Store = s
+		c.Store = nsds.Wrap(s, ds.NewKey("/casm/pex"))
+	}
+}
+
+// WithDiscovery sets the bootstrap discovery service
+// for the PeX instance.  The supplied instance will
+// be called with 'opts' whenever the PeX instance
+// finds itself unable to connect to peers during the
+// course of a gossip round.
+func WithDiscovery(d discovery.Discoverer) Option {
+	return func(c *Config) {
+		c.Discovery = d
 	}
 }
 
@@ -99,8 +104,8 @@ func withDefaults(opt []Option) []Option {
 	return append([]Option{
 		WithTick(-1),
 		WithLogger(nil),
-		WithNamespace(""),
 		WithDatastore(nil),
+		WithDiscovery(nil),
 		WithMaxViewSize(0),
 	}, opt...)
 }

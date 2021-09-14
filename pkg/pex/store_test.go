@@ -13,7 +13,10 @@ import (
 	"go.uber.org/fx/fxtest"
 )
 
-const vsize = 4 // max view size
+const (
+	ns    = "casm.pex.test"
+	vsize = 4 // max view size
+)
 
 func TestMerge(t *testing.T) {
 	t.Parallel()
@@ -27,9 +30,18 @@ func TestMerge(t *testing.T) {
 			name: fmt.Sprintf("should_have_view_size=%d", vsize),
 			test: shouldHaveViewSize_vsize,
 		},
-		// {
-		// 	// ...
-		// },
+		{
+			name: "should_retain_higher_seq",
+			test: shouldRetainHigherSeq,
+		},
+		{
+			name: "should_retain_lower_hop",
+			test: shouldRetainLowerHop,
+		},
+		{
+			name: "should_retain_higher_seq_despite_lower_hop",
+			test: shouldRetainHigherSeqDespiteLowerHop,
+		},
 	} {
 		runner(t, tt.name, tt.test)
 	}
@@ -45,13 +57,11 @@ func runner(t *testing.T, name string, f func(t *testing.T, p params)) {
 		fx.Supply(out{
 			Local:  mkValidView(vsize),
 			Remote: mkValidView(vsize),
-			Opt: []Option{
-				WithNamespace("test"),
-				WithMaxViewSize(vsize)},
+			Opt:    []Option{WithMaxViewSize(vsize)},
 		}),
 		fx.Provide(
 			newConfig,
-			newGossipStore,
+			newPeerExchange,
 			newHostComponents(mx.New(ctx).MustHost(ctx))),
 		fx.Invoke(func(p params) {
 			t.Run(name, func(t *testing.T) {
@@ -71,47 +81,61 @@ type out struct {
 	fx.Out
 
 	Opt    []Option
-	Local  view `name:"local"`
-	Remote view `name:"remote"`
+	Local  gossipSlice `name:"local"`
+	Remote gossipSlice `name:"remote"`
 }
 
 type params struct {
 	fx.In
 
 	Host   host.Host
-	Store  *gossipStore
-	Local  view `name:"local"`
-	Remote view `name:"remote"`
+	Local  gossipSlice `name:"local"`
+	Remote gossipSlice `name:"remote"`
+	PeX    *PeerExchange
 }
 
 func (p params) LocalRecord() *record.Envelope {
-	return mustTestView([]host.Host{p.Host})[0].Envelope
+	return mustGossipSlice([]host.Host{p.Host})[0].Envelope
 }
 
 func shouldHaveViewSize_vsize(t *testing.T, p params) {
-	err := p.Store.SetLocalRecord(p.LocalRecord())
+	err := p.PeX.setLocalRecord(p.LocalRecord())
 	require.NoError(t, err)
 
+	n := p.PeX.namespace(ns)
+
 	// When the current view is full (= n) ...
-	err = p.Store.MergeAndStore(p.Local)
+	err = n.MergeAndStore(p.Local)
 	require.NoError(t, err)
 
 	// ... and we merge a remote view ...
-	err = p.Store.MergeAndStore(p.Remote)
+	err = n.MergeAndStore(p.Remote)
 	require.NoError(t, err)
 
 	// ... the size of the resulting view should be n.
-	gs, err := p.Store.Load()
+	gs, err := n.View()
 	require.NoError(t, err)
 	require.Len(t, gs, vsize)
 }
 
-func mkValidView(n int) view {
+func shouldRetainHigherSeq(t *testing.T, p params) {
+	t.Skip("Skipping ... (NOT IMPLEMENTED)")
+}
+
+func shouldRetainLowerHop(t *testing.T, p params) {
+	t.Skip("Skipping ... (NOT IMPLEMENTED)")
+}
+
+func shouldRetainHigherSeqDespiteLowerHop(t *testing.T, p params) {
+	t.Skip("Skipping ... (NOT IMPLEMENTED)")
+}
+
+func mkValidView(n int) gossipSlice {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	view := mustTestView(mx.New(ctx).MustHostSet(ctx, n))
-	view[:n-1].incrHops() // last record must have hops=0
+	gs := mustGossipSlice(mx.New(ctx).MustHostSet(ctx, n))
+	gs[:n-1].incrHops() // last record must have hops=0
 
-	return view
+	return gs
 }

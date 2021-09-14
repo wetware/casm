@@ -64,7 +64,7 @@ func (g *GossipRecord) IncrHop()    { g.g.SetHop(g.g.Hop() + 1) }
 
 // Distance returns the XOR of the last byte from 'id' and the record's ID.
 func (g *GossipRecord) Distance(id peer.ID) uint64 {
-	return lastUint64(g.PeerID) ^ lastUint64(id)
+	return lastUint64(string(g.PeerID)) ^ lastUint64(string(id))
 }
 
 func (g *GossipRecord) Message() *capnp.Message { return g.g.Message() }

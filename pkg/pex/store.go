@@ -5,74 +5,106 @@ import (
 	"math"
 	"math/rand"
 	"sort"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
 	ds "github.com/ipfs/go-datastore"
-	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/query"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/record"
-	"github.com/lthibault/log"
-	"go.uber.org/fx"
 )
 
 func init() { rand.Seed(time.Now().UnixNano()) }
 
-type gossipStore struct {
-	log      log.Logger
-	localRec atomic.Value
-
-	local   peer.ID
-	MaxSize int
-
-	mu sync.RWMutex
-	ds ds.Batching
-
-	e event.Emitter
+// namespace encapsulates a namespace-scoped store
+// containing gossip records, along with supplementary
+// data types from *PeerExchange needed to perform various
+// queries.
+//
+// Note that namespace DOES NOT provide ACID guarantees.
+type namespace struct {
+	prefix ds.Key
+	ds     ds.Batching
+	id     peer.ID
+	k      int
 }
 
-type storeParams struct {
-	fx.In
+func (n namespace) String() string { return n.prefix.BaseNamespace() }
 
-	NS      string
-	Log     log.Logger
-	ID      peer.ID
-	Bus     event.Bus
-	Store   ds.Batching
-	MaxSize int
-	Emitter event.Emitter
+func (n namespace) Query() (query.Results, error) {
+	return n.ds.Query(query.Query{
+		Prefix: n.prefix.String(),
+		Orders: []query.Order{randomOrder()},
+	})
 }
 
-func newGossipStore(p storeParams, lx fx.Lifecycle) *gossipStore {
-	prefix := ds.NewKey("/casm/pex").
-		ChildString(p.NS).
-		ChildString(p.ID.String())
-
-	return &gossipStore{
-		MaxSize: p.MaxSize,
-		log:     p.Log.WithField("max_size", p.MaxSize),
-		local:   p.ID,
-		ds:      nsds.Wrap(p.Store, prefix),
-		e:       p.Emitter,
+func (n namespace) Records() (gossipSlice, error) {
+	// return all entries under the local instance's key prefix
+	res, err := n.Query()
+	if err != nil {
+		return nil, err
 	}
+
+	es, err := res.Rest()
+	if err != nil {
+		return nil, err
+	}
+
+	recs := make(gossipSlice, len(es))
+	for i, entry := range es {
+		recs[i] = new(GossipRecord) // TODO:  pool?
+
+		msg, err := capnp.Unmarshal(entry.Value)
+		if err != nil {
+			return nil, err
+		}
+
+		if err = recs[i].ReadMessage(msg); err != nil {
+			return nil, err
+		}
+	}
+
+	return recs, nil
 }
 
-func (s *gossipStore) keyFor(g *GossipRecord) ds.Key {
-	return ds.NewKey(g.PeerID.String())
+// View is like Records() except that it reuses a single GossipRecord
+// to avoid allocating.
+func (n namespace) View() ([]peer.AddrInfo, error) {
+	// return all entries under the local instance's key prefix
+	res, err := n.Query()
+	if err != nil {
+		return nil, err
+	}
+
+	es, err := res.Rest()
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		g    GossipRecord
+		view = make([]peer.AddrInfo, len(es))
+	)
+
+	for i, entry := range es {
+		msg, err := capnp.Unmarshal(entry.Value)
+		if err != nil {
+			return nil, err
+		}
+
+		if err = g.ReadMessage(msg); err != nil {
+			return nil, err
+		}
+
+		view[i].ID = g.PeerID
+		view[i].Addrs = g.Addrs
+
+		g.Message().Reset(nil)
+	}
+
+	return view, nil
 }
 
-func (s *gossipStore) Load() ([]*GossipRecord, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.unsafeLoad()
-}
-
-func (s *gossipStore) MergeAndStore(remote view) error {
+func (n namespace) MergeAndStore(remote gossipSlice) error {
 	if err := remote.Validate(); err != nil {
 		return err
 	}
@@ -80,41 +112,32 @@ func (s *gossipStore) MergeAndStore(remote view) error {
 	remote.incrHops()
 	sender := remote.last()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	local, err := s.unsafeLoad()
+	local, err := n.Records()
 	if err != nil {
 		return err
 	}
 
-	merged := selector(remote).
-		Bind(isNot(s.local)).
+	merged := remote.
+		Bind(isNot(n.id)).
 		Bind(merged(local)).
-		Bind(ordered(s.local, sender)).
-		Bind(tail(s.MaxSize)).
-		AsView()
+		Bind(ordered(n.id, sender)).
+		Bind(tail(n.k))
 
-	if err = s.unsafeStore(local, merged); err != nil {
+	if err = n.Store(local, merged); err != nil {
 		return err
 	}
 
-	// ensure persistence
-	if err = s.ds.Sync(ds.NewKey("")); err == nil {
-		err = s.e.Emit(EvtViewUpdated(merged))
-	}
-
-	return err
+	return n.ds.Sync(n.prefix)
 }
 
-func (s *gossipStore) unsafeStore(old, new view) error {
-	batch, err := s.ds.Batch()
+func (n namespace) Store(old, new gossipSlice) error {
+	batch, err := n.ds.Batch()
 	if err != nil {
 		return err
 	}
 
 	for _, g := range old.diff(new) { // elems in 'old', but not in 'new'.
-		if err = batch.Delete(s.keyFor(g)); err != nil {
+		if err = batch.Delete(n.keyfor(g)); err != nil {
 			return err
 		}
 	}
@@ -128,7 +151,7 @@ func (s *gossipStore) unsafeStore(old, new view) error {
 			return err
 		}
 
-		if err = batch.Put(s.keyFor(g), b); err != nil {
+		if err = batch.Put(n.keyfor(g), b); err != nil {
 			return err
 		}
 	}
@@ -136,57 +159,31 @@ func (s *gossipStore) unsafeStore(old, new view) error {
 	return batch.Commit()
 }
 
-func (s *gossipStore) unsafeLoad() ([]*GossipRecord, error) {
-	// return all entries under the local instance's key prefix
-	res, err := s.ds.Query(query.Query{})
-	if err != nil {
-		return nil, err
-	}
+func (n namespace) keyfor(g *GossipRecord) ds.Key {
+	return n.prefix.ChildString(g.PeerID.String())
+}
 
-	es, err := res.Rest()
-	if err != nil {
-		return nil, err
-	}
+func randomOrder() query.OrderByFunction {
+	nonce := rand.Uint64()
 
-	view := make([]*GossipRecord, len(es))
-	for i, entry := range es {
-		view[i] = new(GossipRecord) // TODO:  pool?
+	return func(a, b query.Entry) int {
+		xa := lastUint64(a.Key) ^ nonce
+		xb := lastUint64(b.Key) ^ nonce
 
-		msg, err := capnp.Unmarshal(entry.Value)
-		if err != nil {
-			return nil, err
+		if xa > xb {
+			return 1
 		}
-
-		if err = view[i].ReadMessage(msg); err != nil {
-			return nil, err
+		if xa < xb {
+			return -1
 		}
+		return 0
 	}
-
-	return view, nil
 }
 
-func (s *gossipStore) SetLocalRecord(e *record.Envelope) error {
-	g, err := NewGossipRecord(e)
-	if err == nil {
-		s.localRec.Store(g)
-	}
-	return err
-}
-
-func (s *gossipStore) GetLocalRecord() *GossipRecord { return s.localRec.Load().(*GossipRecord) }
-
-type selector view
-
-func (sel selector) AsView() view { return view(sel) }
-
-func (sel selector) Bind(f func(view) selector) selector {
-	return f(view(sel))
-}
-
-func filter(f func(*GossipRecord) bool) func(view) selector {
-	return func(v view) selector {
-		filtered := selector(v[:0])
-		for _, g := range v {
+func filter(f func(*GossipRecord) bool) func(gossipSlice) gossipSlice {
+	return func(gs gossipSlice) gossipSlice {
+		filtered := gs[:0]
+		for _, g := range gs {
 			if f(g) {
 				filtered = append(filtered, g)
 			}
@@ -195,23 +192,23 @@ func filter(f func(*GossipRecord) bool) func(view) selector {
 	}
 }
 
-func isNot(self peer.ID) func(view) selector {
+func isNot(self peer.ID) func(gossipSlice) gossipSlice {
 	return filter(func(g *GossipRecord) bool {
 		return self != g.PeerID
 	})
 }
 
-func merged(tail view) func(view) selector {
-	return func(v view) selector {
+func merged(tail gossipSlice) func(gossipSlice) gossipSlice {
+	return func(gs gossipSlice) gossipSlice {
 		return append(
-			selector(v).Bind(dedupe(tail)),
-			selector(tail).Bind(dedupe(v))...)
+			gs.Bind(dedupe(tail)),
+			tail.Bind(dedupe(gs))...)
 	}
 }
 
-func dedupe(other view) func(view) selector {
-	return func(v view) selector {
-		return selector(v).Bind(filter(func(g *GossipRecord) bool {
+func dedupe(other gossipSlice) func(gossipSlice) gossipSlice {
+	return func(gs gossipSlice) gossipSlice {
+		return gs.Bind(filter(func(g *GossipRecord) bool {
 			have, found := other.find(g)
 			// select if:
 			// unique   ...    more recent   ...  less diffused
@@ -220,60 +217,60 @@ func dedupe(other view) func(view) selector {
 	}
 }
 
-func ordered(id peer.ID, sender *GossipRecord) func(view) selector {
+func ordered(id peer.ID, sender *GossipRecord) func(gossipSlice) gossipSlice {
 	const thresh = math.MaxUint64 / 2
 
-	return func(v view) selector {
+	return func(gs gossipSlice) gossipSlice {
 		if sender.Distance(id)/math.MaxUint64 > thresh {
-			return selector(v).Bind(shuffled())
+			return gs.Bind(shuffled())
 		}
 
-		return selector(v).Bind(sorted())
+		return gs.Bind(sorted())
 	}
 }
 
-func shuffled() func(view) selector {
-	return func(v view) selector {
-		rand.Shuffle(len(v), v.Swap)
-		return selector(v)
+func shuffled() func(gossipSlice) gossipSlice {
+	return func(gs gossipSlice) gossipSlice {
+		rand.Shuffle(len(gs), gs.Swap)
+		return gs
 	}
 }
 
-func sorted() func(view) selector {
-	return func(v view) selector {
-		sort.Sort(v)
-		return selector(v)
+func sorted() func(gossipSlice) gossipSlice {
+	return func(gs gossipSlice) gossipSlice {
+		sort.Sort(gs)
+		return gs
 	}
 }
 
-func tail(n int) func(view) selector {
+func tail(n int) func(gossipSlice) gossipSlice {
 	if n <= 0 {
 		panic("n must be greater than zero.")
 	}
 
-	return func(v view) selector {
-		if n < len(v) {
-			v = v[len(v)-n:]
+	return func(gs gossipSlice) gossipSlice {
+		if n < len(gs) {
+			gs = gs[len(gs)-n:]
 		}
 
-		return selector(v)
+		return gs
 	}
 }
 
-type view []*GossipRecord
+type gossipSlice []*GossipRecord
 
-func (v view) Len() int           { return len(v) }
-func (v view) Less(i, j int) bool { return v[i].Hop() < v[j].Hop() }
-func (v view) Swap(i, j int)      { v[i], v[j] = v[j], v[i] }
+func (gs gossipSlice) Len() int           { return len(gs) }
+func (gs gossipSlice) Less(i, j int) bool { return gs[i].Hop() < gs[j].Hop() }
+func (gs gossipSlice) Swap(i, j int)      { gs[i], gs[j] = gs[j], gs[i] }
 
 // Validate a View that was received during a gossip round.
-func (v view) Validate() error {
-	if len(v) == 0 {
+func (gs gossipSlice) Validate() error {
+	if len(gs) == 0 {
 		return ValidationError{Message: "empty view"}
 	}
 
 	// Non-senders should have a hop > 0
-	for _, g := range v[:len(v)-1] {
+	for _, g := range gs[:len(gs)-1] {
 		if g.Hop() == 0 {
 			return ValidationError{
 				Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
@@ -283,7 +280,7 @@ func (v view) Validate() error {
 	}
 
 	// Validate sender hop == 0
-	if g := v.last(); g.Hop() != 0 {
+	if g := gs.last(); g.Hop() != 0 {
 		return ValidationError{
 			Message: fmt.Sprintf("sender %s", g.PeerID.ShortString()),
 			Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
@@ -293,9 +290,11 @@ func (v view) Validate() error {
 	return nil
 }
 
-func (v view) find(g *GossipRecord) (have *GossipRecord, found bool) {
+func (gs gossipSlice) Bind(f func(gossipSlice) gossipSlice) gossipSlice { return f(gs) }
+
+func (gs gossipSlice) find(g *GossipRecord) (have *GossipRecord, found bool) {
 	seek := g.PeerID
-	for _, have = range v {
+	for _, have = range gs {
 		if found = seek == have.PeerID; found {
 			break
 		}
@@ -304,17 +303,17 @@ func (v view) find(g *GossipRecord) (have *GossipRecord, found bool) {
 	return
 }
 
-// n.b.:  panics if v is empty.
-func (v view) last() *GossipRecord { return v[len(v)-1] }
+// n.b.:  panics if gs is empty.
+func (gs gossipSlice) last() *GossipRecord { return gs[len(gs)-1] }
 
-func (v view) incrHops() {
-	for _, g := range v {
+func (gs gossipSlice) incrHops() {
+	for _, g := range gs {
 		g.IncrHop()
 	}
 }
 
-func (v view) diff(other view) (diff view) {
-	for _, g := range v {
+func (gs gossipSlice) diff(other gossipSlice) (diff gossipSlice) {
+	for _, g := range gs {
 		if _, found := other.find(g); !found {
 			diff = append(diff, g)
 		}
@@ -323,9 +322,9 @@ func (v view) diff(other view) (diff view) {
 }
 
 // convert last 8 bytes of a peer.ID into a unit64.
-func lastUint64(id peer.ID) (u uint64) {
+func lastUint64(s string) (u uint64) {
 	for i := 0; i < 8; i++ {
-		u = (u << 8) | uint64(id[len(id)-i-1])
+		u = (u << 8) | uint64(s[len(s)-i-1])
 	}
 
 	return

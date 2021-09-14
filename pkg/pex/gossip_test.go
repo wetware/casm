@@ -104,13 +104,13 @@ func TestView_validation(t *testing.T) {
 		sim := mx.New(ctx)
 
 		hs := sim.MustHostSet(ctx, 2)
-		view := mustTestView(hs)
+		gs := mustGossipSlice(hs)
 
 		// records from peers other than the sender MUST have hop > 0 in
 		// order to pass validation.
-		incrHops(view[:len(view)-1])
+		incrHops(gs[:len(gs)-1])
 
-		err := view.Validate()
+		err := gs.Validate()
 		require.NoError(t, err)
 	})
 
@@ -123,14 +123,14 @@ func TestView_validation(t *testing.T) {
 		sim := mx.New(ctx)
 
 		hs := sim.MustHostSet(ctx, 1)
-		view := mustTestView(hs)
+		gs := mustGossipSlice(hs)
 
 		/*
 		 * There is only one record (from the sender), so don't
 		 * increment hops.  This should pass.
 		 */
 
-		err := view.Validate()
+		err := gs.Validate()
 		require.NoError(t, err)
 	})
 
@@ -141,8 +141,8 @@ func TestView_validation(t *testing.T) {
 		t.Run("empty", func(t *testing.T) {
 			t.Parallel()
 
-			var v view
-			err := v.Validate()
+			var gs gossipSlice
+			err := gs.Validate()
 			require.ErrorAs(t, err, &ValidationError{})
 			require.EqualError(t, err, "empty view")
 		})
@@ -156,15 +156,15 @@ func TestView_validation(t *testing.T) {
 			sim := mx.New(ctx)
 
 			hs := sim.MustHostSet(ctx, 2)
-			view := mustTestView(hs)
+			gs := mustGossipSlice(hs)
 
 			/*
 			 * N.B.:  we increment hops for _all_ records, including the
 			 *        sender.  This should be caught in validation.
 			 */
-			incrHops(view)
+			incrHops(gs)
 
-			err := view.Validate()
+			err := gs.Validate()
 			require.ErrorAs(t, err, &ValidationError{})
 			require.ErrorIs(t, err, ErrInvalidRange)
 		})
@@ -184,15 +184,15 @@ func TestView_validation(t *testing.T) {
 			 *        caught in validation.
 			 */
 
-			err := mustTestView(hs).Validate()
+			err := mustGossipSlice(hs).Validate()
 			require.ErrorAs(t, err, &ValidationError{})
 			require.ErrorIs(t, err, ErrInvalidRange)
 		})
 	})
 }
 
-func mustTestView(hs []host.Host) view {
-	view := make([]*GossipRecord, len(hs))
+func mustGossipSlice(hs []host.Host) gossipSlice {
+	gs := make([]*GossipRecord, len(hs))
 	mx.
 		Go(func(ctx context.Context, i int, h host.Host) error {
 			waitReady(h)
@@ -201,16 +201,16 @@ func mustTestView(hs []host.Host) view {
 		Go(func(ctx context.Context, i int, h host.Host) error {
 			e, err := getSignedRecord(h)
 			if err == nil {
-				view[i], err = NewGossipRecord(e)
+				gs[i], err = NewGossipRecord(e)
 			}
 
 			return err
 		}).Must(context.Background(), hs)
-	return view
+	return gs
 }
 
-func incrHops(v []*GossipRecord) {
-	for _, g := range v {
+func incrHops(gs []*GossipRecord) {
+	for _, g := range gs {
 		g.IncrHop()
 	}
 }

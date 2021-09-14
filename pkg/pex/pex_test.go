@@ -2,13 +2,13 @@ package pex_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/peer"
 	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,14 +83,14 @@ func TestPeerExchange_Init(t *testing.T) {
 
 		h := mx.New(ctx).MustHost(ctx)
 
-		px, err := pex.New(h, pex.WithNamespace(ns))
+		px, err := pex.New(h)
 		require.NoError(t, err)
 
-		assert.Equal(t, ns, px.String(), "unexpected namespace")
-
-		view, err := px.View()
+		peers, err := px.FindPeers(ctx, ns)
 		require.NoError(t, err)
-		assert.Empty(t, view, "initialized view is non-empty")
+
+		_, ok := <-peers
+		require.False(t, ok)
 
 		err = px.Close()
 		assert.NoError(t, err, "error closing PeerExchange")
@@ -104,7 +104,7 @@ func TestPeerExchange_Init(t *testing.T) {
 
 		h := mx.New(ctx).MustHost(ctx, libp2p.NoListenAddrs)
 
-		_, err := pex.New(h, pex.WithNamespace(ns))
+		_, err := pex.New(h)
 		require.EqualError(t, err, "host not accepting connections")
 	})
 }
@@ -117,114 +117,43 @@ func TestPeerExchange_join(t *testing.T) {
 
 	sim := mx.New(ctx)
 	hs := sim.MustHostSet(ctx, 2)
-
 	ps := make([]*pex.PeerExchange, len(hs))
-	ss := make([]event.Subscription, len(hs))
-	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
-		ps[i], err = pex.New(h, pex.WithNamespace(ns))
-		return
-	}).Go(func(ctx context.Context, i int, h host.Host) (err error) {
-		ss[i], err = h.EventBus().Subscribe(new(pex.EvtViewUpdated))
-		return
-	}).Must(ctx, hs)
+	is := make([]peer.AddrInfo, len(hs))
 
-	joinCtx, joinCtxCancel := context.WithTimeout(ctx, time.Second)
-	defer joinCtxCancel()
-
-	err := ps[0].Join(joinCtx, *host.InfoFromHost(hs[1]))
-	require.NoError(t, err)
-
-	err = mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
-		// did we get the event?
-		select {
-		case v, ok := <-ss[i].Out():
-			require.True(t, ok)
-			require.NotEmpty(t, v.(pex.EvtViewUpdated))
-			require.IsType(t, pex.EvtViewUpdated{}, v)
-			gs := ([]*pex.GossipRecord)(v.(pex.EvtViewUpdated))
-
-			// do we have an updated view?
-			require.Len(t, gs, len(hs)-1, // host doesn't include itself in view
-				"unexpected length %d for host %d", len(gs), i)
-
-		case <-ctx.Done():
-			err = ctx.Err()
-		}
-
-		if err != nil {
-			err = fmt.Errorf("%d: %w", i, err)
-		}
-
-		return
-	}).Err(ctx, hs)
-
-	require.NoError(t, err)
-}
-
-func TestPeerExchange_simulation(t *testing.T) {
-	t.Parallel()
-	t.Helper()
-
-	const (
-		n    = 8
-		tick = time.Millisecond * 10
-	)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	var (
-		sim = mx.New(ctx)
-		hs  = sim.MustHostSet(ctx, n)
-		xs  = make([]*pex.PeerExchange, n)
-		ss  = make([]event.Subscription, n)
-	)
-
-	err := mx.
-		/*
-		 * Initialize a peer exchange for each host in hs
-		 */
+	mx.
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			xs[i], err = pex.New(h,
-				pex.WithMaxViewSize(n-1), // self not counted in view
-				pex.WithNamespace(ns),
-				pex.WithTick(tick))
+			is[i] = *host.InfoFromHost(h)
+			ps[i], err = pex.New(h)
 			return
 		}).
-		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			ss[i], err = h.EventBus().Subscribe(new(pex.EvtViewUpdated))
-			return
-		}).
-		/*
-		 * Create a ring topology
-		 */
 		Go(func(ctx context.Context, i int, h host.Host) error {
 			if i == 0 {
-				return xs[i].Join(ctx, *host.InfoFromHost(hs[len(hs)-1]))
+				is[1] = *host.InfoFromHost(h)
+			} else {
+				is[0] = *host.InfoFromHost(h)
 			}
-
-			return xs[i].Join(ctx, *host.InfoFromHost(hs[i-1]))
+			return nil
 		}).
-		/*
-		 * Ensure views are eventually full.
-		 */
 		Go(func(ctx context.Context, i int, h host.Host) error {
-			for {
-				select {
-				case v := <-ss[i].Out():
-					ev := v.(pex.EvtViewUpdated)
+			joinCtx, joinCtxCancel := context.WithTimeout(ctx, time.Second)
+			defer joinCtxCancel()
 
-					if len(ev) == n {
-						return nil
-					}
-
-					t.Logf("%s GOT: %d", h.ID().ShortString(), len(ev))
-
-				case <-ctx.Done():
-					return ctx.Err()
-				}
+			if i == 0 {
+				return ps[i].Join(joinCtx, ns, is[i])
 			}
-		}).Err(ctx, hs)
 
-	require.NoError(t, err)
+			return nil
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			// TODO:  proper synchronization to ensure the 'Join()' call has completed
+			time.Sleep(time.Millisecond)
+
+			ch, err := ps[i].FindPeers(ctx, ns)
+			require.NoError(t, err)
+
+			info, ok := <-ch
+			require.True(t, ok)
+			require.Equal(t, is[i].ID, info.ID)
+			return nil
+		}).Must(ctx, hs)
 }
