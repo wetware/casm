@@ -68,7 +68,7 @@ type PeerExchange struct {
 }
 
 // New peer exchange.
-func New(h host.Host, opt ...Option) (px *PeerExchange, err error) {
+func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err error) {
 	if err = ErrNoListenAddrs; len(h.Addrs()) > 0 {
 		app := fx.New(fx.NopLogger,
 			fx.Populate(&px),
@@ -77,10 +77,10 @@ func New(h host.Host, opt ...Option) (px *PeerExchange, err error) {
 				newConfig,
 				newEvents,
 				newPeerExchange,
-				newHostComponents(h)),
+				supply(ctx, h)),
 			fx.Invoke(run))
 
-		if err = app.Start(context.Background()); err == nil {
+		if err = app.Start(ctx); err == nil {
 			px.runtime = app
 		}
 	}
@@ -350,13 +350,14 @@ func limit(opts *discovery.Options, is []peer.AddrInfo) []peer.AddrInfo {
  * Set-up functions
  */
 
-// hostComponents is  needed in order for fx to correctly handle
+// suppliedComponents is  needed in order for fx to correctly handle
 // the 'host.Host' interface.  Simply relying on 'fx.Supply' will
 // use the type of the underlying host implementation, which may
 // vary.
-type hostComponents struct {
+type suppliedComponents struct {
 	fx.Out
 
+	Ctx      context.Context
 	ID       peer.ID
 	Bus      event.Bus
 	Host     host.Host
@@ -364,21 +365,36 @@ type hostComponents struct {
 	CertBook ps.CertifiedAddrBook
 }
 
-func newHostComponents(h host.Host) func() (hostComponents, error) {
-	return func() (cs hostComponents, err error) {
+// Supply is used to pass interfaces to the dependency-injection framework.
+// This is used in cases where fx's reflection erroneously uses the value's
+// concrete type instead of its interface type.
+//
+// As a matter of convenience, we also provide commonly-used components
+// of 'Host' directly.
+func supply(ctx context.Context, h host.Host) func(fx.Lifecycle) (suppliedComponents, error) {
+	return func(lx fx.Lifecycle) (cs suppliedComponents, err error) {
 		cb, ok := ps.GetCertifiedAddrBook(h.Peerstore())
-		if err = errNoSignedAddrs; ok {
-			err = nil
-			cs = hostComponents{
-				Host:     h,
-				ID:       h.ID(),
-				Bus:      h.EventBus(),
-				PrivKey:  h.Peerstore().PrivKey(h.ID()),
-				CertBook: cb,
-			}
+		if !ok {
+			return suppliedComponents{}, errNoSignedAddrs
 		}
 
-		return
+		// cancel the context when the PeerExchange is closed.
+		ctx, cancel := context.WithCancel(ctx)
+		lx.Append(fx.Hook{
+			OnStop: func(context.Context) error {
+				cancel()
+				return nil
+			},
+		})
+
+		return suppliedComponents{
+			Ctx:      ctx,
+			Host:     h,
+			ID:       h.ID(),
+			Bus:      h.EventBus(),
+			PrivKey:  h.Peerstore().PrivKey(h.ID()),
+			CertBook: cb,
+		}, nil
 	}
 }
 

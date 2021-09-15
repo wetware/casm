@@ -83,7 +83,7 @@ func TestPeerExchange_Init(t *testing.T) {
 
 		h := mx.New(ctx).MustHost(ctx)
 
-		px, err := pex.New(h)
+		px, err := pex.New(ctx, h)
 		require.NoError(t, err)
 
 		peers, err := px.FindPeers(ctx, ns)
@@ -104,7 +104,7 @@ func TestPeerExchange_Init(t *testing.T) {
 
 		h := mx.New(ctx).MustHost(ctx, libp2p.NoListenAddrs)
 
-		_, err := pex.New(h)
+		_, err := pex.New(ctx, h)
 		require.EqualError(t, err, "host not accepting connections")
 	})
 }
@@ -123,7 +123,7 @@ func TestPeerExchange_join(t *testing.T) {
 	mx.
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
 			is[i] = *host.InfoFromHost(h)
-			ps[i], err = pex.New(h)
+			ps[i], err = pex.New(ctx, h)
 			return
 		}).
 		Go(func(ctx context.Context, i int, h host.Host) error {

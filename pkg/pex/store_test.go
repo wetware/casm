@@ -62,7 +62,7 @@ func runner(t *testing.T, name string, f func(t *testing.T, p params)) {
 		fx.Provide(
 			newConfig,
 			newPeerExchange,
-			newHostComponents(mx.New(ctx).MustHost(ctx))),
+			supply(ctx, mx.New(ctx).MustHost(ctx))),
 		fx.Invoke(func(p params) {
 			t.Run(name, func(t *testing.T) {
 				t.Helper()

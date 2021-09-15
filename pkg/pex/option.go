@@ -15,11 +15,12 @@ import (
 type Config struct {
 	fx.Out
 
-	Log       log.Logger
-	MaxSize   int
-	Tick      time.Duration
-	Store     ds.Batching
-	Discovery discovery.Discoverer
+	Log          log.Logger
+	MaxSize      int
+	Tick         time.Duration
+	Store        ds.Batching
+	Discovery    discovery.Discoverer
+	DiscoveryOpt []discovery.Option
 }
 
 func (c *Config) Apply(opt []Option) {
@@ -59,11 +60,11 @@ func WithDatastore(s ds.Batching) Option {
 
 // WithDiscovery sets the bootstrap discovery service
 // for the PeX instance.  The supplied instance will
-// be called with 'opts' whenever the PeX instance
-// finds itself unable to connect to peers during the
-// course of a gossip round.
-func WithDiscovery(d discovery.Discoverer) Option {
+// be called with 'opt' whenever the PeeerExchange is
+// unable to connect to peers in its cache.
+func WithDiscovery(d discovery.Discoverer, opt ...discovery.Option) Option {
 	return func(c *Config) {
+		c.DiscoveryOpt = opt
 		c.Discovery = d
 	}
 }
