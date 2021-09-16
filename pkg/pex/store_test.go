@@ -61,6 +61,7 @@ func runner(t *testing.T, name string, f func(t *testing.T, p params)) {
 		}),
 		fx.Provide(
 			newConfig,
+			newDiscover,
 			newPeerExchange,
 			supply(ctx, mx.New(ctx).MustHost(ctx))),
 		fx.Invoke(func(p params) {

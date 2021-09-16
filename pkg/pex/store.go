@@ -10,10 +10,13 @@ import (
 	"capnproto.org/go/capnp/v3"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/peer"
 )
 
 func init() { rand.Seed(time.Now().UnixNano()) }
+
+type EvtViewUpdated []*GossipRecord
 
 // namespace encapsulates a namespace-scoped store
 // containing gossip records, along with supplementary
@@ -26,6 +29,7 @@ type namespace struct {
 	ds     ds.Batching
 	id     peer.ID
 	k      int
+	e      event.Emitter
 }
 
 func (n namespace) String() string { return n.prefix.BaseNamespace() }
@@ -127,7 +131,11 @@ func (n namespace) MergeAndStore(remote gossipSlice) error {
 		return err
 	}
 
-	return n.ds.Sync(n.prefix)
+	if err = n.ds.Sync(n.prefix); err == nil {
+		err = n.e.Emit(EvtViewUpdated(merged))
+	}
+
+	return err
 }
 
 func (n namespace) Store(old, new gossipSlice) error {

@@ -53,16 +53,18 @@ const (
 // these have been carefully selected to work in a broad range of applications
 // and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
+	ctx  context.Context
 	log  log.Logger
 	tick time.Duration
 
 	h host.Host
-	d discovery.Discoverer
+	d *discover
 
 	self   atomic.Value
 	ds     ds.Batching
 	prefix ds.Key
 	k      int // cardinality of the passive view
+	e      event.Emitter
 
 	runtime interface{ Stop(context.Context) error }
 }
@@ -76,6 +78,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 			fx.Provide(
 				newConfig,
 				newEvents,
+				newDiscover,
 				newPeerExchange,
 				supply(ctx, h)),
 			fx.Invoke(run))
@@ -117,7 +120,20 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discove
 		return 0, err
 	}
 
-	return opts.Ttl, px.gossip(ctx, ns)
+	if err := px.d.Track(px.ctx, ns, opts.Ttl); err != nil {
+		return 0, err
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// try the gossip cache first; if it's empty (or if we fail to connect
+	// to the peers within), fall back on the discovery service.
+	if err = px.gossipCache(ctx, ns); err != nil && px.d != nil {
+		err = px.gossipDiscover(ctx, ns)
+	}
+
+	return opts.Ttl, err
 }
 
 func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
@@ -150,17 +166,6 @@ func (px *PeerExchange) options(opt []discovery.Option) (opts *discovery.Options
 	return
 }
 
-func (px *PeerExchange) gossip(ctx context.Context, ns string) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if err := px.gossipCache(ctx, ns); err != nil && px.d == nil {
-		return err // no peers in cache || or all peers unreachable
-	}
-
-	return px.gossipDiscover(ctx, ns)
-}
-
 func (px *PeerExchange) gossipCache(ctx context.Context, ns string) error {
 	view, err := px.namespace(ns).View()
 	if err != nil {
@@ -186,7 +191,7 @@ func (px *PeerExchange) gossipCache(ctx context.Context, ns string) error {
 }
 
 func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
-	ps, err := px.d.FindPeers(ctx, ns)
+	ps, err := px.d.Discover(ctx, ns)
 	if err != nil {
 		return err
 	}
@@ -288,6 +293,7 @@ func (px *PeerExchange) namespace(ns string) namespace {
 		ds:     px.ds,
 		id:     px.h.ID(),
 		k:      px.k,
+		e:      px.e,
 	}
 }
 
@@ -407,28 +413,32 @@ func newConfig(id peer.ID, opt []Option) (c Config) {
 type pexParams struct {
 	fx.In
 
+	Ctx   context.Context
 	Log   log.Logger
 	K     int
 	Host  host.Host
 	Tick  time.Duration
 	Store ds.Batching
-	Boot  discovery.Discoverer
+	Disc  *discover
 }
 
 func (p pexParams) Prefix() ds.Key {
 	return ds.NewKey(p.Host.ID().String())
 }
 
-func newPeerExchange(p pexParams) *PeerExchange {
+func newPeerExchange(p pexParams) (*PeerExchange, error) {
+	e, err := p.Host.EventBus().Emitter(new(EvtViewUpdated))
 	return &PeerExchange{
+		ctx:    p.Ctx,
 		log:    p.Log,
 		k:      p.K,
 		h:      p.Host,
-		d:      p.Boot,
+		d:      p.Disc,
 		tick:   p.Tick,
 		ds:     p.Store,
 		prefix: p.Prefix(),
-	}
+		e:      e,
+	}, err
 }
 
 func newEvents(bus event.Bus, lx fx.Lifecycle) (s event.Subscription, err error) {

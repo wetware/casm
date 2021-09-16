@@ -13,6 +13,7 @@ import (
 	goprocess "github.com/jbenet/goprocess"
 	connmgr "github.com/libp2p/go-libp2p-core/connmgr"
 	crypto "github.com/libp2p/go-libp2p-core/crypto"
+	discovery "github.com/libp2p/go-libp2p-core/discovery"
 	event "github.com/libp2p/go-libp2p-core/event"
 	network "github.com/libp2p/go-libp2p-core/network"
 	peer "github.com/libp2p/go-libp2p-core/peer"
@@ -999,4 +1000,67 @@ func (m *MockCertifiedAddrBook) GetPeerRecord(p peer.ID) *record.Envelope {
 func (mr *MockCertifiedAddrBookMockRecorder) GetPeerRecord(p interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerRecord", reflect.TypeOf((*MockCertifiedAddrBook)(nil).GetPeerRecord), p)
+}
+
+// MockDiscovery is a mock of Discovery interface.
+type MockDiscovery struct {
+	ctrl     *gomock.Controller
+	recorder *MockDiscoveryMockRecorder
+}
+
+// MockDiscoveryMockRecorder is the mock recorder for MockDiscovery.
+type MockDiscoveryMockRecorder struct {
+	mock *MockDiscovery
+}
+
+// NewMockDiscovery creates a new mock instance.
+func NewMockDiscovery(ctrl *gomock.Controller) *MockDiscovery {
+	mock := &MockDiscovery{ctrl: ctrl}
+	mock.recorder = &MockDiscoveryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDiscovery) EXPECT() *MockDiscoveryMockRecorder {
+	return m.recorder
+}
+
+// Advertise mocks base method.
+func (m *MockDiscovery) Advertise(ctx context.Context, ns string, opts ...discovery.Option) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, ns}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Advertise", varargs...)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Advertise indicates an expected call of Advertise.
+func (mr *MockDiscoveryMockRecorder) Advertise(ctx, ns interface{}, opts ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, ns}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Advertise", reflect.TypeOf((*MockDiscovery)(nil).Advertise), varargs...)
+}
+
+// FindPeers mocks base method.
+func (m *MockDiscovery) FindPeers(ctx context.Context, ns string, opts ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, ns}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "FindPeers", varargs...)
+	ret0, _ := ret[0].(<-chan peer.AddrInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindPeers indicates an expected call of FindPeers.
+func (mr *MockDiscoveryMockRecorder) FindPeers(ctx, ns interface{}, opts ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, ns}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindPeers", reflect.TypeOf((*MockDiscovery)(nil).FindPeers), varargs...)
 }

@@ -629,6 +629,8 @@ github.com/lthibault/jitterbug/v2 v2.2.2 h1:v4+0tqryaI/TlYzgYE0Vhz7ha6Jtz4yRjmBP
 github.com/lthibault/jitterbug/v2 v2.2.2/go.mod h1:evaHKX+60nFbFnEvGNPybQMJ5vXay9auziApDGo47Sw=
 github.com/lthibault/log v1.2.0 h1:RfiCPFnRFhqIl7A8T3YuoKU7US/ASGZgx/IZy6pRZuc=
 github.com/lthibault/log v1.2.0/go.mod h1:j254NVxJgJGQGevj/zS79WLQCVPoHW42ZFN/0yCqASo=
+github.com/lthibault/log v1.2.1 h1:REKIXtQiw9dyAmiiqYZkPitve81odUB0aEqakS+TmTk=
+github.com/lthibault/log v1.2.1/go.mod h1:j254NVxJgJGQGevj/zS79WLQCVPoHW42ZFN/0yCqASo=
 github.com/lthibault/treap v0.1.2 h1:udRywz5Gbu0ZveZwHkpKn+rxMIxnuFMs+mXUzD1Mgyw=
 github.com/lthibault/treap v0.1.2/go.mod h1:lkAEtwwWT4AtrM6APG4Y2MktVKUoT6hHcJHe/gxF1ho=
 github.com/lthibault/util v0.0.10 h1:cZjDQzrjn3b2wclDQSd5Aq5BC8GcBh0aJubr2ZX+VJQ=

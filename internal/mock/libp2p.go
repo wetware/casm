@@ -4,6 +4,7 @@
 package mock
 
 import (
+	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
@@ -17,4 +18,5 @@ type (
 	Network           interface{ network.Network }
 	Emitter           interface{ event.Emitter }
 	CertifiedAddrBook interface{ peerstore.CertifiedAddrBook }
+	Discovery         interface{ discovery.Discovery }
 )

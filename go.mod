@@ -18,7 +18,7 @@ require (
 	github.com/libp2p/go-libp2p-core v0.9.0
 	github.com/libp2p/go-libp2p-pubsub v0.5.4
 	github.com/lthibault/jitterbug/v2 v2.2.2
-	github.com/lthibault/log v1.2.0
+	github.com/lthibault/log v1.2.1
 	github.com/lthibault/treap v0.1.2
 	github.com/lthibault/util v0.0.10
 	github.com/miekg/dns v1.1.43 // indirect
@@ -119,3 +119,5 @@ require (
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
+
+replace github.com/wetware/mx => /Users/lthibault/Go/src/github.com/wetware/mx

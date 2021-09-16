@@ -157,3 +157,65 @@ func TestPeerExchange_join(t *testing.T) {
 			return nil
 		}).Must(ctx, hs)
 }
+
+// func TestPeerExchange_simulation(t *testing.T) {
+// 	t.Parallel()
+
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
+
+// 	const (
+// 		n = 8 // number of peers in cluster
+// 		k = 7 // max number of records in view
+
+// 		tick = time.Millisecond
+// 		ttl  = tick * 10
+// 	)
+
+// 	var (
+// 		opt = []discovery.Option{
+// 			discovery.TTL(ttl),
+// 			discovery.Limit(k),
+// 		}
+
+// 		sim = mx.New(ctx)
+// 		hs  = sim.MustHostSet(ctx, 2)
+// 		ps  = make([]*pex.PeerExchange, len(hs))
+// 		b   = make(boot.StaticAddrs, len(hs))
+// 	)
+
+// 	err := mx.
+// 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+// 			b[i] = *host.InfoFromHost(h)
+// 			return
+// 		}).
+// 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+// 			ps[i], err = pex.New(ctx, h, pex.WithDiscovery(b, opt...))
+// 			return
+// 		}).
+// 		// start advertiser loop
+// 		Go(func(ctx context.Context, i int, h host.Host) error {
+// 			next, err := ps[i].Advertise(ctx, ns, opt...)
+// 			if err == nil {
+// 				sim.Clock().Ticker()
+// 				go func() {
+// 					for {
+// 						select {
+// 						case <-time.After(next):
+// 							next, err = ps[i].Advertise(ctx, ns, opt...)
+// 							require.NoError(t, err)
+// 						case <-ctx.Done():
+// 							return
+// 						}
+// 					}
+// 				}()
+// 			}
+
+// 			return err
+// 		}).
+// 		Go(func(ctx context.Context, i int, h host.Host) error {
+// 			sim.Clock().Ticker()
+// 		}).Err(ctx, hs)
+
+// 	require.NoError(t, err)
+// }

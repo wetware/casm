@@ -19,7 +19,7 @@ type Config struct {
 	MaxSize      int
 	Tick         time.Duration
 	Store        ds.Batching
-	Discovery    discovery.Discoverer
+	Discovery    discovery.Discovery
 	DiscoveryOpt []discovery.Option
 }
 
@@ -62,7 +62,7 @@ func WithDatastore(s ds.Batching) Option {
 // for the PeX instance.  The supplied instance will
 // be called with 'opt' whenever the PeeerExchange is
 // unable to connect to peers in its cache.
-func WithDiscovery(d discovery.Discoverer, opt ...discovery.Option) Option {
+func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 	return func(c *Config) {
 		c.DiscoveryOpt = opt
 		c.Discovery = d
