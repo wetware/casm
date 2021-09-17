@@ -28,6 +28,16 @@ func (as StaticAddrs) Len() int           { return len(as) }
 func (as StaticAddrs) Less(i, j int) bool { return as[i].ID < as[j].ID }
 func (as StaticAddrs) Swap(i, j int)      { as[i], as[j] = as[j], as[i] }
 
+func (as StaticAddrs) Filter(f func(peer.AddrInfo) bool) StaticAddrs {
+	filt := make(StaticAddrs, 0, len(as))
+	for _, info := range as {
+		if f(info) {
+			filt = append(filt, info)
+		}
+	}
+	return filt
+}
+
 // Advertise is a nop that defaults to PermanentAddrTTL.
 func (as StaticAddrs) Advertise(_ context.Context, _ string, opt ...discovery.Option) (time.Duration, error) {
 	opts := &discovery.Options{}
