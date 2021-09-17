@@ -24,6 +24,10 @@ func NewStaticAddrs(as ...ma.Multiaddr) (StaticAddrs, error) {
 	return peer.AddrInfosFromP2pAddrs(as...)
 }
 
+func (as StaticAddrs) Len() int           { return len(as) }
+func (as StaticAddrs) Less(i, j int) bool { return as[i].ID < as[j].ID }
+func (as StaticAddrs) Swap(i, j int)      { as[i], as[j] = as[j], as[i] }
+
 // Advertise is a nop that defaults to PermanentAddrTTL.
 func (as StaticAddrs) Advertise(_ context.Context, _ string, opt ...discovery.Option) (time.Duration, error) {
 	opts := &discovery.Options{}
