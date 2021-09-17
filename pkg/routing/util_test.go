@@ -1,7 +1,7 @@
-package cluster
+package routing
 
 import (
-	"crypto/rand"
+	"math/rand"
 	"testing"
 
 	"github.com/libp2p/go-libp2p-core/crypto"
@@ -41,7 +41,8 @@ func TestPeerIDCastUnsafe(t *testing.T) {
 }
 
 func newPeerID() peer.ID {
-	sk, _, err := crypto.GenerateECDSAKeyPair(rand.Reader)
+	// use non-cryptographic source; it's just a test.
+	sk, _, err := crypto.GenerateECDSAKeyPair(rand.New(rand.NewSource(42)))
 	if err != nil {
 		panic(err)
 	}

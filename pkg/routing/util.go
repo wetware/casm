@@ -1,4 +1,4 @@
-package cluster
+package routing
 
 import (
 	"time"
@@ -79,10 +79,6 @@ func stringCastUnsafe(v interface{}) string {
 
 func idCastUnsafe(v interface{}) peer.ID {
 	return *(*peer.ID)((*ifaceWords)(unsafe.Pointer(&v)).data)
-}
-
-func recordCastUnsafe(v interface{}) peerRecord {
-	return *(*peerRecord)((*ifaceWords)(unsafe.Pointer(&v)).data)
 }
 
 // ifaceWords is interface{} internal representation.

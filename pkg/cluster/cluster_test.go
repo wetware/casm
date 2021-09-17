@@ -1,129 +1,131 @@
-package cluster_test
+package cluster
 
 import (
-	"context"
-	"fmt"
-	"testing"
 	"time"
-
-	"github.com/libp2p/go-libp2p-core/discovery"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/peer"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/stretchr/testify/require"
-	"github.com/wetware/casm/pkg/boot"
-	"github.com/wetware/casm/pkg/cluster"
-	mx "github.com/wetware/matrix/pkg"
 )
 
-func TestCluster_init(t *testing.T) {
-	t.Parallel()
+var t0 = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// func TestValidator(t *testing.T) {
+// 	t.Parallel()
+// 	t.Helper()
 
-	h := mx.New(ctx).MustHost(ctx)
-	p, err := pubsub.NewGossipSub(ctx, h)
-	require.NoError(t, err)
+// 	var m routingTable
+// 	m.Store(state{})
 
-	c, err := cluster.New(ctx, h, p)
-	require.NoError(t, err)
-	require.NotNil(t, c)
+// 	t.Run("Heartbeat", func(t *testing.T) {
+// 		t.Helper()
 
-	require.Equal(t, "casm", c.Topic().String())
+// 		ctrl := gomock.NewController(t)
+// 		defer ctrl.Finish()
 
-	require.NoError(t, c.Close())
-}
+// 		e := mock_libp2p.NewMockEmitter(ctrl)
+// 		validate := m.NewValidator(e)
 
-func TestCluster_simulation(t *testing.T) {
-	t.Parallel()
-	t.Skip("Skipping due to inexplicable failures (see FIXME)")
+// 		t.Run("Reject_unmarshal_fails", func(t *testing.T) {
+// 			res := validate(context.Background(), newPeerID(),
+// 				&pubsub.Message{Message: &pb.Message{}})
+// 			assert.Equal(t, pubsub.ValidationReject, res)
+// 		})
 
-	const (
-		n   = 8 // FIXME:  test fails when this is increased
-		lim = 8 // FIXME:  test fails when n != lim
-		ttl = time.Millisecond * 200
-	)
+// 		t.Run("Ignore_stale_record", func(t *testing.T) {
+// 			a, err := newAnnouncement(capnp.SingleSegment(nil))
+// 			require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// 			hb, err := a.NewHeartbeat()
+// 			require.NoError(t, err)
 
-	sim := mx.New(ctx)
+// 			hb.SetTTL(time.Hour)
 
-	hs := sim.MustHostSet(ctx, n)
-	ds := make([]discovery.Discovery, n)
-	ps := make([]*pubsub.PubSub, n)
-	cs := make([]cluster.Model, n)
+// 			b, err := a.MarshalBinary()
+// 			require.NoError(t, err)
 
-	mx.
-		// set up
-		Go(func(ctx context.Context, i int, h host.Host) error {
-			as := make(boot.StaticAddrs, lim)
-			for i, hh := range hs[:lim] {
-				as[i] = *host.InfoFromHost(hh)
-			}
+// 			id := newPeerID()
+// 			msg := &pubsub.Message{Message: &pb.Message{
+// 				From:  []byte(id),
+// 				Seqno: []byte{0, 0, 0, 0, 0, 0, 0, 8},
+// 				Data:  b,
+// 			}}
 
-			ds[i] = as
-			return nil
-		}).
-		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			ps[i], err = pubsub.NewFloodSub(ctx, h,
-				pubsub.WithDiscovery(ds[i]))
-			return
-		}).
-		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-			cs[i], err = cluster.New(ctx, h, ps[i],
-				cluster.WithTTL(ttl))
-			return
-		}).
-		// test simulation
-		Go(func(ctx context.Context, i int, h host.Host) error {
-			ticker := time.NewTicker(time.Millisecond * 100)
-			defer ticker.Stop()
+// 			res := validate(context.Background(), id, msg)
+// 			require.Equal(t, pubsub.ValidationAccept, res)
 
-			for {
-				select {
-				case <-ticker.C:
-					if u := count(cs[i]); u != n {
-						t.Logf("%s:  %d", h.ID().Pretty(), u)
-						continue
-					}
+// 			msg.Seqno = []byte{0, 0, 0, 0, 0, 0, 0, 1}
+// 			res = validate(context.Background(), id, msg)
+// 			require.Equal(t, pubsub.ValidationIgnore, res)
+// 		})
+// 	})
 
-					// HACK:  idealy we would test iterators in their own test function,
-					//        but its quite tedious set up a cluster, so we'll piggyback
-					//		  here.
-					//
-					// Addendum:  it's not a hack if there's a comment =P
-					t.Run(fmt.Sprintf("Iterator_entries_in_heap_order/%s", h.ID().ShortString()), func(t *testing.T) {
-						var old, new time.Time
-						for it := cs[i].Iter(); it.Next(); {
-							require.Equal(t, cluster.RecordType_None, it.Record().Which())
+// 	t.Run("JoinLeave", func(t *testing.T) {
+// 		t.Helper()
 
-							if new = it.Deadline(); old.IsZero() {
-								require.True(t, it.More()) // dumb, but ensures 100% test coverage
-							} else {
-								require.False(t, new.Before(old),
-									"heap violation (%v happens before %v)", new, old)
-							}
+// 		for _, tt := range []struct {
+// 			which cluster.Announcement_Which
+// 			id    peer.ID
+// 			want  pubsub.ValidationResult
+// 		}{
+// 			{
+// 				which: cluster.Announcement_Which_join,
+// 				id:    newPeerID(),
+// 				want:  pubsub.ValidationAccept,
+// 			},
+// 			{
+// 				which: cluster.Announcement_Which_leave,
+// 				id:    newPeerID(),
+// 				want:  pubsub.ValidationAccept,
+// 			},
+// 		} {
+// 			t.Run(tt.which.String(), func(t *testing.T) {
+// 				ctrl := gomock.NewController(t)
+// 				defer ctrl.Finish()
 
-							old = new
-						}
-					})
+// 				e := mock_libp2p.NewMockEmitter(ctrl)
+// 				e.EXPECT().
+// 					Emit(gomock.AssignableToTypeOf(EvtMembershipChanged{})).
+// 					Return(nil).
+// 					Times(1)
 
-					return nil
+// 				validate := m.NewValidator(e)
 
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-		}).
-		Must(ctx, hs)
-}
+// 				a, err := newAnnouncement(capnp.SingleSegment(nil))
+// 				require.NoError(t, err)
 
-func count(c cluster.Model) int {
-	var ps peer.IDSlice
-	for it := c.Iter(); it.Next(); {
-		ps = append(ps, it.Peer())
-	}
-	return len(ps)
-}
+// 				switch tt.which {
+// 				case cluster.Announcement_Which_join:
+// 					err = a.SetJoin(tt.id)
+// 				case cluster.Announcement_Which_leave:
+// 					err = a.SetLeave(tt.id)
+// 				}
+
+// 				require.NoError(t, err)
+
+// 				b, err := a.MarshalBinary()
+// 				require.NoError(t, err)
+
+// 				id := newPeerID()
+// 				msg := &pubsub.Message{Message: &pb.Message{
+// 					From:  []byte(id),
+// 					Seqno: []byte{0, 0, 0, 0, 0, 0, 0, 1},
+// 					Data:  b,
+// 				}}
+
+// 				got := validate(context.Background(), tt.id, msg)
+// 				require.Equal(t, tt.want, got)
+// 			})
+// 		}
+// 	})
+// }
+
+// func newPeerID() peer.ID {
+// 	sk, _, err := crypto.GenerateECDSAKeyPair(rand.Reader)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+
+// 	id, err := peer.IDFromPrivateKey(sk)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+
+// 	return id
+// }
