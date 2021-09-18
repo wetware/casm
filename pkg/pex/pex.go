@@ -100,15 +100,15 @@ func (px *PeerExchange) Loggable() map[string]interface{} {
 
 func (px *PeerExchange) Close() error { return px.runtime.Stop(context.Background()) }
 
-// Join a namespace.
-func (px *PeerExchange) Join(ctx context.Context, ns string, boot peer.AddrInfo) error {
-	if err := px.h.Connect(ctx, boot); err != nil {
+// Bootstrap a namespace by performing an initial gossip round with a known peer.
+func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peer peer.AddrInfo) error {
+	if err := px.h.Connect(ctx, peer); err != nil {
 		return err
 	}
 
-	s, err := px.h.NewStream(ctx, boot.ID, proto(ns))
+	s, err := px.h.NewStream(ctx, peer.ID, proto(ns))
 	if err != nil {
-		return streamError{Peer: boot.ID, error: err}
+		return streamError{Peer: peer.ID, error: err}
 	}
 
 	return px.pushpull(ctx, px.namespace(ns), s)
@@ -178,7 +178,7 @@ func (px *PeerExchange) gossipCache(ctx context.Context, ns string) error {
 
 	// local host should not be in view
 	for _, info := range view {
-		if err = px.join(ctx, ns, info); err != nil {
+		if err = px.bootstrap(ctx, ns, info); err != nil {
 			if se, ok := err.(streamError); ok {
 				px.log.With(se).Debug("gossip error")
 				continue
@@ -202,7 +202,7 @@ func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
 			continue // don't dial self
 		}
 
-		if err = px.join(ctx, ns, info); err != nil {
+		if err = px.bootstrap(ctx, ns, info); err != nil {
 			if se, ok := err.(streamError); ok {
 				px.log.With(se).Debug("gossip error")
 				continue
@@ -215,12 +215,12 @@ func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
 	return err
 }
 
-// join calles Join() with a timeout context
-func (px *PeerExchange) join(ctx context.Context, ns string, info peer.AddrInfo) error {
+// bootstrap calles Bootstrap() with a timeout context
+func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.AddrInfo) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*15)
 	defer cancel()
 
-	return px.Join(ctx, ns, info)
+	return px.Bootstrap(ctx, ns, info)
 }
 
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {

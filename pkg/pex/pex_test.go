@@ -110,7 +110,7 @@ func TestPeerExchange_Init(t *testing.T) {
 	})
 }
 
-func TestPeerExchange_join(t *testing.T) {
+func TestPeerExchange_Bootstrap(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -140,7 +140,7 @@ func TestPeerExchange_join(t *testing.T) {
 			defer joinCtxCancel()
 
 			if i == 0 {
-				return ps[i].Join(joinCtx, ns, is[i])
+				return ps[i].Bootstrap(joinCtx, ns, is[i])
 			}
 
 			return nil
