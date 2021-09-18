@@ -1,7 +1,7 @@
 package routing_test
 
 import (
-	"math/rand"
+	"crypto/rand"
 	"testing"
 	"time"
 
@@ -93,8 +93,7 @@ func peers(rt *routing.Table) (ps peer.IDSlice) {
 }
 
 func newPeerID() peer.ID {
-	// use non-cryptographic source; it's just a test.
-	sk, _, err := crypto.GenerateECDSAKeyPair(rand.New(rand.NewSource(42)))
+	sk, _, err := crypto.GenerateECDSAKeyPair(rand.Reader)
 	if err != nil {
 		panic(err)
 	}
