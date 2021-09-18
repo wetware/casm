@@ -176,6 +176,7 @@ func (px *PeerExchange) gossipCache(ctx context.Context, ns string) error {
 		return errors.New("orphaned host")
 	}
 
+	// local host should not be in view
 	for _, info := range view {
 		if err = px.join(ctx, ns, info); err != nil {
 			if se, ok := err.(streamError); ok {
@@ -197,6 +198,10 @@ func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
 	}
 
 	for info := range ps {
+		if info.ID == px.h.ID() {
+			continue // don't dial self
+		}
+
 		if err = px.join(ctx, ns, info); err != nil {
 			if se, ok := err.(streamError); ok {
 				px.log.With(se).Debug("gossip error")
