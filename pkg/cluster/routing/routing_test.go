@@ -8,7 +8,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/stretchr/testify/assert"
-	"github.com/wetware/casm/pkg/routing"
+	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
 var t0 = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)

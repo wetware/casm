@@ -9,88 +9,88 @@ import (
 	strconv "strconv"
 )
 
-type Announcement struct{ capnp.Struct }
-type Announcement_Which uint16
+type Event struct{ capnp.Struct }
+type Event_Which uint16
 
 const (
-	Announcement_Which_heartbeat Announcement_Which = 0
-	Announcement_Which_join      Announcement_Which = 1
-	Announcement_Which_leave     Announcement_Which = 2
+	Event_Which_heartbeat Event_Which = 0
+	Event_Which_join      Event_Which = 1
+	Event_Which_leave     Event_Which = 2
 )
 
-func (w Announcement_Which) String() string {
+func (w Event_Which) String() string {
 	const s = "heartbeatjoinleave"
 	switch w {
-	case Announcement_Which_heartbeat:
+	case Event_Which_heartbeat:
 		return s[0:9]
-	case Announcement_Which_join:
+	case Event_Which_join:
 		return s[9:13]
-	case Announcement_Which_leave:
+	case Event_Which_leave:
 		return s[13:18]
 
 	}
-	return "Announcement_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
+	return "Event_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
 }
 
-// Announcement_TypeID is the unique identifier for the type Announcement.
-const Announcement_TypeID = 0xffb4e20298d498a4
+// Event_TypeID is the unique identifier for the type Event.
+const Event_TypeID = 0xcb0a29c8b2cfe159
 
-func NewAnnouncement(s *capnp.Segment) (Announcement, error) {
+func NewEvent(s *capnp.Segment) (Event, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return Announcement{st}, err
+	return Event{st}, err
 }
 
-func NewRootAnnouncement(s *capnp.Segment) (Announcement, error) {
+func NewRootEvent(s *capnp.Segment) (Event, error) {
 	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return Announcement{st}, err
+	return Event{st}, err
 }
 
-func ReadRootAnnouncement(msg *capnp.Message) (Announcement, error) {
+func ReadRootEvent(msg *capnp.Message) (Event, error) {
 	root, err := msg.Root()
-	return Announcement{root.Struct()}, err
+	return Event{root.Struct()}, err
 }
 
-func (s Announcement) String() string {
-	str, _ := text.Marshal(0xffb4e20298d498a4, s.Struct)
+func (s Event) String() string {
+	str, _ := text.Marshal(0xcb0a29c8b2cfe159, s.Struct)
 	return str
 }
 
-func (s Announcement) Which() Announcement_Which {
-	return Announcement_Which(s.Struct.Uint16(0))
+func (s Event) Which() Event_Which {
+	return Event_Which(s.Struct.Uint16(0))
 }
-func (s Announcement) Heartbeat() (Announcement_Heartbeat, error) {
+func (s Event) Heartbeat() (Event_Heartbeat, error) {
 	if s.Struct.Uint16(0) != 0 {
 		panic("Which() != heartbeat")
 	}
 	p, err := s.Struct.Ptr(0)
-	return Announcement_Heartbeat{Struct: p.Struct()}, err
+	return Event_Heartbeat{Struct: p.Struct()}, err
 }
 
-func (s Announcement) HasHeartbeat() bool {
+func (s Event) HasHeartbeat() bool {
 	if s.Struct.Uint16(0) != 0 {
 		return false
 	}
 	return s.Struct.HasPtr(0)
 }
 
-func (s Announcement) SetHeartbeat(v Announcement_Heartbeat) error {
+func (s Event) SetHeartbeat(v Event_Heartbeat) error {
 	s.Struct.SetUint16(0, 0)
 	return s.Struct.SetPtr(0, v.Struct.ToPtr())
 }
 
 // NewHeartbeat sets the heartbeat field to a newly
-// allocated Announcement_Heartbeat struct, preferring placement in s's segment.
-func (s Announcement) NewHeartbeat() (Announcement_Heartbeat, error) {
+// allocated Event_Heartbeat struct, preferring placement in s's segment.
+func (s Event) NewHeartbeat() (Event_Heartbeat, error) {
 	s.Struct.SetUint16(0, 0)
-	ss, err := NewAnnouncement_Heartbeat(s.Struct.Segment())
+	ss, err := NewEvent_Heartbeat(s.Struct.Segment())
 	if err != nil {
-		return Announcement_Heartbeat{}, err
+		return Event_Heartbeat{}, err
 	}
 	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
 	return ss, err
 }
 
-func (s Announcement) Join() (string, error) {
+func (s Event) Join() (string, error) {
 	if s.Struct.Uint16(0) != 1 {
 		panic("Which() != join")
 	}
@@ -98,24 +98,24 @@ func (s Announcement) Join() (string, error) {
 	return p.Text(), err
 }
 
-func (s Announcement) HasJoin() bool {
+func (s Event) HasJoin() bool {
 	if s.Struct.Uint16(0) != 1 {
 		return false
 	}
 	return s.Struct.HasPtr(0)
 }
 
-func (s Announcement) JoinBytes() ([]byte, error) {
+func (s Event) JoinBytes() ([]byte, error) {
 	p, err := s.Struct.Ptr(0)
 	return p.TextBytes(), err
 }
 
-func (s Announcement) SetJoin(v string) error {
+func (s Event) SetJoin(v string) error {
 	s.Struct.SetUint16(0, 1)
 	return s.Struct.SetText(0, v)
 }
 
-func (s Announcement) Leave() (string, error) {
+func (s Event) Leave() (string, error) {
 	if s.Struct.Uint16(0) != 2 {
 		panic("Which() != leave")
 	}
@@ -123,124 +123,122 @@ func (s Announcement) Leave() (string, error) {
 	return p.Text(), err
 }
 
-func (s Announcement) HasLeave() bool {
+func (s Event) HasLeave() bool {
 	if s.Struct.Uint16(0) != 2 {
 		return false
 	}
 	return s.Struct.HasPtr(0)
 }
 
-func (s Announcement) LeaveBytes() ([]byte, error) {
+func (s Event) LeaveBytes() ([]byte, error) {
 	p, err := s.Struct.Ptr(0)
 	return p.TextBytes(), err
 }
 
-func (s Announcement) SetLeave(v string) error {
+func (s Event) SetLeave(v string) error {
 	s.Struct.SetUint16(0, 2)
 	return s.Struct.SetText(0, v)
 }
 
-// Announcement_List is a list of Announcement.
-type Announcement_List struct{ capnp.List }
+// Event_List is a list of Event.
+type Event_List struct{ capnp.List }
 
-// NewAnnouncement creates a new list of Announcement.
-func NewAnnouncement_List(s *capnp.Segment, sz int32) (Announcement_List, error) {
+// NewEvent creates a new list of Event.
+func NewEvent_List(s *capnp.Segment, sz int32) (Event_List, error) {
 	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
-	return Announcement_List{l}, err
+	return Event_List{l}, err
 }
 
-func (s Announcement_List) At(i int) Announcement { return Announcement{s.List.Struct(i)} }
+func (s Event_List) At(i int) Event { return Event{s.List.Struct(i)} }
 
-func (s Announcement_List) Set(i int, v Announcement) error { return s.List.SetStruct(i, v.Struct) }
+func (s Event_List) Set(i int, v Event) error { return s.List.SetStruct(i, v.Struct) }
 
-func (s Announcement_List) String() string {
-	str, _ := text.MarshalList(0xffb4e20298d498a4, s.List)
+func (s Event_List) String() string {
+	str, _ := text.MarshalList(0xcb0a29c8b2cfe159, s.List)
 	return str
 }
 
-// Announcement_Future is a wrapper for a Announcement promised by a client call.
-type Announcement_Future struct{ *capnp.Future }
+// Event_Future is a wrapper for a Event promised by a client call.
+type Event_Future struct{ *capnp.Future }
 
-func (p Announcement_Future) Struct() (Announcement, error) {
+func (p Event_Future) Struct() (Event, error) {
 	s, err := p.Future.Struct()
-	return Announcement{s}, err
+	return Event{s}, err
 }
 
-func (p Announcement_Future) Heartbeat() Announcement_Heartbeat_Future {
-	return Announcement_Heartbeat_Future{Future: p.Future.Field(0, nil)}
+func (p Event_Future) Heartbeat() Event_Heartbeat_Future {
+	return Event_Heartbeat_Future{Future: p.Future.Field(0, nil)}
 }
 
-type Announcement_Heartbeat struct{ capnp.Struct }
-type Announcement_Heartbeat_record Announcement_Heartbeat
-type Announcement_Heartbeat_record_Which uint16
+type Event_Heartbeat struct{ capnp.Struct }
+type Event_Heartbeat_meta Event_Heartbeat
+type Event_Heartbeat_meta_Which uint16
 
 const (
-	Announcement_Heartbeat_record_Which_none    Announcement_Heartbeat_record_Which = 0
-	Announcement_Heartbeat_record_Which_text    Announcement_Heartbeat_record_Which = 1
-	Announcement_Heartbeat_record_Which_binary  Announcement_Heartbeat_record_Which = 2
-	Announcement_Heartbeat_record_Which_pointer Announcement_Heartbeat_record_Which = 3
+	Event_Heartbeat_meta_Which_none    Event_Heartbeat_meta_Which = 0
+	Event_Heartbeat_meta_Which_text    Event_Heartbeat_meta_Which = 1
+	Event_Heartbeat_meta_Which_binary  Event_Heartbeat_meta_Which = 2
+	Event_Heartbeat_meta_Which_pointer Event_Heartbeat_meta_Which = 3
 )
 
-func (w Announcement_Heartbeat_record_Which) String() string {
+func (w Event_Heartbeat_meta_Which) String() string {
 	const s = "nonetextbinarypointer"
 	switch w {
-	case Announcement_Heartbeat_record_Which_none:
+	case Event_Heartbeat_meta_Which_none:
 		return s[0:4]
-	case Announcement_Heartbeat_record_Which_text:
+	case Event_Heartbeat_meta_Which_text:
 		return s[4:8]
-	case Announcement_Heartbeat_record_Which_binary:
+	case Event_Heartbeat_meta_Which_binary:
 		return s[8:14]
-	case Announcement_Heartbeat_record_Which_pointer:
+	case Event_Heartbeat_meta_Which_pointer:
 		return s[14:21]
 
 	}
-	return "Announcement_Heartbeat_record_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
+	return "Event_Heartbeat_meta_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
 }
 
-// Announcement_Heartbeat_TypeID is the unique identifier for the type Announcement_Heartbeat.
-const Announcement_Heartbeat_TypeID = 0xa3743b0938b604e5
+// Event_Heartbeat_TypeID is the unique identifier for the type Event_Heartbeat.
+const Event_Heartbeat_TypeID = 0xa7780dcc55ae3d72
 
-func NewAnnouncement_Heartbeat(s *capnp.Segment) (Announcement_Heartbeat, error) {
+func NewEvent_Heartbeat(s *capnp.Segment) (Event_Heartbeat, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
-	return Announcement_Heartbeat{st}, err
+	return Event_Heartbeat{st}, err
 }
 
-func NewRootAnnouncement_Heartbeat(s *capnp.Segment) (Announcement_Heartbeat, error) {
+func NewRootEvent_Heartbeat(s *capnp.Segment) (Event_Heartbeat, error) {
 	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
-	return Announcement_Heartbeat{st}, err
+	return Event_Heartbeat{st}, err
 }
 
-func ReadRootAnnouncement_Heartbeat(msg *capnp.Message) (Announcement_Heartbeat, error) {
+func ReadRootEvent_Heartbeat(msg *capnp.Message) (Event_Heartbeat, error) {
 	root, err := msg.Root()
-	return Announcement_Heartbeat{root.Struct()}, err
+	return Event_Heartbeat{root.Struct()}, err
 }
 
-func (s Announcement_Heartbeat) String() string {
-	str, _ := text.Marshal(0xa3743b0938b604e5, s.Struct)
+func (s Event_Heartbeat) String() string {
+	str, _ := text.Marshal(0xa7780dcc55ae3d72, s.Struct)
 	return str
 }
 
-func (s Announcement_Heartbeat) Ttl() int64 {
+func (s Event_Heartbeat) Ttl() int64 {
 	return int64(s.Struct.Uint64(0))
 }
 
-func (s Announcement_Heartbeat) SetTtl(v int64) {
+func (s Event_Heartbeat) SetTtl(v int64) {
 	s.Struct.SetUint64(0, uint64(v))
 }
 
-func (s Announcement_Heartbeat) Record() Announcement_Heartbeat_record {
-	return Announcement_Heartbeat_record(s)
-}
+func (s Event_Heartbeat) Meta() Event_Heartbeat_meta { return Event_Heartbeat_meta(s) }
 
-func (s Announcement_Heartbeat_record) Which() Announcement_Heartbeat_record_Which {
-	return Announcement_Heartbeat_record_Which(s.Struct.Uint16(8))
+func (s Event_Heartbeat_meta) Which() Event_Heartbeat_meta_Which {
+	return Event_Heartbeat_meta_Which(s.Struct.Uint16(8))
 }
-func (s Announcement_Heartbeat_record) SetNone() {
+func (s Event_Heartbeat_meta) SetNone() {
 	s.Struct.SetUint16(8, 0)
 
 }
 
-func (s Announcement_Heartbeat_record) Text() (string, error) {
+func (s Event_Heartbeat_meta) Text() (string, error) {
 	if s.Struct.Uint16(8) != 1 {
 		panic("Which() != text")
 	}
@@ -248,24 +246,24 @@ func (s Announcement_Heartbeat_record) Text() (string, error) {
 	return p.Text(), err
 }
 
-func (s Announcement_Heartbeat_record) HasText() bool {
+func (s Event_Heartbeat_meta) HasText() bool {
 	if s.Struct.Uint16(8) != 1 {
 		return false
 	}
 	return s.Struct.HasPtr(0)
 }
 
-func (s Announcement_Heartbeat_record) TextBytes() ([]byte, error) {
+func (s Event_Heartbeat_meta) TextBytes() ([]byte, error) {
 	p, err := s.Struct.Ptr(0)
 	return p.TextBytes(), err
 }
 
-func (s Announcement_Heartbeat_record) SetText(v string) error {
+func (s Event_Heartbeat_meta) SetText(v string) error {
 	s.Struct.SetUint16(8, 1)
 	return s.Struct.SetText(0, v)
 }
 
-func (s Announcement_Heartbeat_record) Binary() ([]byte, error) {
+func (s Event_Heartbeat_meta) Binary() ([]byte, error) {
 	if s.Struct.Uint16(8) != 2 {
 		panic("Which() != binary")
 	}
@@ -273,114 +271,112 @@ func (s Announcement_Heartbeat_record) Binary() ([]byte, error) {
 	return []byte(p.Data()), err
 }
 
-func (s Announcement_Heartbeat_record) HasBinary() bool {
+func (s Event_Heartbeat_meta) HasBinary() bool {
 	if s.Struct.Uint16(8) != 2 {
 		return false
 	}
 	return s.Struct.HasPtr(0)
 }
 
-func (s Announcement_Heartbeat_record) SetBinary(v []byte) error {
+func (s Event_Heartbeat_meta) SetBinary(v []byte) error {
 	s.Struct.SetUint16(8, 2)
 	return s.Struct.SetData(0, v)
 }
 
-func (s Announcement_Heartbeat_record) Pointer() (capnp.Ptr, error) {
+func (s Event_Heartbeat_meta) Pointer() (capnp.Ptr, error) {
 	if s.Struct.Uint16(8) != 3 {
 		panic("Which() != pointer")
 	}
 	return s.Struct.Ptr(0)
 }
 
-func (s Announcement_Heartbeat_record) HasPointer() bool {
+func (s Event_Heartbeat_meta) HasPointer() bool {
 	if s.Struct.Uint16(8) != 3 {
 		return false
 	}
 	return s.Struct.HasPtr(0)
 }
 
-func (s Announcement_Heartbeat_record) SetPointer(v capnp.Ptr) error {
+func (s Event_Heartbeat_meta) SetPointer(v capnp.Ptr) error {
 	s.Struct.SetUint16(8, 3)
 	return s.Struct.SetPtr(0, v)
 }
 
-// Announcement_Heartbeat_List is a list of Announcement_Heartbeat.
-type Announcement_Heartbeat_List struct{ capnp.List }
+// Event_Heartbeat_List is a list of Event_Heartbeat.
+type Event_Heartbeat_List struct{ capnp.List }
 
-// NewAnnouncement_Heartbeat creates a new list of Announcement_Heartbeat.
-func NewAnnouncement_Heartbeat_List(s *capnp.Segment, sz int32) (Announcement_Heartbeat_List, error) {
+// NewEvent_Heartbeat creates a new list of Event_Heartbeat.
+func NewEvent_Heartbeat_List(s *capnp.Segment, sz int32) (Event_Heartbeat_List, error) {
 	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1}, sz)
-	return Announcement_Heartbeat_List{l}, err
+	return Event_Heartbeat_List{l}, err
 }
 
-func (s Announcement_Heartbeat_List) At(i int) Announcement_Heartbeat {
-	return Announcement_Heartbeat{s.List.Struct(i)}
-}
+func (s Event_Heartbeat_List) At(i int) Event_Heartbeat { return Event_Heartbeat{s.List.Struct(i)} }
 
-func (s Announcement_Heartbeat_List) Set(i int, v Announcement_Heartbeat) error {
+func (s Event_Heartbeat_List) Set(i int, v Event_Heartbeat) error {
 	return s.List.SetStruct(i, v.Struct)
 }
 
-func (s Announcement_Heartbeat_List) String() string {
-	str, _ := text.MarshalList(0xa3743b0938b604e5, s.List)
+func (s Event_Heartbeat_List) String() string {
+	str, _ := text.MarshalList(0xa7780dcc55ae3d72, s.List)
 	return str
 }
 
-// Announcement_Heartbeat_Future is a wrapper for a Announcement_Heartbeat promised by a client call.
-type Announcement_Heartbeat_Future struct{ *capnp.Future }
+// Event_Heartbeat_Future is a wrapper for a Event_Heartbeat promised by a client call.
+type Event_Heartbeat_Future struct{ *capnp.Future }
 
-func (p Announcement_Heartbeat_Future) Struct() (Announcement_Heartbeat, error) {
+func (p Event_Heartbeat_Future) Struct() (Event_Heartbeat, error) {
 	s, err := p.Future.Struct()
-	return Announcement_Heartbeat{s}, err
+	return Event_Heartbeat{s}, err
 }
 
-func (p Announcement_Heartbeat_Future) Record() Announcement_Heartbeat_record_Future {
-	return Announcement_Heartbeat_record_Future{p.Future}
+func (p Event_Heartbeat_Future) Meta() Event_Heartbeat_meta_Future {
+	return Event_Heartbeat_meta_Future{p.Future}
 }
 
-// Announcement_Heartbeat_record_Future is a wrapper for a Announcement_Heartbeat_record promised by a client call.
-type Announcement_Heartbeat_record_Future struct{ *capnp.Future }
+// Event_Heartbeat_meta_Future is a wrapper for a Event_Heartbeat_meta promised by a client call.
+type Event_Heartbeat_meta_Future struct{ *capnp.Future }
 
-func (p Announcement_Heartbeat_record_Future) Struct() (Announcement_Heartbeat_record, error) {
+func (p Event_Heartbeat_meta_Future) Struct() (Event_Heartbeat_meta, error) {
 	s, err := p.Future.Struct()
-	return Announcement_Heartbeat_record{s}, err
+	return Event_Heartbeat_meta{s}, err
 }
 
-func (p Announcement_Heartbeat_record_Future) Pointer() *capnp.Future {
+func (p Event_Heartbeat_meta_Future) Pointer() *capnp.Future {
 	return p.Future.Field(0, nil)
 }
 
-const schema_c2974e3dc137fcee = "x\xdat\x91Ok\x13A\x18\xc6\x9f\xe7\x9dM\xa3\xb0" +
-	"!\xd9n@\x14EP/\x15\x12\xd4\"JD\xea\x9f" +
-	"\x16*\xa8\xf4\x0d\x16<xp\x9b\x0c$\x92\xce\x868" +
-	"\xf1\xcf\xc9\x8fa\xc1\xa3z\xf6R\xbc\xeb\xd1\xb3\x9f@" +
-	"\x10\xc1\x83\x9f\xa0:\xb2\x81\xed\x82\xe0\x9cf^f\xde" +
-	"\xdf\xf3\x9b\xb7\xf5\xf3\x86\\\xac\xe5\x02\xe8\xc9\xdaR\xf8" +
-	"\x1e}\xbcz\xf4\x9a\x7f\x0b=N\x09\xef\xf6\xbe\xee\xc9" +
-	"\xb7\xfd\x80\x1a\xeb\xc0\xea)\x9e`\xda)\xb6\xe9\x0a\x9f" +
-	"\x83\xe1r\xfc\xe6\xf6\xbay\xbf\x0f=K\xa9\xden\xb3" +
-	"\xce\x88\xd1\xea\x98}\x82\xe9\x9c?\xc0\xaa\x97\xc6d\xf8" +
-	"up\xe5\xd3\xf5\xfb\xaf?c\x83u\x03\xa4w\xe4K" +
-	"\xba-\xc7\x804\x93\x0f\xe8\x84\xe9|\xf2\xd4v\x07\x99" +
-	"\x99\xbai\xef\xa6s\xf9\xdc\x0d\xec\xaeu\xbe\xbbi\xb3" +
-	"\x99\xdf\xb1&\xf3[\xa4\x1e1\x11\x10\x11HV\xce\x00" +
-	"z\xceP/\x08\x8bU\x85K:=H\xdd\xfb\x09k" +
-	"\x10\xd6\xc0\xb5\x99\x1d\xe4\xb3\xe1!$\xfa\x1f$\xf3\xdd" +
-	"\xc5U\x0e\xb5e\xa28\x846\x0bTv\x1e\xd0G\x86" +
-	":\x126\xf8'\xb4)@b\x8b\xeacC\x9d\x08\x1b" +
-	"\xf2;\xb4i\x80d\xdc\x03th\xa8Sa\xc3\x1c\x84" +
-	"6# \xd9\xbd\x05\xe8\xc8P\xbd\xb0\xe9rg\xb1\xd4" +
-	"\xf4\xf6\x85g\x0ca\x0c\xae\xed\x8c]6{\xc9\x06\x84" +
-	"\x0d\xf0\xd54\x1f;og\\\x86p\x19<L.\xff" +
-	"&\x074\"\xabQ$\xec\x87R\x06\xf4\x1a/4\x16" +
-	"\x1f\xb6\xd1\x07t\xddP\xb7J\x8b\xa2z\xaf\xb0\xd84" +
-	"\xd4\x07\xa5E\xe1\xa6\x97\x00\xbdk\xa8\x0f\x85aT\xf5" +
-	"c\xabB\x81l\x81\xcd'\xf9\xd8\x95\x1a\xa7'6{" +
-	"f\xcb\xd3\xdf\x00\x00\x00\xff\xff\xe9\xf4\x9c\x91"
+const schema_c2974e3dc137fcee = "x\xda\\\x90Mk\x13Q\x14\x86\xdf\xf7\xdc\x99\x8e\x94" +
+	"\x19\x92\xc9\x04\xdcT\x04\xb1\x8b\x14\x1a\xfcX\x08\x85\xe2" +
+	"\x07\x06[\xfc\xa0\xa7\x18Pp\xe1T/&\x92L\x86" +
+	"x\xadu\xe5\x7fp\xe3Op\xa7 \xfe\x01]\x09\x0a" +
+	".]\xeb\xa6;\x7fA\xf5\xca\x04\xa6\x03\xde\xd5\xbd\x87" +
+	"{\x9e\xf3\x9c\xb7}xE\xce\x873\x01t%\\\xf2" +
+	"\xf3\xcdw\xc3o\xc9\xc1[h\x87\xe2\xef\xff\xfc\xfe\xe1" +
+	"Ko\xf9+BF@v\x8a\xbf\xb2\xde\xe2\xb6\xca\x17" +
+	"\xa0\x7f\xb2\xfa\xe3\xa6\xbb\xb1\xfd\x11\xbaBiZ\x87\x8c" +
+	"\x180\xb8h\xb9L0\x9b\xf2\x10lP\x1a\x93\xfe\xf7" +
+	"\xd1\xa5O\x9bw\xde|\xc6\x80\x91\x01\xb2\xab\xf2:\xdb" +
+	"\x96\x93@6\x94\xf7X\xf7\xe5\xf3\xc93\xdb\x7f\x94K" +
+	"Y\x94\x1b\x83}[\xb8\xfe\x96\xcd\xe7n/\xb2\xb9\xdb" +
+	"!\xf5\x84\x09\x80\x80@\xda;\x03\xe8YC='\xac" +
+	"Nc\x95\xae\xafA\"\xe7&\x0c!\x0c\xc1\xd6\xd4\xba" +
+	"\xfc\x98m\xfeg\xdb\xdc\xf5\xab\x1f\x80\xb6M\x10{\xdf" +
+	"e5 _\x03\xf4\x81\xa1\x8e\x84\x09\xff\xfa.\x05H" +
+	"mU}h\xa8\x13a\"\x7f|\x97\x06H\xc7\x1b\x80" +
+	">6\xd4R\x98\x98#\xdfe\x00\xa4\xd3k\x80\x8e\x0c" +
+	"\xd5\x09[\xc5\xac\xb0Xj9{\xe0\x18C\x18\x83\x97" +
+	"\xf7\xc6E>\x7f\xc9\x04\xc2\x04|U\xce\xc6\x85\xb3s" +
+	"v \xec\x80\xc7\xc6\xac\x8d\xe94 \x9b\xc4S\xee\xfa" +
+	"z\x07\xd0i\xbc\xd0_\xc43\xd8\x05\xf4\xba\xa1\xee\xd4" +
+	"\xf6U\xf5ve\xbfe\xa8wk\xfbj'\xbd\x00\xe8" +
+	"-C\xbd'\xf4\xa3\x86\xc7v3\x0ad\x1bl=\x9d" +
+	"\x8d\x8bZ\xff\xf4\xc4\xe6\xfb\xb6~\xfd\x0b\x00\x00\xff\xff" +
+	"lt\x93{"
 
 func init() {
 	schemas.Register(schema_c2974e3dc137fcee,
-		0xa3743b0938b604e5,
-		0xb4a50344439b0c35,
-		0xffb4e20298d498a4)
+		0xa7780dcc55ae3d72,
+		0xb44947744bd72567,
+		0xcb0a29c8b2cfe159)
 }
