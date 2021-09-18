@@ -1,11 +1,11 @@
-package cluster
+package pulse
 
 import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/wetware/casm/internal/api/cluster"
+	"github.com/wetware/casm/internal/api/pulse"
 )
 
 type Hook func(Heartbeat)
@@ -17,18 +17,18 @@ type Heartbeat interface {
 }
 
 type (
-	Record     = cluster.Announcement_Heartbeat_record
-	RecordType = cluster.Announcement_Heartbeat_record_Which
+	Record     = pulse.Announcement_Heartbeat_record
+	RecordType = pulse.Announcement_Heartbeat_record_Which
 )
 
 var (
-	RecordType_None   = cluster.Announcement_Heartbeat_record_Which_none
-	RecordType_Text   = cluster.Announcement_Heartbeat_record_Which_text
-	RecordType_Binary = cluster.Announcement_Heartbeat_record_Which_binary
-	RecordType_Ptr    = cluster.Announcement_Heartbeat_record_Which_pointer
+	RecordType_None   = pulse.Announcement_Heartbeat_record_Which_none
+	RecordType_Text   = pulse.Announcement_Heartbeat_record_Which_text
+	RecordType_Binary = pulse.Announcement_Heartbeat_record_Which_binary
+	RecordType_Ptr    = pulse.Announcement_Heartbeat_record_Which_pointer
 )
 
-type announcement struct{ cluster.Announcement }
+type announcement struct{ pulse.Announcement }
 
 func newAnnouncement(arena capnp.Arena) (announcement, error) {
 	var (
@@ -37,7 +37,7 @@ func newAnnouncement(arena capnp.Arena) (announcement, error) {
 	)
 
 	if err == nil {
-		a.Announcement, err = cluster.NewRootAnnouncement(s)
+		a.Announcement, err = pulse.NewRootAnnouncement(s)
 	}
 
 	return a, err
@@ -68,22 +68,22 @@ func (a announcement) MarshalBinary() ([]byte, error) {
 func (a *announcement) UnmarshalBinary(b []byte) error {
 	msg, err := capnp.UnmarshalPacked(b)
 	if err == nil {
-		a.Announcement, err = cluster.ReadRootAnnouncement(msg)
+		a.Announcement, err = pulse.ReadRootAnnouncement(msg)
 	}
 
 	return err
 }
 
-type heartbeat cluster.Announcement_Heartbeat
+type heartbeat pulse.Announcement_Heartbeat
 
 func (hb heartbeat) SetTTL(d time.Duration) {
-	(cluster.Announcement_Heartbeat)(hb).SetTtl(int64(d))
+	(pulse.Announcement_Heartbeat)(hb).SetTtl(int64(d))
 }
 
 func (hb heartbeat) TTL() time.Duration {
-	return time.Duration((cluster.Announcement_Heartbeat)(hb).Ttl())
+	return time.Duration((pulse.Announcement_Heartbeat)(hb).Ttl())
 }
 
 func (hb heartbeat) Record() Record {
-	return cluster.Announcement_Heartbeat(hb).Record()
+	return pulse.Announcement_Heartbeat(hb).Record()
 }

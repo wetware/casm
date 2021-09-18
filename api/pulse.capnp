@@ -2,8 +2,8 @@ using Go = import "/go.capnp";
 
 @0xc2974e3dc137fcee;
 
-$Go.package("cluster");
-$Go.import("github.com/wetware/casm/internal/api/cluster");
+$Go.package("pulse");
+$Go.import("github.com/wetware/casm/internal/api/pulse");
 
 
 # Announcements are broadcast over the cluster's pubsub topic.
