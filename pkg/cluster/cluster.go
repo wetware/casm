@@ -19,6 +19,13 @@ import (
 
 func init() { rand.Seed(time.Now().UnixNano()) }
 
+type RoutingTable interface {
+	Advance(time.Time)
+	Iter() routing.Iterator
+	Upsert(routing.Record) bool
+	Lookup(peer.ID) (routing.Record, bool)
+}
+
 type PubSub interface {
 	ListPeers(topic string) []peer.ID
 	Join(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error)
@@ -26,83 +33,44 @@ type PubSub interface {
 	UnregisterTopicValidator(topic string) error
 }
 
-type Manager struct{ ps PubSub }
-
-func New(ps PubSub) Manager {
-	return Manager{ps: ps}
-}
-
-// Join the cluster identified by the namespace ns.  The context is used only
-// to connect to the cluster; cancelling ctx after Join has returned will NOT
-// result in the local host leaving ns.  To leave a cluster, call its Close()
-// method.
-func (m Manager) Join(ctx context.Context, ns string, opt ...Option) (c Cluster, err error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	app := fx.New(fx.NopLogger,
-		fx.Populate(&c),
-		fx.Supply(ns, m, opt),
-		fx.Provide(
-			newConfig,
-			newCluster))
-
-	if err = app.Start(ctx); err == nil {
-		c.runtime = app
-	}
-
-	return
-}
-
-type Cluster struct {
-	t       *pubsub.Topic
-	runtime interface {
-		Start(context.Context) error
-		Stop(context.Context) error
-	}
-}
-
-type clusterParam struct {
+type Param struct {
 	fx.In
 
+	NS        string
 	Logger    log.Logger
 	TTL       time.Duration
-	Manager   Manager
-	Topic     *pubsub.Topic
+	Routing   RoutingTable
+	PubSub    PubSub
 	OnPublish pulse.Hook
 	Emitter   event.Emitter
 }
 
-func (p clusterParam) Log() log.Logger {
-	return p.Logger.WithField("ns", p.Topic.String())
+func (p Param) Log() log.Logger {
+	return p.Logger.WithField("ns", p.NS)
 }
 
-func (p clusterParam) Namespace() string {
-	return p.Topic.String()
-}
-
-func (p clusterParam) HeartbeatTicker() (<-chan time.Time, func()) {
+func (p Param) heartbeatTicker() (<-chan time.Time, func()) {
 	jitter := jitterbug.New(p.TTL/2, jitterbug.Uniform{Min: p.TTL / 3})
 	return jitter.C, jitter.Stop
 }
 
-func (p clusterParam) Validator(rt pulse.RoutingTable) fx.Hook {
+func (p Param) validator() fx.Hook {
 	return fx.Hook{
 		OnStart: func(context.Context) error {
-			return p.Manager.ps.RegisterTopicValidator(p.Namespace(),
-				pulse.NewValidator(rt, p.Emitter))
+			return p.PubSub.RegisterTopicValidator(p.NS,
+				pulse.NewValidator(p.Routing, p.Emitter))
 		},
 		OnStop: func(context.Context) error {
-			return p.Manager.ps.UnregisterTopicValidator(p.Namespace())
+			return p.PubSub.UnregisterTopicValidator(p.NS)
 		},
 	}
 }
 
-func (p clusterParam) Relay() fx.Hook {
+func (p Param) relay(t *pubsub.Topic) fx.Hook {
 	var cancel pubsub.RelayCancelFunc
 	return fx.Hook{
 		OnStart: func(context.Context) (err error) {
-			cancel, err = p.Topic.Relay()
+			cancel, err = t.Relay()
 			return
 		},
 		OnStop: func(context.Context) error {
@@ -112,10 +80,6 @@ func (p clusterParam) Relay() fx.Hook {
 	}
 }
 
-type routingTable interface {
-	Lookup(peer.ID) (routing.Record, bool)
-}
-
 func contains(rt routingTable, id peer.ID) bool {
 	_, ok := rt.Lookup(id)
 	return ok
@@ -123,7 +87,7 @@ func contains(rt routingTable, id peer.ID) bool {
 
 var withReady = pubsub.WithReadiness(pubsub.MinTopicSize(1))
 
-func (p clusterParam) Monitor(rt routingTable) fx.Hook {
+func (p Param) monitor(t *pubsub.Topic) fx.Hook {
 	var (
 		h           *pubsub.TopicEventHandler
 		ctx, cancel = context.WithCancel(context.Background())
@@ -136,7 +100,7 @@ func (p clusterParam) Monitor(rt routingTable) fx.Hook {
 				return err
 			}
 
-			if h, err = p.Topic.EventHandler(); err != nil {
+			if h, err = t.EventHandler(); err != nil {
 				return err
 			}
 
@@ -149,7 +113,7 @@ func (p clusterParam) Monitor(rt routingTable) fx.Hook {
 
 					// Don't spam the cluster if we already know about
 					// the peer.  Others likely know about it already.
-					if contains(rt, pe.Peer) {
+					if contains(p.Routing, pe.Peer) {
 						continue
 					}
 
@@ -170,7 +134,7 @@ func (p clusterParam) Monitor(rt routingTable) fx.Hook {
 						p.Log().WithError(err).Fatal("error marshalling capnp message")
 					}
 
-					if err = p.Topic.Publish(ctx, b, withReady); err != nil {
+					if err = t.Publish(ctx, b, withReady); err != nil {
 						break
 					}
 
@@ -187,14 +151,14 @@ func (p clusterParam) Monitor(rt routingTable) fx.Hook {
 	}
 }
 
-func (p clusterParam) Tick(rt interface{ Advance(time.Time) }) fx.Hook {
+func (p Param) tick() fx.Hook {
 	ticker := time.NewTicker(time.Millisecond * 100)
 
 	return fx.Hook{
 		OnStart: func(context.Context) error {
 			go func() {
 				for t := range ticker.C {
-					rt.Advance(t)
+					p.Routing.Advance(t)
 				}
 			}()
 			return nil
@@ -206,7 +170,7 @@ func (p clusterParam) Tick(rt interface{ Advance(time.Time) }) fx.Hook {
 	}
 }
 
-func (p clusterParam) HeartbeatLoop() fx.Hook {
+func (p Param) heartbeatLoop(t *pubsub.Topic) fx.Hook {
 	var (
 		stop   func() // stop the ticker
 		cancel context.CancelFunc
@@ -233,11 +197,11 @@ func (p clusterParam) HeartbeatLoop() fx.Hook {
 			}
 
 			// publish once to join the cluster
-			if err = p.Topic.Publish(ctx, b, withReady); err == nil {
+			if err = t.Publish(ctx, b, withReady); err == nil {
 				ctx, cancel = context.WithCancel(context.Background())
 
 				var tick <-chan time.Time
-				tick, stop = p.HeartbeatTicker()
+				tick, stop = p.heartbeatTicker()
 
 				go func() {
 					p.Log().Debug("started heartbeat loop")
@@ -254,7 +218,7 @@ func (p clusterParam) HeartbeatLoop() fx.Hook {
 							continue
 						}
 
-						if err = p.Topic.Publish(ctx, b, withReady); err == nil {
+						if err = t.Publish(ctx, b, withReady); err == nil {
 							continue
 						}
 
@@ -278,15 +242,35 @@ func (p clusterParam) HeartbeatLoop() fx.Hook {
 	}
 }
 
-func newCluster(p clusterParam, lx fx.Lifecycle) Cluster {
-	rt := routing.New()
-	lx.Append(p.Validator(rt))
-	lx.Append(p.Tick(rt))
-	lx.Append(p.Relay())
-	lx.Append(p.Monitor(rt))
-	lx.Append(p.HeartbeatLoop())
+type routingTable interface {
+	Lookup(peer.ID) (routing.Record, bool)
+	Iter() routing.Iterator
+}
 
-	return Cluster{t: p.Topic}
+type Cluster struct {
+	t *pubsub.Topic
+	routingTable
+
+	runtime interface {
+		Start(context.Context) error
+		Stop(context.Context) error
+	}
+}
+
+func New(p Param, lx fx.Lifecycle) (Cluster, error) {
+	t, err := p.PubSub.Join(p.NS)
+	if err == nil {
+		lx.Append(p.validator())
+		lx.Append(p.tick())
+		lx.Append(p.relay(t))
+		lx.Append(p.monitor(t))
+		lx.Append(p.heartbeatLoop(t))
+	}
+
+	return Cluster{
+		routingTable: p.Routing,
+		t:            t,
+	}, err
 }
 
 // String returns the cluster's namespace.
@@ -294,11 +278,8 @@ func (c Cluster) String() string {
 	return c.t.String()
 }
 
+func (c Cluster) Topic() *pubsub.Topic { return c.t }
+
 func (c Cluster) Closer() error {
 	return c.runtime.Stop(context.Background())
-}
-
-func newConfig(opt []Option) (c Config) {
-	c.Apply(opt)
-	return
 }
