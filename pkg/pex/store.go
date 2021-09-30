@@ -112,7 +112,6 @@ func (n namespace) MergeAndStore(remote gossipSlice) error {
 	if err := remote.Validate(); err != nil {
 		return err
 	}
-	fmt.Println("HEY!!")
 
 	remote.incrHops()
 	sender := remote.last()
@@ -210,18 +209,21 @@ func isNot(self peer.ID) func(gossipSlice) gossipSlice {
 func merged(tail gossipSlice) func(gossipSlice) gossipSlice {
 	return func(gs gossipSlice) gossipSlice {
 		return append(
-			gs.Bind(dedupe(tail)),
-			tail.Bind(dedupe(gs))...)
+			gs.Bind(dedupe(tail, true)),
+			tail.Bind(dedupe(gs, false))...)
 	}
 }
 
-func dedupe(other gossipSlice) func(gossipSlice) gossipSlice {
+func dedupe(other gossipSlice, keepEqual bool) func(gossipSlice) gossipSlice {
 	return func(gs gossipSlice) gossipSlice {
 		return gs.Bind(filter(func(g *GossipRecord) bool {
 			have, found := other.find(g)
-			// select if:
-			// unique   ...    more recent   ...  less diffused
-			return !found || g.Seq > have.Seq || g.Hop() < have.Hop()
+			if keepEqual {
+				return !found || g.Seq > have.Seq || g.Hop() < have.Hop() ||
+					(g.Seq == have.Seq && g.Hop() == have.Hop())
+			} else {
+				return !found || g.Seq > have.Seq || g.Hop() < have.Hop()
+			}
 		}))
 	}
 }
