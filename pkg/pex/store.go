@@ -112,6 +112,7 @@ func (n namespace) MergeAndStore(remote gossipSlice) error {
 	if err := remote.Validate(); err != nil {
 		return err
 	}
+	fmt.Println("HEY!!")
 
 	remote.incrHops()
 	sender := remote.last()

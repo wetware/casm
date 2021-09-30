@@ -627,8 +627,6 @@ github.com/lthibault/go-libp2p-inproc-transport v0.0.1-alpha.7 h1:FEV9yoMKVwmXsL
 github.com/lthibault/go-libp2p-inproc-transport v0.0.1-alpha.7/go.mod h1:P3KGUdIgSaAe4h2rnXzoHSLRSWymqQru1cIMN+R7v7Y=
 github.com/lthibault/jitterbug/v2 v2.2.2 h1:v4+0tqryaI/TlYzgYE0Vhz7ha6Jtz4yRjmBP+PcqWPQ=
 github.com/lthibault/jitterbug/v2 v2.2.2/go.mod h1:evaHKX+60nFbFnEvGNPybQMJ5vXay9auziApDGo47Sw=
-github.com/lthibault/log v1.2.0 h1:RfiCPFnRFhqIl7A8T3YuoKU7US/ASGZgx/IZy6pRZuc=
-github.com/lthibault/log v1.2.0/go.mod h1:j254NVxJgJGQGevj/zS79WLQCVPoHW42ZFN/0yCqASo=
 github.com/lthibault/log v1.2.1 h1:REKIXtQiw9dyAmiiqYZkPitve81odUB0aEqakS+TmTk=
 github.com/lthibault/log v1.2.1/go.mod h1:j254NVxJgJGQGevj/zS79WLQCVPoHW42ZFN/0yCqASo=
 github.com/lthibault/treap v0.1.2 h1:udRywz5Gbu0ZveZwHkpKn+rxMIxnuFMs+mXUzD1Mgyw=

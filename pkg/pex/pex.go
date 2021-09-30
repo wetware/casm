@@ -7,6 +7,7 @@ import (
 	"path"
 	"sync/atomic"
 	"time"
+	"sync"
 
 	"capnproto.org/go/capnp/v3"
 	ds "github.com/ipfs/go-datastore"
@@ -60,12 +61,13 @@ type PeerExchange struct {
 	h host.Host
 	d *discover
 
+	mu sync.Mutex
 	self   atomic.Value
 	ds     ds.Batching
 	prefix ds.Key
 	k      int // cardinality of the passive view
 	e      event.Emitter
-
+	
 	runtime interface{ Stop(context.Context) error }
 }
 
@@ -219,6 +221,9 @@ func (px *PeerExchange) join(ctx context.Context, ns string, info peer.AddrInfo)
 }
 
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+	
 	defer s.Close()
 
 	var (
