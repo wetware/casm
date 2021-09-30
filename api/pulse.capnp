@@ -2,12 +2,15 @@ using Go = import "/go.capnp";
 
 @0xc2974e3dc137fcee;
 
-$Go.package("cluster");
-$Go.import("github.com/wetware/casm/internal/api/cluster");
+$Go.package("pulse");
+$Go.import("github.com/wetware/casm/internal/api/pulse");
 
 
-# Announcements are broadcast over the cluster's pubsub topic.
-struct Announcement {
+# Cluster events are are broadcast over the cluster's pubsub topic.
+# There are t
+struct Event {
+    using PeerID = Text;
+
     # Heartbeat messages are periodically broadcast in a pubsub
     # topic whose name is the cluster's namespace string. This
     # is used to track the liveness of peers in a cluster, as
@@ -32,7 +35,7 @@ struct Announcement {
         #
         # This data will be broadcast to all pears at each heartbeat,
         # so users are encoraged to be very terse.
-        record :union {
+        meta :union {
             none @1 :Void;
             text @2 :Text;
             binary @3 :Data;
@@ -40,15 +43,21 @@ struct Announcement {
         }
     }
 
-    # JoinLeave announcements indicates that a peer's neighbor
-    # believes the peer to have left the cluster.  This should
-    # be treated with caution because it might instead reflect
-    # reachability issues between those two peers.
-    using JoinLeave = Text;
-
+    # Join and Leave are emitted by peers when they believe one of their
+    # neighbors to have joined or left the cluster.  Such events should
+    # be treated with caution because both are prone to false positives.
+    # A peer p considers a neighbor n to have joined if (1) n has just
+    # connected to p and (2) n is not currently in p's routing table.
+    # Conversely, n is considered to have left only if the Leave event
+    # was emitted by n itself.  This is because peers routinely disconnect
+    # for legitimate reasons, such as topology management.
+    #
+    # TODO(enhancement):  p should respond to disconnections by sending a
+    #                     ping message to n, and should emit a Leave event
+    #                     if n cannot be reached.
     union {
         heartbeat @0 :Heartbeat;
-        join @1 :JoinLeave;
-        leave @2 :JoinLeave;
+        join @1 :PeerID;
+        leave @2 :PeerID;
     }
 }

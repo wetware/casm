@@ -12,6 +12,7 @@ import (
 	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/pex"
 	mx "github.com/wetware/matrix/pkg"
 )
@@ -109,7 +110,7 @@ func TestPeerExchange_Init(t *testing.T) {
 	})
 }
 
-func TestPeerExchange_join(t *testing.T) {
+func TestPeerExchange_Bootstrap(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -139,7 +140,7 @@ func TestPeerExchange_join(t *testing.T) {
 			defer joinCtxCancel()
 
 			if i == 0 {
-				return ps[i].Join(joinCtx, ns, is[i])
+				return ps[i].Bootstrap(joinCtx, ns, is[i])
 			}
 
 			return nil
@@ -156,6 +157,39 @@ func TestPeerExchange_join(t *testing.T) {
 			require.Equal(t, is[i].ID, info.ID)
 			return nil
 		}).Must(ctx, hs)
+}
+
+func TestAdvertise(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	hs := mx.New(ctx).MustHostSet(ctx, 8)
+	px := make([]*pex.PeerExchange, len(hs))
+	as := make(boot.StaticAddrs, len(hs))
+
+	mx.
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			as[i] = *host.InfoFromHost(h)
+			return
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			b := make(boot.StaticAddrs, 0, len(as)-1)
+			for _, info := range as {
+				if info.ID != h.ID() {
+					b = append(b, info)
+				}
+			}
+
+			px[i], err = pex.New(ctx, h, pex.WithDiscovery(b))
+			return
+		}).Must(ctx, hs)
+
+	ttl, err := px[0].Advertise(ctx, ns)
+	require.NoError(t, err)
+	require.NotEqual(t, ps.PermanentAddrTTL, ttl,
+		"pex SHOULD NOT use the underlying discovery service's TTL")
 }
 
 // func TestPeerExchange_simulation(t *testing.T) {

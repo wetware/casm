@@ -4,41 +4,26 @@ import (
 	"time"
 
 	"github.com/lthibault/log"
+	"github.com/wetware/casm/pkg/cluster/pulse"
 	"go.uber.org/fx"
 )
 
-// Config provides options to the dependency-injection
-// framework.
+// Config supplies options to the dependency-injection framework.
 type Config struct {
-	fx.Out
+	fx.In
 
-	NS   string
 	Log  log.Logger
 	TTL  time.Duration
-	Hook Hook
+	Hook pulse.Hook
 }
 
-// Apply options to 'c', populating its fields.
 func (c *Config) Apply(opt []Option) {
 	for _, option := range withDefault(opt) {
 		option(c)
 	}
 }
 
-// Option type for Cluster.
-type Option func(*Config)
-
-// WithNamespace sets the namespace for the cluster.
-// If ns == "", a default namespace of "casm" is used.
-func WithNamespace(ns string) Option {
-	if ns == "" {
-		ns = "casm"
-	}
-
-	return func(c *Config) {
-		c.NS = ns
-	}
-}
+type Option func(c *Config)
 
 // WithLogger sets the logger for the cluster model.
 // If l == nil, a default logger is used.
@@ -82,9 +67,9 @@ func WithTTL(d time.Duration) Option {
 // in an invalid state.  Clean up after yourself!
 //
 // Passing f == nil removes the hook.
-func WithHook(f func(Heartbeat)) Option {
+func WithHook(f pulse.Hook) Option {
 	if f == nil {
-		f = func(Heartbeat) {}
+		f = func(pulse.Heartbeat) {}
 	}
 
 	return func(c *Config) {
@@ -94,9 +79,8 @@ func WithHook(f func(Heartbeat)) Option {
 
 func withDefault(opt []Option) []Option {
 	return append([]Option{
-		WithNamespace(""),
-		WithLogger(nil),
 		WithTTL(0),
 		WithHook(nil),
+		WithLogger(nil),
 	}, opt...)
 }

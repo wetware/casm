@@ -8,12 +8,11 @@ import (
 )
 
 // New logger from a cli context
-func New(c *cli.Context, opt ...log.Option) log.Logger {
-	return log.New(append([]log.Option{
+func New(c *cli.Context) log.Logger {
+	return log.New(
 		WithLevel(c),
 		WithFormat(c),
-		withErrWriter(c),
-	}, opt...)...)
+		withErrWriter(c))
 }
 
 // WithLevel returns a log.Option that configures a logger's level.

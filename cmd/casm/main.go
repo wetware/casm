@@ -9,7 +9,6 @@ import (
 	"github.com/lthibault/log"
 	"github.com/urfave/cli/v2"
 
-	"github.com/wetware/casm/internal/cmd/discover"
 	"github.com/wetware/casm/internal/cmd/start"
 )
 
@@ -38,7 +37,7 @@ var flags = []cli.Flag{
 }
 
 var commands = []*cli.Command{
-	discover.Command(),
+	// discover.Command(),
 	start.Command(),
 }
 
@@ -57,6 +56,9 @@ func main() {
 }
 
 func before() cli.BeforeFunc {
+	// We attempt to gracefully exit the application when we receive certain
+	// signals from the OS.  Throughout the application, we guarantee that
+	// c.Context will expire when the local process receives SIGINT or SIGTERM.
 	return func(c *cli.Context) error {
 		var cancel context.CancelFunc
 		c.Context, cancel = context.WithCancel(c.Context)
