@@ -17,28 +17,28 @@ clean-mocks:
 	@find . -name 'mock_*.go' | xargs -I{} rm {}
 
 capnp: capnp-boot capnp-pulse
-# N.B.:  compiling capnp schemas requires having github.com/capnproto/go-capnproto2 installed
+# N.B.:  compiling capnp schemas requires having capnproto.org/go/capnp installed
 #		 on the GOPATH.
 
 clean-capnp: clean-capnp-boot clean-capnp-pulse
 
 capnp-boot:
 	@mkdir -p internal/api/boot
-	@capnp compile -I$(GOPATH)/src/github.com/capnproto/go-capnproto2/std -ogo:internal/api/boot --src-prefix=api/ api/boot.capnp
+	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std -ogo:internal/api/boot --src-prefix=api/ api/boot.capnp
 
 clean-capnp-boot:
 	@rm -rf internal/api/boot
 
 capnp-pulse:  clean-capnp-pulse
 	@mkdir -p internal/api/pulse
-	@capnp compile -I$(GOPATH)/src/github.com/capnproto/go-capnproto2/std -ogo:internal/api/pulse --src-prefix=api/ api/pulse.capnp
+	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std -ogo:internal/api/pulse --src-prefix=api/ api/pulse.capnp
 
 clean-capnp-pulse:
 	@rm -rf internal/api/pulse
 
 capnp-pex:  clean-capnp-pex
 	@mkdir -p internal/api/pex
-	@capnp compile -I$(GOPATH)/src/github.com/capnproto/go-capnproto2/std -ogo:internal/api/pex --src-prefix=api/ api/pex.capnp
+	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std -ogo:internal/api/pex --src-prefix=api/ api/pex.capnp
 
 clean-capnp-pex:
 	@rm -rf internal/api/pex
