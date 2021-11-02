@@ -8,8 +8,6 @@ import (
 
 	"github.com/lthibault/log"
 	"github.com/urfave/cli/v2"
-
-	"github.com/wetware/casm/internal/cmd/start"
 )
 
 const version = "0.0.0"
@@ -38,7 +36,7 @@ var flags = []cli.Flag{
 
 var commands = []*cli.Command{
 	// discover.Command(),
-	start.Command(),
+	// start.Command(),
 }
 
 func main() {
