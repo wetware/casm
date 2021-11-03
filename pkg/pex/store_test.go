@@ -31,6 +31,10 @@ func TestMerge(t *testing.T) {
 			test: shouldHaveViewSize_vsize,
 		},
 		{
+			name: "should_keep_records_with_equal_hop_seq",
+			test: shouldKeepRecordsWithEqualHopSeq,
+		},
+		{
 			name: "should_retain_higher_seq",
 			test: shouldRetainHigherSeq,
 		},
@@ -118,6 +122,32 @@ func shouldHaveViewSize_vsize(t *testing.T, p params) {
 	require.NoError(t, err)
 	require.Len(t, gs, vsize)
 }
+
+func shouldKeepRecordsWithEqualHopSeq(t *testing.T, p params) {
+	err := p.PeX.setLocalRecord(p.LocalRecord())
+	require.NoError(t, err)
+
+	n := p.PeX.namespace(ns)
+
+	// Copy Local records to Remote
+	for i, lrec := range p.Local{
+		p.Remote[i].Seq = lrec.Seq
+		p.Remote[i].g.SetHop(lrec.Hop())  // Redundant because initially Hop=0
+		p.Remote[i].PeerID = lrec.PeerID
+	}
+	p.Remote[len(p.Remote)-1].g.SetHop(0)
+
+	err = n.MergeAndStore(p.Local)
+	require.NoError(t, err)
+	err = n.MergeAndStore(p.Remote)
+	require.NoError(t, err)
+
+	// ... the size of the resulting view should be n.
+	gs, err := n.View()
+	require.NoError(t, err)
+	require.Len(t, gs, vsize)
+}
+
 
 func shouldRetainHigherSeq(t *testing.T, p params) {
 	t.Skip("Skipping ... (NOT IMPLEMENTED)")
