@@ -227,10 +227,10 @@ func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.Addr
 }
 
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
-	fmt.Printf("Waiting lock for conn with %v\n", s.Conn().RemotePeer())
+	fmt.Printf("%v: Waiting lock for conn with %v\n", n.id[:5], s.Conn().RemotePeer()[:5])
 	px.mu.Lock()
-	fmt.Printf("Acquired lock for conn with %v\n", s.Conn().RemotePeer())
-	defer fmt.Printf("Released lock for conn with %v\n", s.Conn().RemotePeer())
+	fmt.Printf("%v: Acquired lock for conn with %v\n", n.id[:5], s.Conn().RemotePeer()[:5])
+	defer fmt.Printf("%v: Released lock for conn with %v\n", n.id[:5], s.Conn().RemotePeer()[:5])
 	defer px.mu.Unlock()
 	
 	defer s.Close()
