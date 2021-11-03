@@ -5,9 +5,9 @@ import (
 	"errors"
 	"io"
 	"path"
+	"sync"
 	"sync/atomic"
 	"time"
-	"sync"
 
 	"capnproto.org/go/capnp/v3"
 	ds "github.com/ipfs/go-datastore"
@@ -217,7 +217,7 @@ func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
 	return err
 }
 
-// bootstrap calles Bootstrap() with a timeout context
+// bootstrap calls Bootstrap() with a timeout context
 func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.AddrInfo) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*15)
 	defer cancel()
@@ -226,9 +226,6 @@ func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.Addr
 }
 
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
-	px.mu.Lock()
-	defer px.mu.Unlock()
-	
 	defer s.Close()
 
 	var (
@@ -290,7 +287,6 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 			remote = append(remote, g)
 		}
-
 		return n.MergeAndStore(remote)
 	})
 
