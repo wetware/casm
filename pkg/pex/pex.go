@@ -227,7 +227,10 @@ func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.Addr
 }
 
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
+	fmt.Printf("Waiting lock for conn with %v\n", s.Conn().RemotePeer())
 	px.mu.Lock()
+	fmt.Printf("Acquired lock for conn with %v\n", s.Conn().RemotePeer())
+	defer fmt.Printf("Released lock for conn with %v\n", s.Conn().RemotePeer())
 	defer px.mu.Unlock()
 	
 	defer s.Close()
@@ -237,7 +240,6 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 		j    syncutil.Join
 	)
 
-	fmt.Printf("Stream deadline: %v\n", t)
 	if err := s.SetDeadline(t); err != nil {
 		return err
 	}
