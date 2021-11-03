@@ -246,6 +246,8 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 	// push
 	j.Go(func() error {
+		fmt.Printf("%v: Pushing to %v\n", n.id[:5], s.Conn().RemotePeer()[:5])
+		defer fmt.Printf("%v: Pushed to %v\n", n.id[:5], s.Conn().RemotePeer()[:5])
 		defer s.CloseWrite()
 
 		gs, err := n.Records()
@@ -257,7 +259,8 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 			px.self.Load().(*GossipRecord))
 
 		enc := capnp.NewPackedEncoder(s)
-		for _, g := range gs {
+		for i, g := range gs {
+			fmt.Printf("%v: Pushing %v/%v to %v\n", n.id[:5], i, len(gs)-1, s.Conn().RemotePeer()[:5])
 			if err = enc.Encode(g.Message()); err != nil {
 				break
 			}
