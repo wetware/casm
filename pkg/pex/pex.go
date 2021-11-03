@@ -3,7 +3,6 @@ package pex
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"path"
 	"sync"
@@ -227,10 +226,6 @@ func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.Addr
 }
 
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
-	fmt.Printf("%v: Waiting lock for conn with %v\n", n.id[:5], s.Conn().RemotePeer()[:5])
-	fmt.Printf("%v: Acquired lock for conn with %v\n", n.id[:5], s.Conn().RemotePeer()[:5])
-	defer fmt.Printf("%v: Released lock for conn with %v\n", n.id[:5], s.Conn().RemotePeer()[:5])
-
 	defer s.Close()
 
 	var (
@@ -244,8 +239,6 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 	// push
 	j.Go(func() error {
-		px.mu.Lock()
-		defer px.mu.Unlock()
 		defer s.CloseWrite()
 
 		gs, err := n.Records()
@@ -257,8 +250,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 			px.self.Load().(*GossipRecord))
 
 		enc := capnp.NewPackedEncoder(s)
-		for i, g := range gs {
-			fmt.Printf("%v: Pushing %v/%v to %v\n", n.id[:5], i, len(gs)-1, s.Conn().RemotePeer()[:5])
+		for _, g := range gs {
 			if err = enc.Encode(g.Message()); err != nil {
 				break
 			}
@@ -295,8 +287,6 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 			remote = append(remote, g)
 		}
-		px.mu.Lock()
-		defer px.mu.Unlock()
 		return n.MergeAndStore(remote)
 	})
 
