@@ -227,6 +227,8 @@ func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.Addr
 }
 
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
+	fmt.Printf("%v Opened stream with %v\n", px.h.ID()[:5], s.Conn().RemotePeer()[:5])
+
 	defer s.Close()
 
 	var (
@@ -296,7 +298,9 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 		return n.MergeAndStore(remote)
 	})
 
-	return j.Wait()
+	err := j.Wait()
+	fmt.Printf("%v Closed stream with %v\n", px.h.ID()[:5], s.Conn().RemotePeer()[:5])
+	return err
 }
 
 func (px *PeerExchange) namespace(ns string) namespace {
