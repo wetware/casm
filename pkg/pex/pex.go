@@ -3,6 +3,7 @@ package pex
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"path"
 	"sync"
@@ -239,6 +240,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 	// push
 	j.Go(func() error {
+		fmt.Printf("%v Pushing to %v", px.h.ID()[:5], s.Conn().RemotePeer()[:5])
 		defer s.CloseWrite()
 
 		gs, err := n.Records()
@@ -255,6 +257,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 				break
 			}
 		}
+		fmt.Printf("%v Pushed to %v", px.h.ID()[:5], s.Conn().RemotePeer()[:5])
 
 		return err
 	})
@@ -270,6 +273,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 		dec := capnp.NewPackedDecoder(r)
 		dec.MaxMessageSize = mtu
+		fmt.Printf("%v Pulling from %v", px.h.ID()[:5], s.Conn().RemotePeer()[:5])
 
 		for {
 			msg, err := dec.Decode()
@@ -287,6 +291,8 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 			remote = append(remote, g)
 		}
+		fmt.Printf("%v Pulled from %v", px.h.ID()[:5], s.Conn().RemotePeer()[:5])
+
 		return n.MergeAndStore(remote)
 	})
 
