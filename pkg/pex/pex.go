@@ -238,7 +238,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 	// push
 	j.Go(func() error {
-
+		defer s.CloseWrite()
 		gs, err := n.Records()
 		if err != nil {
 			return err
@@ -258,7 +258,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 	// pull
 	j.Go(func() error {
-
+		defer s.CloseRead()
 		var (
 			remote gossipSlice
 			r      = io.LimitReader(s, int64(px.k*mtu))
