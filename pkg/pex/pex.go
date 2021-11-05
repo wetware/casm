@@ -113,6 +113,7 @@ func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peer peer.Addr
 	if err != nil {
 		return streamError{Peer: peer.ID, error: err}
 	}
+	defer s.Close()
 
 	return px.pushpull(ctx, px.namespace(ns), s)
 }
@@ -229,8 +230,6 @@ func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.Addr
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
 	fmt.Printf("%v Opened stream with %v\n", px.h.ID()[:5], s.Conn().RemotePeer()[:5])
 
-	defer s.Close()
-
 	var (
 		t, _ = ctx.Deadline()
 		j    syncutil.Join
@@ -266,7 +265,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 	// pull
 	j.Go(func() error {
-		defer s.CloseRead()
+		//defer s.CloseRead()
 
 		var (
 			remote gossipSlice
