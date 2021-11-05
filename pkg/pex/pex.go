@@ -238,7 +238,6 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 	// push
 	j.Go(func() error {
-		defer s.CloseWrite()
 
 		gs, err := n.Records()
 		if err != nil {
@@ -259,7 +258,6 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 	// pull
 	j.Go(func() error {
-		//defer s.CloseRead()
 
 		var (
 			remote gossipSlice
@@ -289,8 +287,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 		return n.MergeAndStore(remote)
 	})
 
-	err := j.Wait()
-	return err
+	return j.Wait()
 }
 
 func (px *PeerExchange) namespace(ns string) namespace {
