@@ -125,7 +125,7 @@ func (n namespace) MergeAndStore(remote gossipSlice) error {
 		Bind(isNot(n.id)).
 		Bind(merged(local)).
 		Bind(ordered(n.id, sender)).
-		Bind(tail(n.k))
+		Bind(head(n.k))
 
 	if err = n.Store(local, merged); err != nil {
 		return err
@@ -254,14 +254,14 @@ func sorted() func(gossipSlice) gossipSlice {
 	}
 }
 
-func tail(n int) func(gossipSlice) gossipSlice {
+func head(n int) func(gossipSlice) gossipSlice {
 	if n <= 0 {
 		panic("n must be greater than zero.")
 	}
 
 	return func(gs gossipSlice) gossipSlice {
 		if n < len(gs) {
-			gs = gs[len(gs)-n:]
+			gs = gs[:n]
 		}
 
 		return gs
