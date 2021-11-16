@@ -130,9 +130,9 @@ func shouldKeepRecordsWithEqualHopSeq(t *testing.T, p params) {
 	n := p.PeX.namespace(ns)
 
 	// Copy Local records to Remote
-	for i, lrec := range p.Local{
+	for i, lrec := range p.Local {
 		p.Remote[i].Seq = lrec.Seq
-		p.Remote[i].g.SetHop(lrec.Hop())  // Redundant because initially Hop=0
+		p.Remote[i].g.SetHop(lrec.Hop()) // Redundant because initially Hop=0
 		p.Remote[i].PeerID = lrec.PeerID
 	}
 	p.Remote[len(p.Remote)-1].g.SetHop(0)
@@ -147,7 +147,6 @@ func shouldKeepRecordsWithEqualHopSeq(t *testing.T, p params) {
 	require.NoError(t, err)
 	require.Len(t, gs, vsize)
 }
-
 
 func shouldRetainHigherSeq(t *testing.T, p params) {
 	t.Skip("Skipping ... (NOT IMPLEMENTED)")

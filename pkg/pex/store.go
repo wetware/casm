@@ -268,7 +268,6 @@ func head(n int) func(gossipSlice) gossipSlice {
 	}
 }
 
-
 type gossipSlice []*GossipRecord
 
 func (gs gossipSlice) Len() int           { return len(gs) }

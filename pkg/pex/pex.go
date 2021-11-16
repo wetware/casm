@@ -61,13 +61,13 @@ type PeerExchange struct {
 	h host.Host
 	d *discover
 
-	mu sync.Mutex
+	mu     sync.Mutex
 	self   atomic.Value
 	ds     ds.Batching
 	prefix ds.Key
 	k      int // cardinality of the passive view
 	e      event.Emitter
-	
+
 	runtime interface{ Stop(context.Context) error }
 }
 
