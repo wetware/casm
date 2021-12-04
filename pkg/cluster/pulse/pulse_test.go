@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"testing"
-	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p-core/crypto"
@@ -12,12 +11,11 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pb "github.com/libp2p/go-libp2p-pubsub/pb"
 	"github.com/stretchr/testify/assert"
-	mock_libp2p "github.com/wetware/casm/internal/mock/libp2p"
 	mock_pulse "github.com/wetware/casm/internal/mock/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 )
 
-var t0 = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
+// var t0 = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
 
 func TestValidator(t *testing.T) {
 	t.Parallel()
@@ -32,8 +30,7 @@ func TestValidator(t *testing.T) {
 			defer ctrl.Finish()
 
 			rt := mock_pulse.NewMockRoutingTable(ctrl)
-			e := mock_libp2p.NewMockEmitter(ctrl)
-			validate := pulse.NewValidator(rt, e)
+			validate := pulse.NewValidator(rt)
 
 			res := validate(context.Background(), newPeerID(),
 				&pubsub.Message{Message: &pb.Message{}})

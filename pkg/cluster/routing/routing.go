@@ -3,19 +3,14 @@ package routing
 import (
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/lthibault/treap"
 )
 
-/*
- * model.go specifies a cluster model with PA/EL guarantees.
- */
-
 var handle = treap.Handle{
-	CompareKeys:    unsafePeerIDComparator,
-	CompareWeights: unsafeTimeComparator,
+	CompareKeys:    pidComparator,
+	CompareWeights: treap.TimeComparator,
 }
 
 type Record interface {
@@ -24,27 +19,40 @@ type Record interface {
 	Seq() uint64
 }
 
-type Iterator struct{ it *treap.Iterator }
+type Iterator interface {
+	Next()
+	Record() Record
+	Deadline() time.Time
+	Finish()
+}
 
-func (i *Iterator) Next() (more bool)   { return i.it.Next() }
-func (i *Iterator) More() bool          { return i.it.More() }
-func (i *Iterator) Record() Record      { return i.it.Value.(Record) }
-func (i *Iterator) Deadline() time.Time { return timeCastUnsafe(i.it.Weight) }
+type treapIter struct{ *treap.Iterator }
+
+func (i treapIter) Deadline() time.Time { return i.Weight.(time.Time) }
+
+func (i treapIter) Record() Record {
+	if i.Node == nil {
+		return nil
+	}
+
+	return i.Value.(Record)
+}
 
 type state struct {
 	T time.Time
 	N *treap.Node
 }
 
+// Table is a fast, in-memory routing table.
 type Table atomic.Value
 
 func New() *Table {
 	v := new(atomic.Value)
-	v.Store(state{T: time.Now()})
+	v.Store(state{})
 	return (*Table)(v)
 }
 
-func (tb *Table) Iter() Iterator { return Iterator{handle.Iter(tb.load().N)} }
+func (tb *Table) Iter() Iterator { return treapIter{handle.Iter(tb.load().N)} }
 
 func (tb *Table) Lookup(id peer.ID) (rec Record, ok bool) {
 	var v interface{}
@@ -58,21 +66,8 @@ func (tb *Table) Lookup(id peer.ID) (rec Record, ok bool) {
 // Advance the state of the routing table to the current time.
 // Expired entries will be evicted from the table.
 func (tb *Table) Advance(t time.Time) {
-	var old, new state
-	for /* CAS loop */ {
-
-		// is there any data?
-		if old = tb.load(); old.N != nil {
-			// evict stale entries
-			for new = old; expired(t, new); {
-				new = merge(t, new)
-			}
-		} else {
-			// just update the time
-			new = state{T: t, N: old.N}
-		}
-
-		if tb.compareAndSwap(old, new) {
+	for {
+		if old := tb.load(); tb.compareAndSwap(old, evicted(old, t)) {
 			break
 		}
 	}
@@ -84,6 +79,9 @@ func (tb *Table) Upsert(rec Record) bool {
 	var ok, created bool
 
 	for {
+		ok = false
+		created = false
+
 		old := tb.load()
 		new := old
 
@@ -105,29 +103,26 @@ func (tb *Table) Upsert(rec Record) bool {
 }
 
 func (tb *Table) load() state {
-	v := (*atomic.Value)(tb).Load()
-	return *(*state)((*ifaceWords)(unsafe.Pointer(&v)).data)
+	return (*atomic.Value)(tb).Load().(state)
 }
 
 func (tb *Table) compareAndSwap(old, new state) bool {
 	return (*atomic.Value)(tb).CompareAndSwap(old, new)
 }
 
-func merge(t time.Time, s state) state {
-	return state{
-		T: t,
-		N: handle.Merge(s.N.Left, s.N.Right),
+func evicted(s state, t time.Time) state {
+	s.T = t
+	for expired(s, t) {
+		s.N = handle.Merge(s.N.Left, s.N.Right)
 	}
+
+	return s
 }
 
-func expired(t time.Time, s state) (ok bool) {
-	if s.N != nil {
-		ok = handle.CompareWeights(s.N.Weight, t) <= 0
-	}
-
-	return
+func expired(s state, t time.Time) bool {
+	return s.N != nil && handle.CompareWeights(s.N.Weight, t) <= 0
 }
 
 func newer(n *treap.Node, r Record) bool {
-	return n.Value.(Record).Seq() < r.Seq()
+	return r.Seq() > n.Value.(Record).Seq()
 }

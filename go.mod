@@ -19,9 +19,8 @@ require (
 	github.com/libp2p/go-libp2p-discovery v0.5.1 // indirect
 	github.com/libp2p/go-libp2p-kad-dht v0.13.1
 	github.com/libp2p/go-libp2p-pubsub v0.5.4
-	github.com/lthibault/jitterbug/v2 v2.2.2
 	github.com/lthibault/log v1.2.1
-	github.com/lthibault/treap v0.1.2
+	github.com/lthibault/treap v0.1.4
 	github.com/lthibault/util v0.0.10
 	github.com/miekg/dns v1.1.43 // indirect
 	github.com/multiformats/go-multiaddr v0.4.0
@@ -39,6 +38,11 @@ require (
 	golang.org/x/net v0.0.0-20210908191846-a5e095526f91
 	golang.org/x/sys v0.0.0-20210909193231-528a39cd75f3 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
+)
+
+require (
+	github.com/lthibault/jitterbug/v2 v2.2.3-0.20210828000604-93d421a45630
+	go.uber.org/multierr v1.7.0
 )
 
 require (
@@ -129,9 +133,6 @@ require (
 	github.com/whyrusleeping/timecache v0.0.0-20160911033111-cfcb2f1abfee // indirect
 	go.opencensus.io v0.23.0 // indirect
 	go.uber.org/dig v1.12.0 // indirect
-	go.uber.org/multierr v1.7.0 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
-
-replace github.com/wetware/mx => /Users/lthibault/Go/src/github.com/wetware/mx

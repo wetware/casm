@@ -8,23 +8,20 @@ import (
 	"github.com/wetware/casm/pkg/cluster/pulse"
 )
 
-func TestClusterEvent_MarshalUnmarshal(t *testing.T) {
+func TestHeartbeat_MarshalUnmarshal(t *testing.T) {
 	t.Parallel()
 
-	ev, err := pulse.NewClusterEvent(capnp.SingleSegment(nil))
-	require.NoError(t, err)
-
-	hb, err := ev.NewHeartbeat()
+	hb, err := pulse.NewHeartbeat(capnp.SingleSegment(nil))
 	require.NoError(t, err)
 	hb.SetTTL(42)
 
 	// marshal
-	b, err := ev.MarshalBinary()
+	b, err := hb.MarshalBinary()
 	require.NoError(t, err)
 	require.NotEmpty(t, b)
 
 	// unmarshal
-	ev2 := pulse.ClusterEvent{}
+	ev2 := pulse.Heartbeat{}
 	err = ev2.UnmarshalBinary(b)
 	require.NoError(t, err)
 

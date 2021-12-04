@@ -3,84 +3,92 @@ package cluster
 import (
 	"time"
 
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/lthibault/log"
 	"github.com/wetware/casm/pkg/cluster/pulse"
-	"go.uber.org/fx"
+	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
-// Config supplies options to the dependency-injection framework.
-type Config struct {
-	fx.In
+type Option func(*Node)
 
-	Log  log.Logger
-	TTL  time.Duration
-	Hook pulse.Hook
-}
+func WithNamespace(ns string) Option {
+	if ns == "" {
+		ns = "ww"
+	}
 
-func (c *Config) Apply(opt []Option) {
-	for _, option := range withDefault(opt) {
-		option(c)
+	return func(m *Node) {
+		m.name = ns
 	}
 }
 
-type Option func(c *Config)
+func WithTTL(d time.Duration) Option {
+	if d <= 0 {
+		d = time.Second * 10
+	}
 
-// WithLogger sets the logger for the cluster model.
-// If l == nil, a default logger is used.
+	return func(m *Node) {
+		m.a.ttl = d
+	}
+}
+
 func WithLogger(l log.Logger) Option {
 	if l == nil {
 		l = log.New()
 	}
 
-	return func(c *Config) {
-		c.Log = l
+	return func(m *Node) {
+		m.a.log = l
 	}
 }
 
-// WithTTL specifies the TTL for the heartbeat protocol.
-// If d == 0, a default value of 6 seconds is used, which
-// suitable for most applications.
-//
-// The most common reason to adjust the TTL is in testing,
-// where it may be desirable to reduce the time needed for
-// peers to become mutually aware.
-func WithTTL(d time.Duration) Option {
-	if d == 0 {
-		d = time.Second * 6
+func WithRoutingTable(t RoutingTable) Option {
+	if t == nil {
+		t = routing.New()
 	}
 
-	return func(c *Config) {
-		c.TTL = d
+	return func(m *Node) {
+		m.rt = t
 	}
 }
 
-// WithHook sets a heartbeat hook, which allows heartbeats
-// to be modified immediately prior to broadcast.
-//
-// Users can use hooks to set metadata, modify the TTL, or
-// perform arbitrary computation.  Users should take care
-// not to block, as delaying heartbeats can cause peers to
-// drop the local node from their routing tables.
-//
-// Callers should also be aware that the heartbeat is ALWAYS
-// broadcast when 'f' returns.  f MUST NOT leave heartbeats
-// in an invalid state.  Clean up after yourself!
-//
-// Passing f == nil removes the hook.
-func WithHook(f pulse.Hook) Option {
-	if f == nil {
-		f = func(pulse.Heartbeat) {}
+func WithMeta(meta pulse.Preparer) Option {
+	if meta == nil {
+		meta = defaultMeta{}
 	}
 
-	return func(c *Config) {
-		c.Hook = f
+	return func(m *Node) {
+		m.a.p = meta
+	}
+}
+
+// WithReadiness specifies a criteron for considering the model
+// to be ready.  If r == nil, a the model is considered ready
+// when at least one peer is connected.  See pubsub.RouterReady
+// for additional details.
+//
+// If sync == true, the 'New()' will block until the model has
+// entered a ready state, or the context has expired.
+func WithReadiness(r pubsub.RouterReady) Option {
+	if r == nil {
+		r = pubsub.MinTopicSize(1)
+	}
+
+	return func(m *Node) {
+		m.a.ready = r
 	}
 }
 
 func withDefault(opt []Option) []Option {
 	return append([]Option{
-		WithTTL(0),
-		WithHook(nil),
+		WithNamespace(""),
+		WithTTL(-1),
 		WithLogger(nil),
+		WithRoutingTable(nil),
+		WithMeta(nil),
+		WithReadiness(nil),
 	}, opt...)
 }
+
+type defaultMeta struct{}
+
+func (defaultMeta) Prepare(pulse.Heartbeat) {}
