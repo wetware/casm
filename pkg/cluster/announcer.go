@@ -56,7 +56,7 @@ func (a *announcer) tick() {
 	defer ticker.Stop()
 
 	var (
-		ctx context.Context = ctxutil.FromChan(a.cq)
+		ctx context.Context = ctxutil.C(a.cq)
 		b                   = loggableBackoff{backoff.Backoff{
 			Factor: 2,
 			Min:    a.ttl / 10,

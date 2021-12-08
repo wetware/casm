@@ -21,7 +21,7 @@ require (
 	github.com/libp2p/go-libp2p-pubsub v0.5.4
 	github.com/lthibault/log v1.2.1
 	github.com/lthibault/treap v0.1.4
-	github.com/lthibault/util v0.0.10
+	github.com/lthibault/util v0.0.11
 	github.com/miekg/dns v1.1.43 // indirect
 	github.com/multiformats/go-multiaddr v0.4.0
 	github.com/pkg/errors v0.9.1
