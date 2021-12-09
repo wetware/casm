@@ -28,7 +28,7 @@ type namespace struct {
 	prefix ds.Key
 	ds     ds.Batching
 	id     peer.ID
-	k      int
+	gossip GossipParams
 	e      event.Emitter
 }
 
@@ -125,7 +125,7 @@ func (n namespace) MergeAndStore(remote gossipSlice) error {
 		Bind(isNot(n.id)).
 		Bind(merged(local)).
 		Bind(ordered(n.id, sender)).
-		Bind(head(n.k))
+		Bind(head(n.gossip.c))
 
 	if err = n.Store(local, merged); err != nil {
 		return err

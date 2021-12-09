@@ -65,7 +65,7 @@ type PeerExchange struct {
 	self   atomic.Value
 	ds     ds.Batching
 	prefix ds.Key
-	k      int // cardinality of the passive view
+	gossip GossipParams // cardinality of the passive view
 	e      event.Emitter
 
 	runtime interface{ Stop(context.Context) error }
@@ -96,7 +96,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 func (px *PeerExchange) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"id": px.h.ID(),
-		"k":  px.k,
+		"c":  px.gossip.c,
 	}
 }
 
@@ -161,7 +161,7 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 }
 
 func (px *PeerExchange) options(opt []discovery.Option) (opts *discovery.Options, err error) {
-	opts = &discovery.Options{Limit: px.k}
+	opts = &discovery.Options{Limit: px.gossip.c}
 	if err = opts.Apply(opt...); err == nil && opts.Ttl == 0 {
 		opts.Ttl = px.tick
 	}
@@ -265,7 +265,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 		var (
 			remote gossipSlice
-			r      = io.LimitReader(s, int64(px.k*mtu))
+			r      = io.LimitReader(s, int64(px.gossip.c*mtu))
 		)
 
 		dec := capnp.NewPackedDecoder(r)
@@ -298,7 +298,7 @@ func (px *PeerExchange) namespace(ns string) namespace {
 		prefix: px.prefix.ChildString(ns),
 		ds:     px.ds,
 		id:     px.h.ID(),
-		k:      px.k,
+		gossip: px.gossip,
 		e:      px.e,
 	}
 }
@@ -419,13 +419,13 @@ func newConfig(id peer.ID, opt []Option) (c Config) {
 type pexParams struct {
 	fx.In
 
-	Ctx   context.Context
-	Log   log.Logger
-	K     int
-	Host  host.Host
-	Tick  time.Duration
-	Store ds.Batching
-	Disc  *discover
+	Ctx    context.Context
+	Log    log.Logger
+	Gossip GossipParams
+	Host   host.Host
+	Tick   time.Duration
+	Store  ds.Batching
+	Disc   *discover
 }
 
 func (p pexParams) Prefix() ds.Key {
@@ -437,7 +437,7 @@ func newPeerExchange(p pexParams) (*PeerExchange, error) {
 	return &PeerExchange{
 		ctx:    p.Ctx,
 		log:    p.Log,
-		k:      p.K,
+		gossip: p.Gossip,
 		h:      p.Host,
 		d:      p.Disc,
 		tick:   p.Tick,
