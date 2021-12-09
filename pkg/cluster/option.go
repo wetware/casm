@@ -13,7 +13,7 @@ type Option func(*Node)
 
 func WithNamespace(ns string) Option {
 	if ns == "" {
-		ns = "ww"
+		ns = "casm"
 	}
 
 	return func(m *Node) {
