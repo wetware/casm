@@ -10,6 +10,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
+	"github.com/wetware/casm/pkg/util/service"
 )
 
 type PubSub interface {
@@ -33,7 +34,7 @@ type Node struct {
 	name string
 	rt   RoutingTable
 	a    announcer
-	lx   lifecycle
+	s    service.Set
 }
 
 // New cluster model.  It is safe to cancel 'ctx' after 'New' returns.
@@ -43,11 +44,11 @@ func New(ctx context.Context, ps PubSub, opt ...Option) (*Node, error) {
 		option(n)
 	}
 
-	n.lx = lifecycle{n.newTopic(ps), &n.a, &clock{timer: n.rt}}
-	return n, n.lx.Start()
+	n.s = service.Set{n.newTopic(ps), &n.a, &clock{timer: n.rt}}
+	return n, n.s.Start()
 }
 
-func (m *Node) Close() error         { return m.lx.Close() }
+func (m *Node) Close() error         { return m.s.Close() }
 func (m *Node) Topic() *pubsub.Topic { return m.a.t }
 func (m *Node) View() View           { return m.rt }
 
@@ -55,14 +56,14 @@ func (m *Node) Bootstrap(ctx context.Context) (err error) {
 	return m.a.announce(ctx)
 }
 
-func (m *Node) newTopic(ps PubSub) hookable {
+func (m *Node) newTopic(ps PubSub) service.Service {
 	var (
 		cancel pubsub.RelayCancelFunc
 	)
 
-	return lifecycle{
+	return service.Set{
 		// Update routing table via topic validator
-		hook{
+		service.Hook{
 			OnStart: func() (err error) {
 				return ps.RegisterTopicValidator(m.name,
 					pulse.NewValidator(m.rt))
@@ -73,7 +74,7 @@ func (m *Node) newTopic(ps PubSub) hookable {
 		},
 
 		// Join and relay the topic
-		hook{
+		service.Hook{
 			OnStart: func() (err error) {
 				if m.a.t, err = ps.Join(m.name); err == nil {
 					cancel, err = m.a.t.Relay()

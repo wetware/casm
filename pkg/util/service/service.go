@@ -1,17 +1,18 @@
-package cluster
+// Package service provides licecycle management.
+package service
 
 import (
 	"go.uber.org/multierr"
 )
 
-type hookable interface {
+type Service interface {
 	Start() error
 	Close() error
 }
 
-type lifecycle []hookable
+type Set []Service
 
-func (lx lifecycle) Start() (err error) {
+func (lx Set) Start() (err error) {
 	for i, h := range lx {
 		if err = h.Start(); err == nil {
 			continue
@@ -24,7 +25,7 @@ func (lx lifecycle) Start() (err error) {
 	return
 }
 
-func (lx lifecycle) Close() error {
+func (lx Set) Close() error {
 	for i, j := 0, len(lx)-1; i < j; i, j = i+1, j-1 {
 		lx[i], lx[j] = lx[j], lx[i]
 	}
@@ -39,19 +40,19 @@ func (lx lifecycle) Close() error {
 	return multierr.Combine(es...)
 }
 
-type hook struct {
+type Hook struct {
 	OnStart func() error
 	OnClose func() error
 }
 
-func (h hook) Start() (err error) {
+func (h Hook) Start() (err error) {
 	if h.OnStart != nil {
 		err = h.OnStart()
 	}
 	return
 }
 
-func (h hook) Close() (err error) {
+func (h Hook) Close() (err error) {
 	if h.OnClose != nil {
 		err = h.OnClose()
 	}

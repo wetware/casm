@@ -1,4 +1,4 @@
-package cluster
+package service
 
 import (
 	"fmt"
@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLifecycle_Empty(t *testing.T) {
+func TestSet_Empty(t *testing.T) {
 	t.Parallel()
 
-	lx := lifecycle{}
+	lx := Set{}
 
 	err := lx.Start()
 	require.NoError(t, err)
@@ -20,11 +20,11 @@ func TestLifecycle_Empty(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestLifecycle_Succeed(t *testing.T) {
+func TestSet_Succeed(t *testing.T) {
 	t.Parallel()
 
 	var h testHook
-	lx := lifecycle{&h, &h, &h, &h, &h}
+	lx := Set{&h, &h, &h, &h, &h}
 
 	err := lx.Start()
 	require.NoError(t, err)
@@ -37,13 +37,13 @@ func TestLifecycle_Succeed(t *testing.T) {
 	assert.Zero(t, h)
 }
 
-func TestLifecycle_Abort(t *testing.T) {
+func TestSet_Abort(t *testing.T) {
 	t.Parallel()
 
 	var log []string
 
-	lx := lifecycle{
-		hook{
+	lx := Set{
+		Hook{
 			OnStart: func() error {
 				log = append(log, "h0 START")
 				return nil
@@ -53,7 +53,7 @@ func TestLifecycle_Abort(t *testing.T) {
 				return nil
 			},
 		},
-		hook{
+		Hook{
 			OnStart: func() error {
 				log = append(log, "h1 START")
 				return nil
