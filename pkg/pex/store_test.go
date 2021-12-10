@@ -51,8 +51,12 @@ func TestMerge(t *testing.T) {
 			test: shouldSwap,
 		},
 		{
-			name: "should_retain_and_decay",
-			test: shouldRetainAndDecay,
+			name: "should_retain",
+			test: shouldRetain,
+		},
+		{
+			name: "should_not_retain",
+			test: shouldNotRetain,
 		},
 	} {
 		runner(t, tt.name, tt.test)
@@ -181,28 +185,57 @@ func shouldSwap(t *testing.T, p params) {
 	}
 }
 
-func shouldRetainAndDecay(t *testing.T, p params) {
+func shouldRetain(t *testing.T, p params) {
 	err := p.PeX.setLocalRecord(p.LocalRecord())
 	require.NoError(t, err)
 
 	n := p.PeX.namespace(ns)
 
 	local := p.Local.Bind(sorted())
-	n.gossip.r = 1
-	n.gossip.d = 0
-	err = n.MergeAndStore(local, p.Remote)
-	require.NoError(t, err)
-	gs, err := n.Records()
-	require.NoError(t, err)
 
 	merge := local.
 		Bind(merged(p.Remote)).
 		Bind(isNot(n.id))
 
 	r := min(min(n.gossip.r, n.gossip.c), len(merge))
-	for _, rec := range merge.Bind(sorted()).Bind(tail(r)) {
+	oldest := merge.Bind(sorted()).Bind(tail(r))
+
+	n.gossip.r = 2
+	n.gossip.d = 0
+	err = n.MergeAndStore(local, p.Remote)
+	require.NoError(t, err)
+	gs, err := n.RecordsSortedToPush()
+	require.NoError(t, err)
+	for _, rec := range oldest {
 		_, found := gs.find(rec)
 		require.True(t, found)
+	}
+}
+
+func shouldNotRetain(t *testing.T, p params) {
+	err := p.PeX.setLocalRecord(p.LocalRecord())
+	require.NoError(t, err)
+
+	n := p.PeX.namespace(ns)
+
+	local := p.Local.Bind(sorted())
+
+	merge := local.
+		Bind(merged(p.Remote)).
+		Bind(isNot(n.id))
+
+	r := min(min(n.gossip.r, n.gossip.c), len(merge))
+	oldest := merge.Bind(sorted()).Bind(tail(r))
+
+	n.gossip.r = 2
+	n.gossip.d = 1
+	err = n.MergeAndStore(local, p.Remote)
+	require.NoError(t, err)
+	gs, err := n.RecordsSortedToPush()
+	require.NoError(t, err)
+	for _, rec := range oldest {
+		_, found := gs.find(rec)
+		require.False(t, found)
 	}
 }
 

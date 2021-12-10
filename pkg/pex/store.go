@@ -136,7 +136,7 @@ func (n namespace) MergeAndStore(local, remote gossipSlice) error {
 
 	// Apply retention
 	r := min(min(n.gossip.r, n.gossip.c), len(newLocal))
-	oldest := newLocal.Bind(tail(r)).Bind(retain(n.gossip.d))
+	oldest := newLocal.Bind(tail(r)).Bind(decay(n.gossip.d))
 
 	//Apply random eviction
 	c := n.gossip.c - len(oldest)
@@ -290,9 +290,9 @@ func tail(n int) func(gossipSlice) gossipSlice {
 	}
 }
 
-func retain(d float64) func(gossipSlice) gossipSlice {
+func decay(d float64) func(gossipSlice) gossipSlice {
 	return func(gs gossipSlice) gossipSlice {
-		for len(gs) != 0 && rand.Float64() < d {
+		for len(gs) > 0 && rand.Float64() < d {
 			gs = gs[1:]
 		}
 		return gs
