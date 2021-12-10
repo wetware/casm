@@ -28,7 +28,9 @@ and spec status.
     - [Gossiping](#gossiping)
       - [Mechanism](#mechanism)
       - [Peer Selection](#peer-selection)
-      - [Merge Policy](#merge-policy)
+      - [Push-Pull](#push-pull)
+      - [View Merging](#view-merging)
+      - [View Merging Policies](#view-merging-policies)
       - [Node Age](#node-age)
       - [Record Sequence](#record-sequence)
     - [API](#api)
@@ -50,18 +52,13 @@ The ideal recovery cache would exhibit the following properties:
 
 1. **Persistence.**  Items should remain in the cache until they have been explicitly evicted or replaced with suitable alternatives.  Avoid explicit timeouts and ttls, which can make partitions permanent.
 
-2. **Partition-Resistance.**  The cache should remain valid during a partiton and peers in one partiton should be slow to evict peers in othe another.
+2. **Partition-Resistance.**  The cache should remain valid during a partiton and the speed at which peers in one partiton evict peers in othe another should be controllable.
 
 3. **Liveness.**  Changes to host addresses should quickly propagate through the network.  Dead peers should eventually disappear from cache.  New records should overwrite old records.
 
 4. **Unbiased Sampling.**  Peers should be equally likely to appear in a given cache instance.  This is essential to prevent the formation of partitions and to avoid overloading peers when partitions merge.
 
-5. **Resource Efficiency.**  The cache algorithm must use CPU,  RAM, disk storage and network bandwidth sparingly.  Resource use should also be bounded.
-Scalability.  The global system should stabilize in better-than-linear time.
-
-6. **Resource Efficiency.**  The cache algorithm must use CPU,  RAM, disk storage and network bandwidth sparingly.  Resource use should also be bounded.
-
-7. **Scalability.**  The global system should stabilize in better-than-linear time.
+5. **Scalability.**  The global system should stabilize in better-than-linear time.
 
 Crucially, the PubSub router and the Kademlia DHT fail to satisfy one or more of these requirements.
 
@@ -70,7 +67,8 @@ Crucially, the PubSub router and the Kademlia DHT fail to satisfy one or more of
 
 **PeX** stands for *Peer-Exchange* and takes care of maintaining a peer-to-peer unstructured overlay. In other words it is responsible for ensuring connectivity, so that all the nodes form a single connected random network. Also, it provides a [Discovery](https://github.com/libp2p/go-libp2p-core/blob/master/discovery/discovery.go) API for providing a random set of nodes from the network at any given time. This is mainly used by other services that need to discover new peers for staying connected in the network.
 
-To do this, it uses a gossiping protocol that forms an unstructured peer-to-peer overlay.  This protocol is based on [The Peer Sampling Service](https://dl.acm.org/doi/abs/10.5555/1045658.1045666).
+To do this, it uses a gossiping protocol that forms an unstructured peer-to-peer overlay.  
+This protocol is based on [Gossip-Based Peer Sampling](https://dl.acm.org/doi/abs/10.1145/1275517.1275520).
 
 ### Conventions
 
@@ -81,10 +79,11 @@ To do this, it uses a gossiping protocol that forms an unstructured peer-to-peer
 - **Peer**: a physical host in the overlay.  Synonymous with node.
 - **Neighbor/Neighborhod**: adjacent nodes in the overlay.  These nodes are directly connected via a libp2p transport connection, without any intermediate hops in the overlay.  A node's neighborhood is the set of its neighbors.
 - **View**:  A node's view of the cluster is a set of [`GossipRecord`](#gossip-record) instances, which contains a record for each neighbor.
+  Throughout the specification, the maximum view size is defined by `c`.
 - **Gossiping**: a broadcast mechanism whereby each peer transmits each message to its neighbors.
 - **Gossip Round**:  a single exchange of gossip with a neighbor.
-- **Merge Policy**: in the context of a gossip round, this refers to strategy for selecting a new view from the union of one's local view and a view received from a peer.  PeX employs a hybrid of two strategies:  (1) `young` selects the *n* most recent records and (2) `rand` selects *n* records at random.
-
+- **Merge Policy**: in the context of a gossip round, this refers to strategy for selecting a new view from the union of one's local view and a view received from a peer.
+- **Healing**:  eviction of disconnected/partitioned peers from local views.
 
 ### Gossiping
 
@@ -118,26 +117,93 @@ Moreover, it also provides an API call for retrieving the current set of neighbo
 
 #### Peer Selection
 
-**PeX** uses a chooses the neighbor with whom to gossip randomly (`rand`).
+**PeX** chooses the neighbor with whom to gossip randomly (`rand`).
 This provides a faster self-healing overlay than alternative policies
 such as choosing the youngest (`young`) or oldest (`old`) neighbor.
 
-#### Merge Policy
+#### Push-Pull
+After the peer selection, the selected and selector nodes connect with each
+other and send their views. However, they do not send the entire view. 
+At most, they send half of the maximum view size. The peers are selected randomly,
+ignoring the oldest `R` nodes (later `R` will be further explained). However, in case there aren't enough nodes, 
+the oldest nodes are also sent. Finally, a descriptor of the sender is appended
+to the tail, before sending it.
 
-**PeX** implements a hybrid policy for merging its view with its neighbor's during a gossip round.  PeX implements a decision criteria using the XOR of the last 8 bytes of both nodes' peer IDs.  If `xor(pid_a, pid_b) > 2^32-1`, it selects a node randomly (`rand` policy).  Else, it selects the youngest node (`young` policy; alternatively refered to as `tail` in source code).  This assigns equal probabilities to both policies.
+The pseudocode for the pushing is the following:
+```
+view.RandomShuffle()
+view.MoveToTailOldest(R)
+buffer = view.Head((c/2)-1)
+buffer.append(MyDescriptor) 
+Push(buffer)
+```
 
-The `young` policy results in a faster stabilization of the cluster, which is valuable for scalability.  However, partitions will tend to "forget" about each other as older nodes are aggressively purged.
+It is important to note that the random shuffling and moving oldest entries
+to the tail is done inplace. That is to say, the order of the elements in
+the view is permanently changed. This is important for other mechanisms
+during view merging (e.g. Swapping).
 
-The `rand` policy is slower to converge (linear time), but results in partitions with "memory".  Unreachable nodes will be retained for a significantly longer period of time.
+#### View Merging
 
-The "age" of a node is tracked in [`GossipRecord`](#gossip-record), and discussed [below](#node-age).
+**PeX** mechanism to merge the view comprises five main steps:
 
-For a complete review of merge policies and their effect on cluster performance, refer to [Jelasity *et al.*](#references).
+1. **Merging:** merges the received and local views, by joining them into 
+   a single list and removing duplicate entries. Local entries are put
+   first, in front of the remote entries.
+2. **Swapping:** the first `S` entries of the merged view are removed. 
+   Recall that the local view is put in front of the remote one in the previous step,
+   so, the first items are the ones that were previously sent to peer. 
+   Therefore, `S` is used to control priority given to the remote view entries.  
+3. **Retention and decay:** the oldest `R` items are moved into a separate 
+   buffer. Then, with a probability of `D` items are removed 
+   from the buffer. The oldest items are put aside to protect them from eviction.
+4. **Random eviction**: items from the merged list are randomly evicted
+   until the amount of entries of the oldest buffer together with the merged view 
+   do not exceed the maximum view size. After, the buffer 
+   containing the oldest nodes is appended to the merged view.
+
+5. **Increase hops**: the age (hop counters) of the entries of the resulting view
+   are increased by one.
+
+The pseudocode for the previous four steps is the following:
+```
+remote = Pull()
+view = view.append(remote)
+view.RemoveHead(min(S, view.Size-c))
+oldest = view.PopOldest(min(R, view.Size-c))
+oldest.RemoveWithPropbability(D)
+view.RemoveRandom(view.Size-(c-oldest.Size)))
+view.append(oldest)
+view.IncreaseAge()
+```
+
+#### View Merging Policies
+Pex makes use of three parameters to tune the policies for merging the view.
+
+- **S**(wapping): the number of items to be evicted from the head,
+  after merging local and remote views. The local view is put in front of the
+  remote one, so removing from the head, means prioritizing entries from the
+  remote view. This parameter is used to reduce the randomness in the network.
+  The higher the value, the more random the network will be.
+- **R**(etention): the number of oldest entries to be protected from eviction.
+  This parameter is used to tune the speed at which disconnected/partitioned 
+  peer are removed from the network. The higher the value the slower the speed. 
+- **D**(ecay): the probability of evicting the protected oldest entries. 
+  `D` probability is applied by doing `rand.RandomFloat64<D`. If it results to
+  `True`, the youngest (among oldest) is evicted and the probability is applied
+  again. But if it results to `False`, no entry is evicted, and consequent
+  evictions applying `D` stop. This parameter is used to tune the speed at which
+  disconnected/partitioned peer are removed from the network. The higher the 
+  probability the higher the speed.
 
 #### Node Age
-In order to implement the `young` policy, it is necessary to track the age of each gossip record contained in a node's view.  To this end, `GossipRecord` contains a `Hop` field, _i.e._ a counter that is incremented by a peer when it receives the record in the course of a gossip round.  The hop counter represents the "age" of a node insofar as the number of gossip rounds (and therefore network hops) of a record are a function of *t*.
-
-It is also useful to visualize `Hop` as a measure of diffusion.  Senders do not increase the hop counter of the records they distribute; only receivers do so.  As such, a higher hop indicates the record has travelled a greater distance through the overlay.
+In order to implement the ploicies, it is necessary to track the age of each gossip 
+record contained in a node's view. To this end, `GossipRecord` contains a
+`Hop` field, _i.e._ a counter that is incremented by a peer when it receives 
+the record in the course of a gossip round.  The hop counter represents 
+the "age" of a node insofar as the number of gossip rounds 
+(and therefore network hops) of a record are a function of *t*. After every 
+gossiping exchange, the ages of the nodes stored in the resulting view are increased. 
 
 When a node sends its local view to another, the sender adds itself to the local 
 view with a Hop Counter of zero. This is a heartbeat mechanism. When adding
@@ -172,24 +238,26 @@ The `<ns>` component is an arbitrary string that designates a namespace.  This n
 
 #### Peer Exchange
 
-The **PeX** API is defined by four methods.  These are shown below in pseudocode using Go-likesyntax.
+The **PeX** API is defined by four methods.  These are shown below in pseudocode using Go-like syntax.
 
 ```go
 type PeerExchange interface {
   // New peer exchange.  The cluster is identified by 'ns'.
-  New(h host.Host, ns string, opt ...Option) (*PeerExchange, error)	
+  New(ctx context.Context, h host.Host, ns string, opt ...Option) (*PeerExchange, error)	
 	
   // Close stops all gossip activity and invalidates the peer exchange.
   Close() error
 	
-  // Join the gossiping overlay, using an existing node as a bootstrap
-  // peer.
-  Join(ctx context.Context, boot peer.AddrInfo) error
+  // FindPeers discovers peers providing a service
+  Advertise(ctx context.Context, ns string, opts ...Option) (time.Duration, error)
 
-  // View returns the gossip records currently contained in the overlay.
-  View() []GossipRecord
+// Advertise advertises a service
+  FindPeers(ctx context.Context, ns string, opts ...Option) (<-chan peer.AddrInfo, error)
 }
 ```
+
+Note that `Advertise` and `FindPeers` implement the 
+[Discovery interface](https://github.com/libp2p/go-libp2p-discovery) of Libp2p.  
 
 #### Gossip Record
 
@@ -251,4 +319,4 @@ None (...so far!)
 ★ Project Lead
 
 ## References
-1. 	M. Jelasity, R. Guerraoui, A.-M. Kermarrec, and M. van Steen, “The Peer Sampling Service: Experimental Evaluation of Unstructured Gossip-Based Implementations,” in Middleware 2004, vol. 3231, H.-A. Jacobsen, Ed. Berlin, Heidelberg: Springer Berlin Heidelberg, 2004, pp. 79–98. doi: 10.1007/978-3-540-30229-2_5. https://dl.acm.org/doi/abs/10.5555/1045658.1045666.
+1. 	Jelasity, Márk, et al. "Gossip-based peer sampling." ACM Transactions on Computer Systems (TOCS) 25.3 (2007): 8-es.
