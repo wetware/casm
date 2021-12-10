@@ -2,7 +2,6 @@ package pex
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"sort"
 	"time"
@@ -246,18 +245,6 @@ func dedupe(other gossipSlice, keepEqual bool) func(gossipSlice) gossipSlice {
 				return !found || g.Seq > have.Seq || g.Hop() < have.Hop()
 			}
 		}))
-	}
-}
-
-func ordered(id peer.ID, sender *GossipRecord) func(gossipSlice) gossipSlice {
-	const thresh = math.MaxUint64 / 2
-
-	return func(gs gossipSlice) gossipSlice {
-		if sender.Distance(id)/math.MaxUint64 > thresh {
-			return gs.Bind(shuffled())
-		}
-
-		return gs.Bind(sorted())
 	}
 }
 

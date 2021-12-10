@@ -311,6 +311,9 @@ To protect against DoS attacks, implementations SHOULD limit the length of encod
 
 None (...so far!)
 
+## Alternative designs
+TODO:
+
 ## Core Team
 
 - [@lthibault](https://github.com/lthibault)
