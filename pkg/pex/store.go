@@ -41,6 +41,17 @@ func (n namespace) Query() (query.Results, error) {
 	})
 }
 
+func (n namespace) RecordsSortedToPush() (gossipSlice, error) {
+	recs, err := n.Records()
+	if err != nil {
+		return nil, err
+	}
+	recs = recs.Bind(sorted())
+	oldest := recs.Bind(tail(n.gossip.r))
+	recs = recs[:len(recs)-len(oldest)].Bind(shuffled())
+	return append(recs, oldest...), nil
+}
+
 func (n namespace) Records() (gossipSlice, error) {
 	// return all entries under the local instance's key prefix
 	res, err := n.Query()
@@ -108,34 +119,44 @@ func (n namespace) View() ([]peer.AddrInfo, error) {
 	return view, nil
 }
 
-func (n namespace) MergeAndStore(remote gossipSlice) error {
+func (n namespace) MergeAndStore(local, remote gossipSlice) error {
 	if err := remote.Validate(); err != nil {
 		return err
 	}
 
-	remote.incrHops()
-	sender := remote.last()
+	// Remove duplicates and join local and remote records
+	newLocal := local.
+		Bind(merged(remote)).
+		Bind(isNot(n.id))
 
-	local, err := n.Records()
-	if err != nil {
+	// Apply swapping
+	s := min(n.gossip.s, max(len(newLocal)-n.gossip.c, 0))
+	newLocal = newLocal.
+		Bind(tail(len(newLocal) - s)).
+		Bind(sorted())
+
+	// Apply retention
+	r := min(min(n.gossip.r, n.gossip.c), len(newLocal))
+	oldest := newLocal.Bind(tail(r)).Bind(retain(n.gossip.d))
+
+	//Apply random eviction
+	c := n.gossip.c - len(oldest)
+	newLocal = newLocal[:len(newLocal)-r].
+		Bind(shuffled()).
+		Bind(head(c)).
+		Bind(merged(oldest))
+
+	newLocal.incrHops()
+
+	if err := n.Store(local, newLocal); err != nil {
 		return err
 	}
 
-	merged := remote.
-		Bind(isNot(n.id)).
-		Bind(merged(local)).
-		Bind(ordered(n.id, sender)).
-		Bind(head(n.gossip.c))
-
-	if err = n.Store(local, merged); err != nil {
-		return err
+	if err := n.ds.Sync(n.prefix); err == nil {
+		return n.e.Emit(EvtViewUpdated(newLocal))
 	}
 
-	if err = n.ds.Sync(n.prefix); err == nil {
-		err = n.e.Emit(EvtViewUpdated(merged))
-	}
-
-	return err
+	return nil
 }
 
 func (n namespace) Store(old, new gossipSlice) error {
@@ -255,7 +276,7 @@ func sorted() func(gossipSlice) gossipSlice {
 }
 
 func head(n int) func(gossipSlice) gossipSlice {
-	if n <= 0 {
+	if n < 0 {
 		panic("n must be greater than zero.")
 	}
 
@@ -264,6 +285,29 @@ func head(n int) func(gossipSlice) gossipSlice {
 			gs = gs[:n]
 		}
 
+		return gs
+	}
+}
+
+func tail(n int) func(gossipSlice) gossipSlice {
+	if n < 0 {
+		panic("n must be greater than zero.")
+	}
+
+	return func(gs gossipSlice) gossipSlice {
+		if n < len(gs) {
+			gs = gs[len(gs)-n:]
+		}
+
+		return gs
+	}
+}
+
+func retain(d float64) func(gossipSlice) gossipSlice {
+	return func(gs gossipSlice) gossipSlice {
+		for len(gs) != 0 && rand.Float64() < d {
+			gs = gs[1:]
+		}
 		return gs
 	}
 }
@@ -339,4 +383,18 @@ func lastUint64(s string) (u uint64) {
 	}
 
 	return
+}
+
+func min(n1, n2 int) int {
+	if n1 <= n2 {
+		return n1
+	}
+	return n2
+}
+
+func max(n1, n2 int) int {
+	if n1 <= n2 {
+		return n2
+	}
+	return n1
 }

@@ -237,20 +237,20 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 		return err
 	}
 
+	local, err := n.RecordsSortedToPush()
+	if err != nil {
+		return err
+	}
 	// push
 	j.Go(func() error {
 		defer s.CloseWrite()
 
-		gs, err := n.Records()
-		if err != nil {
-			return err
-		}
-		gs = append(
-			gs.Bind(isNot(s.Conn().RemotePeer())), // save some bandwidth
+		buffer := append(
+			local.Bind(isNot(s.Conn().RemotePeer())).Bind(head(px.gossip.c/2-1)), // save some bandwidth
 			px.self.Load().(*GossipRecord))
 
 		enc := capnp.NewPackedEncoder(s)
-		for _, g := range gs {
+		for _, g := range buffer {
 			if err = enc.Encode(g.Message()); err != nil {
 				break
 			}
@@ -287,7 +287,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 			remote = append(remote, g)
 		}
-		return n.MergeAndStore(remote)
+		return n.MergeAndStore(local, remote)
 	})
 
 	return j.Wait()

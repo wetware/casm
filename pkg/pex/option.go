@@ -103,10 +103,10 @@ func WithGossipParams(gossip GossipParams) Option {
 		gossip.c = 32
 	}
 	if gossip.s < 0 {
-		gossip.s = gossip.c * (2 / 3)
+		gossip.s = (gossip.c / 2) * (2 / 3)
 	}
 	if gossip.r < 0 {
-		gossip.r = gossip.c * (1 / 3)
+		gossip.r = (gossip.c / 2) * (1 / 3)
 	}
 	if gossip.d < 0 {
 		gossip.d = 0.005

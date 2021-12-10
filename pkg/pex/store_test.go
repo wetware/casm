@@ -46,6 +46,14 @@ func TestMerge(t *testing.T) {
 			name: "should_retain_higher_seq_despite_lower_hop",
 			test: shouldRetainHigherSeqDespiteLowerHop,
 		},
+		{
+			name: "should_swap",
+			test: shouldSwap,
+		},
+		{
+			name: "should_retain_and_decay",
+			test: shouldRetainAndDecay,
+		},
 	} {
 		runner(t, tt.name, tt.test)
 	}
@@ -110,11 +118,11 @@ func shouldHaveViewSize_vsize(t *testing.T, p params) {
 	n := p.PeX.namespace(ns)
 
 	// When the current view is full (= n) ...
-	err = n.MergeAndStore(p.Local)
+	err = n.MergeAndStore(p.Local, p.Local)
 	require.NoError(t, err)
 
 	// ... and we merge a remote view ...
-	err = n.MergeAndStore(p.Remote)
+	err = n.MergeAndStore(p.Local, p.Remote)
 	require.NoError(t, err)
 
 	// ... the size of the resulting view should be n.
@@ -137,9 +145,9 @@ func shouldKeepRecordsWithEqualHopSeq(t *testing.T, p params) {
 	}
 	p.Remote[len(p.Remote)-1].g.SetHop(0)
 
-	err = n.MergeAndStore(p.Local)
+	err = n.MergeAndStore(p.Local, p.Local)
 	require.NoError(t, err)
-	err = n.MergeAndStore(p.Remote)
+	err = n.MergeAndStore(p.Local, p.Remote)
 	require.NoError(t, err)
 
 	// ... the size of the resulting view should be n.
@@ -154,23 +162,48 @@ func shouldSwap(t *testing.T, p params) {
 
 	n := p.PeX.namespace(ns)
 
-	// Copy Local records to Remote
-	for i, lrec := range p.Local {
-		p.Remote[i].Seq = lrec.Seq
-		p.Remote[i].g.SetHop(lrec.Hop()) // Redundant because initially Hop=0
-		p.Remote[i].PeerID = lrec.PeerID
+	local := p.Local.Bind(sorted())
+
+	n.gossip.s = 2
+	err = n.MergeAndStore(local, p.Remote)
+	require.NoError(t, err)
+	gs, err := n.Records()
+	require.NoError(t, err)
+
+	merge := local.
+		Bind(merged(p.Remote)).
+		Bind(isNot(n.id))
+	s := min(n.gossip.s, max(len(merge)-n.gossip.c, 0))
+
+	for _, rec := range merge[:s] {
+		_, found := gs.find(rec)
+		require.False(t, found)
 	}
-	p.Remote[len(p.Remote)-1].g.SetHop(0)
+}
 
-	err = n.MergeAndStore(p.Local)
-	require.NoError(t, err)
-	err = n.MergeAndStore(p.Remote)
+func shouldRetainAndDecay(t *testing.T, p params) {
+	err := p.PeX.setLocalRecord(p.LocalRecord())
 	require.NoError(t, err)
 
-	// ... the size of the resulting view should be n.
-	gs, err := n.View()
+	n := p.PeX.namespace(ns)
+
+	local := p.Local.Bind(sorted())
+	n.gossip.r = 1
+	n.gossip.d = 0
+	err = n.MergeAndStore(local, p.Remote)
 	require.NoError(t, err)
-	require.Len(t, gs, vsize)
+	gs, err := n.Records()
+	require.NoError(t, err)
+
+	merge := local.
+		Bind(merged(p.Remote)).
+		Bind(isNot(n.id))
+
+	r := min(min(n.gossip.r, n.gossip.c), len(merge))
+	for _, rec := range merge.Bind(sorted()).Bind(tail(r)) {
+		_, found := gs.find(rec)
+		require.True(t, found)
+	}
 }
 
 func shouldRetainHigherSeq(t *testing.T, p params) {
