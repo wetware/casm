@@ -17,7 +17,9 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/lthibault/log"
+	syncutil "github.com/lthibault/util/sync"
 	"golang.org/x/crypto/sha3"
+	"golang.org/x/sync/semaphore"
 )
 
 type Beacon struct {
@@ -271,22 +273,32 @@ func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Op
 	go func() {
 		defer close(out)
 
+		var (
+			running = syncutil.Flag(1)
+			sem     = semaphore.NewWeighted(32)
+		)
 		// loop through CIDR
-		for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); inc(ip) {
+		for ip := ip.Mask(ipnet.Mask); running.Bool() && ipnet.Contains(ip); inc(ip) {
 			if ip.Equal(broadcast(ipnet, ip)) || ip.IsMulticast() {
 				continue
 			}
 
-			peer, err := s.RoundTrip(ctx, k, ip)
-			if err != nil {
-				continue // handle error?
+			if err := sem.Acquire(ctx, 1); err != nil {
+				return
 			}
 
-			if consume(ctx, out, peer) {
-				continue // success
-			}
+			go func() {
+				defer sem.Release(1)
 
-			break
+				peer, err := s.RoundTrip(ctx, k, ip)
+				if err != nil {
+					return // handle error
+				}
+
+				if consume(ctx, out, peer) {
+					running.Unset() // success
+				}
+			}()
 		}
 	}()
 
