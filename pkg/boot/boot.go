@@ -3,7 +3,6 @@ package boot
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
@@ -22,6 +21,19 @@ type StaticAddrs []peer.AddrInfo
 // NewStaticAddrs from one or more multiaddrs.
 func NewStaticAddrs(as ...ma.Multiaddr) (StaticAddrs, error) {
 	return peer.AddrInfosFromP2pAddrs(as...)
+}
+
+func NewStaticAddrStrings(ss ...string) (as StaticAddrs, _ error) {
+	for _, s := range ss {
+		info, err := peer.AddrInfoFromString(s)
+		if err != nil {
+			return nil, err
+		}
+
+		as = append(as, *info)
+	}
+
+	return as, nil
 }
 
 func (as StaticAddrs) Len() int           { return len(as) }
@@ -76,36 +88,10 @@ func staticChan(ps []peer.AddrInfo) chan peer.AddrInfo {
 	return ch
 }
 
-func normalizeNS(ns string) string {
-	// HACK:  libp2p's pubsub system prefixes topic names with the string "floodsub:",
-	//        presumably to avoid collisions with DHT-based discovery.
-	//
-	// See:  https://github.com/libp2p/go-libp2p-pubsub/blob/v0.5.4/discovery.go#L322-L328
-	return strings.TrimPrefix(ns, "floodsub:")
-}
-
-type errChanPool chan chan error
-
-var chErrPool = make(errChanPool, 8)
-
-func (pool errChanPool) Get() (cherr chan error) {
-	select {
-	case cherr = <-pool:
-	default:
-		cherr = make(chan error, 1)
-	}
-
-	return
-}
-
-func (pool errChanPool) Put(cherr chan error) {
-	select {
-	case <-cherr:
-	default:
-	}
-
-	select {
-	case pool <- cherr:
-	default:
-	}
-}
+// func normalizeNS(ns string) string {
+// 	// HACK:  libp2p's pubsub system prefixes topic names with the string "floodsub:",
+// 	//        presumably to avoid collisions with DHT-based discovery.
+// 	//
+// 	// See:  https://github.com/libp2p/go-libp2p-pubsub/blob/v0.5.4/discovery.go#L322-L328
+// 	return strings.TrimPrefix(ns, "floodsub:")
+// }
