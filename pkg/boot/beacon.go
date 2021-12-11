@@ -15,6 +15,7 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/lthibault/log"
 	syncutil "github.com/lthibault/util/sync"
@@ -151,7 +152,7 @@ func (b *Beacon) Advertise(ctx context.Context, ns string, opts ...discovery.Opt
 	}
 
 	o := &discovery.Options{
-		Ttl: time.Hour * 24,
+		Ttl: peerstore.PermanentAddrTTL,
 		Other: map[interface{}]interface{}{
 			keyNS{}:     ns,
 			keySignal{}: make(chan struct{}),
