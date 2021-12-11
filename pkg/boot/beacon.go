@@ -25,7 +25,7 @@ import (
 
 type Beacon struct {
 	once sync.Once
-	log  log.Logger
+	Log  log.Logger
 
 	Envelope *record.Envelope
 	Addr     string
@@ -39,8 +39,8 @@ type Beacon struct {
 
 func (b *Beacon) Serve(ctx context.Context) error {
 	b.once.Do(func() {
-		if b.log == nil {
-			b.log = log.New(log.WithLevel(log.FatalLevel))
+		if b.Log == nil {
+			b.Log = log.New(log.WithLevel(log.FatalLevel))
 		}
 	})
 
@@ -79,7 +79,7 @@ func (b *Beacon) Serve(ctx context.Context) error {
 
 			err = k.Knock.UnmarshalBinary(buf[:n])
 			if err != nil {
-				b.log.WithError(err).
+				b.Log.WithError(err).
 					WithField("from", addr.String()).
 					Debug("error reading payload")
 				continue
