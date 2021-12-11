@@ -54,7 +54,7 @@ func (b *Beacon) Serve(ctx context.Context) error {
 
 	var (
 		namespaces = make(map[string]time.Time)
-		advertise  = make(chan *discovery.Options, 1)
+		advertise  = make(chan *discovery.Options)
 		knock      = make(chan knockRequest)
 		cherr      = make(chan error, 1)
 	)
@@ -82,6 +82,8 @@ func (b *Beacon) Serve(ctx context.Context) error {
 				return
 			}
 
+			b.Log.WithField("size", n).Trace("got message from: %s", addr)
+
 			err = k.Knock.UnmarshalBinary(buf[:n])
 			if err != nil {
 				b.Log.WithError(err).
@@ -91,10 +93,7 @@ func (b *Beacon) Serve(ctx context.Context) error {
 			}
 
 			select {
-			case knock <- knockRequest{
-				Knock:    k.Knock,
-				Callback: addr,
-			}:
+			case knock <- knockRequest{Knock: k.Knock, Dialback: addr}:
 			case <-ctx.Done():
 				return
 			}
@@ -124,7 +123,9 @@ func (b *Beacon) Serve(ctx context.Context) error {
 					continue
 				}
 
-				if err := b.reply(ctx, conn, k.Callback); err != nil {
+				b.Log.With(k).WithField("ns", ns).Trace("matched")
+
+				if err := b.reply(ctx, conn, k.Dialback); err != nil {
 					return err
 				}
 			}
@@ -427,7 +428,13 @@ func (k Knock) Matches(ns string) bool {
 
 type knockRequest struct {
 	Knock
-	Callback net.Addr
+	Dialback net.Addr
+}
+
+func (req knockRequest) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"dialback": req.Dialback.String(),
+	}
 }
 
 type keyNS struct{}
