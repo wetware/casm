@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"sync"
 	"time"
@@ -67,7 +68,7 @@ func (a *announcer) tick() {
 
 	for ctx.Err() == nil {
 		if err := a.announce(ctx); err != nil {
-			if err == context.Canceled {
+			if errors.Is(err, context.Canceled) {
 				return
 			}
 
