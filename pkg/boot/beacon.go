@@ -233,8 +233,10 @@ func (b *Beacon) listen(ctx context.Context) (conn *net.UDPConn, err error) {
 // To avoid overwhelming hosts, the CIDR range is traversed
 // in pseudorandom order, with bounded concurrency.
 type Scanner struct {
-	Port int
-	CIDR string
+	init   sync.Once
+	Logger log.Logger
+	Port   int
+	CIDR   string
 
 	once        sync.Once
 	read, write sync.Mutex
@@ -250,14 +252,22 @@ func (s *Scanner) Close() error {
 	return s.conn.Close()
 }
 
-func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	o := discovery.Options{}
-	if err := o.Apply(opts...); err != nil {
-		return nil, err
+func (s *Scanner) setup() {
+	if s.Logger == nil {
+		s.Logger = log.New(log.WithLevel(log.FatalLevel))
 	}
 
 	if s.CIDR == "" {
 		s.CIDR = "255.255.255.0/24"
+	}
+}
+
+func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	s.init.Do(s.setup)
+
+	o := discovery.Options{}
+	if err := o.Apply(opts...); err != nil {
+		return nil, err
 	}
 
 	ip, ipnet, err := net.ParseCIDR(s.CIDR)
@@ -309,6 +319,8 @@ func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Op
 // RoundTrip sends 'k' to the 's.Port' on host 'addr' and waits for a
 // reply until 'ctx' expires.
 func (s *Scanner) RoundTrip(ctx context.Context, k Knock, ip net.IP) (*peer.PeerRecord, error) {
+	s.init.Do(s.setup)
+
 	if err := s.listen(ctx); err != nil {
 		return nil, err
 	}
