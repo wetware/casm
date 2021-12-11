@@ -252,6 +252,14 @@ func (s *Scanner) Close() error {
 	return s.conn.Close()
 }
 
+func (s *Scanner) Loggable() map[string]interface{} {
+	s.init.Do(s.setup)
+	return map[string]interface{}{
+		"port": s.Port,
+		"cidr": s.CIDR,
+	}
+}
+
 func (s *Scanner) setup() {
 	if s.Logger == nil {
 		s.Logger = log.New(log.WithLevel(log.FatalLevel))
@@ -265,6 +273,8 @@ func (s *Scanner) setup() {
 func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	s.init.Do(s.setup)
 
+	s.Logger.With(s).WithField("ns", ns).Debug("port scan started")
+
 	o := discovery.Options{}
 	if err := o.Apply(opts...); err != nil {
 		return nil, err
@@ -273,11 +283,6 @@ func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Op
 	ip, ipnet, err := net.ParseCIDR(s.CIDR)
 	if err != nil {
 		return nil, err
-	}
-
-	k, err := NewKnock(ns)
-	if err != nil {
-		return nil, fmt.Errorf("crypto: %w", err)
 	}
 
 	out := make(chan peer.AddrInfo, 1)
@@ -301,7 +306,10 @@ func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Op
 			go func() {
 				defer sem.Release(1)
 
-				peer, err := s.RoundTrip(ctx, k, ip)
+				ctx, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+
+				peer, err := s.RoundTrip(ctx, ns, ip)
 				if err != nil {
 					return // handle error
 				}
@@ -318,21 +326,29 @@ func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Op
 
 // RoundTrip sends 'k' to the 's.Port' on host 'addr' and waits for a
 // reply until 'ctx' expires.
-func (s *Scanner) RoundTrip(ctx context.Context, k Knock, ip net.IP) (*peer.PeerRecord, error) {
+func (s *Scanner) RoundTrip(ctx context.Context, ns string, ip net.IP) (*peer.PeerRecord, error) {
 	s.init.Do(s.setup)
 
 	if err := s.listen(ctx); err != nil {
 		return nil, err
 	}
 
-	var addr = &net.UDPAddr{
-		IP:   ip,
-		Port: s.Port,
+	k, err := NewKnock(ns)
+	if err != nil {
+		return nil, fmt.Errorf("crypto: %w", err)
 	}
 
-	if err := s.send(ctx, k.Bytes(), addr); err != nil {
+	if err := s.send(ctx, k.Bytes(), &net.UDPAddr{
+		IP:   ip,
+		Port: s.Port,
+	}); err != nil {
 		return nil, err
 	}
+
+	s.Logger.With(s).
+		WithField("ns", ns).
+		With(knockRequest{Dialback: s.conn.LocalAddr()}).
+		Trace("sent KNOCK")
 
 	var b [8192]byte
 	n, err := s.recv(ctx, b[:])

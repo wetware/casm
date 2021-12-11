@@ -84,10 +84,9 @@ func (a *announcer) tick() {
 			case <-ctx.Done():
 				return
 			}
-		} else {
-			a.log.Trace("heartbeat emitted")
 		}
 
+		a.log.Trace("heartbeat emitted")
 		b.Reset()
 
 		select {
@@ -109,5 +108,11 @@ func (a *announcer) announce(ctx context.Context) error {
 		return err
 	}
 
-	return a.t.Publish(ctx, b, pubsub.WithReadiness(a.ready))
+	// Publish may return nil if the context shuts down.
+	err = a.t.Publish(ctx, b, pubsub.WithReadiness(a.ready))
+	if err == nil {
+		err = ctx.Err()
+	}
+
+	return err
 }

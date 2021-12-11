@@ -79,10 +79,7 @@ func TestBeacon(t *testing.T) {
 			"should close gracefully")
 	}()
 
-	k, err := boot.NewKnock("test")
-	require.NoError(t, err)
-
-	r, err := s.RoundTrip(ctx, k, net.IPv4(127, 0, 0, 1))
+	r, err := s.RoundTrip(ctx, "test", net.IPv4(127, 0, 0, 1))
 	require.NoError(t, err)
 
 	assert.Equal(t, id, r.PeerID)
