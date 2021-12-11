@@ -34,6 +34,14 @@ type Beacon struct {
 	state atomicBeaconState
 }
 
+func (b *Beacon) String() string { return "casm.boot.beacon" }
+
+func (b *Beacon) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"addr": b.Addr,
+	}
+}
+
 func (b *Beacon) Serve(ctx context.Context) error {
 	b.once.Do(func() {
 		if b.Log == nil {
