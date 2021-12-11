@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
-	insecure "math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -227,9 +224,10 @@ type Scanner struct {
 	Port int
 	CIDR string
 
-	once sync.Once
-	conn *net.UDPConn
-	err  error
+	once        sync.Once
+	read, write sync.Mutex
+	conn        *net.UDPConn
+	err         error
 }
 
 func (s *Scanner) Close() error {
@@ -247,7 +245,7 @@ func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Op
 	}
 
 	if s.CIDR == "" {
-		s.CIDR = "10.0.0.0/24"
+		s.CIDR = "255.255.255.0/24"
 	}
 
 	ip, ipnet, err := net.ParseCIDR(s.CIDR)
@@ -264,35 +262,13 @@ func (s *Scanner) FindPeers(ctx context.Context, ns string, opts ...discovery.Op
 	go func() {
 		defer close(out)
 
-		var (
-			addr net.IP = append(make(net.IP, 0, 4), ip...) // copy; initially 10.0.0.0
-
-			// these values must never mutate
-			ip32  = binary.BigEndian.Uint32(ip)         // 'ip' must also never mutate
-			mask  = binary.BigEndian.Uint32(ipnet.Mask) // initially 10.0.0.255
-			nonce = insecure.Uint32()
-		)
-
-		// range through the entire 32-bit address space.
-		for i := uint32(0); i < math.MaxUint32; i++ {
-			// set the next IP address in the block
-			binary.BigEndian.PutUint32(addr, mask&(ip32^i))
-
-			// CIDR range exhausted?
-			if !ipnet.Contains(addr) {
-				return // nothing left to do ...
-			}
-
-			// Randomize position within CIDR by mixing
-			// in the nonce.
-			binary.BigEndian.PutUint32(addr, mask&(ip32^i^nonce))
-
-			// subnet addr or multicast addr?
-			if addr.Equal(ip) || addr.IsMulticast() {
+		// loop through CIDR
+		for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); inc(ip) {
+			if ip.Equal(broadcast(ipnet, ip)) || ip.IsMulticast() {
 				continue
 			}
 
-			peer, err := s.RoundTrip(ctx, k, addr)
+			peer, err := s.RoundTrip(ctx, k, ip)
 			if err != nil {
 				continue // handle error?
 			}
@@ -320,14 +296,14 @@ func (s *Scanner) RoundTrip(ctx context.Context, k Knock, ip net.IP) (*peer.Peer
 		Port: s.Port,
 	}
 
-	if _, err := s.conn.WriteToUDP(k.Bytes(), addr); err != nil {
-		return nil, fmt.Errorf("conn: %w", err)
+	if err := s.send(ctx, k.Bytes(), addr); err != nil {
+		return nil, err
 	}
 
-	b := make([]byte, 8192) // 8kb => max  datagram size
-	n, _, err := s.conn.ReadFromUDP(b)
+	var b [8192]byte
+	n, err := s.recv(ctx, b[:])
 	if err != nil {
-		return nil, fmt.Errorf("conn: %w", err)
+		return nil, err
 	}
 
 	// FIXME(security):  boot packets should have their own Record type.
@@ -356,6 +332,22 @@ func consume(ctx context.Context, out chan<- peer.AddrInfo, r *peer.PeerRecord) 
 	case <-ctx.Done():
 		return false
 	}
+}
+
+func (s *Scanner) send(ctx context.Context, b []byte, a *net.UDPAddr) (int error) {
+	s.write.Lock()
+	defer s.write.Unlock()
+
+	_, err := s.conn.WriteToUDP(b, a)
+	return err
+}
+
+func (s *Scanner) recv(ctx context.Context, b []byte) (int, error) {
+	s.read.Lock()
+	defer s.read.Unlock()
+
+	n, _, err := s.conn.ReadFromUDP(b[:])
+	return n, err
 }
 
 func (s *Scanner) listen(ctx context.Context) error {
@@ -485,4 +477,22 @@ func (a *atomicBeaconState) Reset() { (*atomic.Value)(a).Store(beaconState{}) }
 type beaconState struct {
 	cq        <-chan struct{}
 	advertise chan<- *discovery.Options
+}
+
+// increment an IP
+func inc(ip net.IP) {
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
+	}
+}
+
+func broadcast(ipnet *net.IPNet, ip net.IP) net.IP {
+	broadcast := net.IP(make([]byte, 4))
+	for i := range ip {
+		broadcast[i] = ip[i] | ^ipnet.Mask[i]
+	}
+	return broadcast
 }
