@@ -84,9 +84,10 @@ func (a *announcer) tick() {
 			case <-ctx.Done():
 				return
 			}
+		} else {
+			a.log.Trace("heartbeat emitted")
 		}
 
-		a.log.Trace("heartbeat emitted")
 		b.Reset()
 
 		select {
