@@ -1,9 +1,6 @@
 package routing
 
 import (
-	"time"
-	"unsafe"
-
 	"github.com/libp2p/go-libp2p-core/peer"
 )
 
@@ -11,29 +8,7 @@ import (
  * util.go contains unexported utility types
  */
 
-// Nil values are treated as infinite.
-func unsafeTimeComparator(a, b interface{}) int {
-	switch {
-	case a == nil:
-		return -1 // N.B.:  treap is a min-heap by default
-	case b == nil:
-		return 1
-	}
-
-	ta := timeCastUnsafe(a)
-	tb := timeCastUnsafe(b)
-
-	switch {
-	case ta.After(tb):
-		return 1
-	case ta.Before(tb):
-		return -1
-	default:
-		return 0
-	}
-}
-
-func unsafePeerIDComparator(a, b interface{}) int {
+func pidComparator(a, b interface{}) int {
 	switch {
 	case a == nil:
 		return -1 // N.B.:  treap is a min-heap by default
@@ -42,8 +17,8 @@ func unsafePeerIDComparator(a, b interface{}) int {
 	}
 
 	var (
-		s1        = stringCastUnsafe(a)
-		s2        = stringCastUnsafe(b)
+		s1        = a.(peer.ID)
+		s2        = b.(peer.ID)
 		min, diff int
 	)
 
@@ -67,22 +42,4 @@ func unsafePeerIDComparator(a, b interface{}) int {
 	}
 
 	return diff
-}
-
-func timeCastUnsafe(v interface{}) time.Time {
-	return *(*time.Time)((*ifaceWords)(unsafe.Pointer(&v)).data)
-}
-
-func stringCastUnsafe(v interface{}) string {
-	return *(*string)((*ifaceWords)(unsafe.Pointer(&v)).data)
-}
-
-func idCastUnsafe(v interface{}) peer.ID {
-	return *(*peer.ID)((*ifaceWords)(unsafe.Pointer(&v)).data)
-}
-
-// ifaceWords is interface{} internal representation.
-type ifaceWords struct {
-	typ  unsafe.Pointer
-	data unsafe.Pointer
 }

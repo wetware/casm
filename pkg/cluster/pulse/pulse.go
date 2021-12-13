@@ -7,10 +7,8 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/wetware/casm/internal/api/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
@@ -18,33 +16,22 @@ type RoutingTable interface {
 	Upsert(routing.Record) bool
 }
 
-type Hook func(Heartbeat)
+type Preparer interface {
+	Prepare(Heartbeat)
+}
 
-func NewValidator(rt RoutingTable, e event.Emitter) pubsub.ValidatorEx {
+func NewValidator(rt RoutingTable) pubsub.ValidatorEx {
 	return func(_ context.Context, id peer.ID, m *pubsub.Message) pubsub.ValidationResult {
-		var ev ClusterEvent
-		if err := ev.UnmarshalBinary(m.Data); err != nil {
-			return pubsub.ValidationReject
-		}
+		var hb Heartbeat
+		if err := hb.UnmarshalBinary(m.Data); err == nil {
+			m.ValidatorData = hb
 
-		m.ValidatorData = ev
-
-		switch ev.Type() {
-		case EventType_Heartbeat:
-			if h, err := ev.Heartbeat(); err == nil {
-				if rt.Upsert(record(m, h)) {
-					return pubsub.ValidationAccept
-				}
-
-				// heartbeat is valid, but we have ev more recent one.
-				return pubsub.ValidationIgnore
-			}
-
-		case EventType_Join, EventType_Leave:
-			if validateJoinLeaveID(ev) {
-				_ = e.Emit(newPeerEvent(id, m, ev))
+			if rt.Upsert(record(m, hb)) {
 				return pubsub.ValidationAccept
 			}
+
+			// heartbeat is valid, but we have a more recent one.
+			return pubsub.ValidationIgnore
 		}
 
 		// assume the worst...
@@ -65,28 +52,4 @@ func record(m *pubsub.Message, h Heartbeat) routingRecord {
 		m:         m,
 		Heartbeat: h,
 	}
-}
-
-// func newer(n *treap.Node, r routingRecord) bool {
-// 	return n.Value.(routingRecord).Seq() < r.Seq()
-// }
-
-func validateJoinLeaveID(ev ClusterEvent) bool {
-	var (
-		s   string
-		err error
-	)
-
-	switch ev.Type() {
-	case pulse.Event_Which_join:
-		s, err = ev.Join()
-	case pulse.Event_Which_leave:
-		s, err = ev.Leave()
-	}
-
-	if err == nil {
-		_, err = peer.IDFromString(s)
-	}
-
-	return err == nil
 }

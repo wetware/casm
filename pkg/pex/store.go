@@ -283,7 +283,7 @@ func tail(n int) func(gossipSlice) gossipSlice {
 
 	return func(gs gossipSlice) gossipSlice {
 		if n < len(gs) {
-			gs = gs[len(gs)-n:]
+			gs = gs[:n]
 		}
 
 		return gs
