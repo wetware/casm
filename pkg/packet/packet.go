@@ -11,7 +11,7 @@ import (
 	casm "github.com/wetware/casm/pkg"
 )
 
-var _ RoundTripper = (*Beacon)(nil)
+var _ RoundTripper = (*Endpoint)(nil)
 
 const (
 	// A datagram where len(payload) <= 508  should generally be safe
@@ -32,13 +32,13 @@ type RoundTripper interface {
 	RoundTrip(net.PacketConn, record.Record) (*casm.Register, error)
 }
 
-type Beacon struct {
+type Endpoint struct {
 	Addr net.Addr
 	*casm.Register
 }
 
 // ServePacket passes the contents of the register to the handler.
-func (b Beacon) ServePacket(buf []byte, n int) (int, error) {
+func (b Endpoint) ServePacket(buf []byte, n int) (int, error) {
 	if e, ok := b.Register.Load(); ok {
 		b, err := e.Marshal()
 		if err == nil {
@@ -53,7 +53,7 @@ func (b Beacon) ServePacket(buf []byte, n int) (int, error) {
 
 // RoundTrip sends the contents of the register to Addr, then
 // returns any response in a new register.
-func (b Beacon) RoundTrip(conn net.PacketConn, r record.Record) (*casm.Register, error) {
+func (b Endpoint) RoundTrip(conn net.PacketConn, r record.Record) (*casm.Register, error) {
 	buf := pool.Get()
 	defer pool.Put(buf)
 
