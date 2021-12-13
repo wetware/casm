@@ -65,7 +65,7 @@ type PeerExchange struct {
 	self   atomic.Value
 	ds     ds.Batching
 	prefix ds.Key
-	gossip GossipParams // cardinality of the passive view
+	gossip GossipParams
 	e      event.Emitter
 
 	runtime interface{ Stop(context.Context) error }
@@ -96,7 +96,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 func (px *PeerExchange) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"id": px.h.ID(),
-		"c":  px.gossip.c,
+		"view_size":  px.gossip.C,
 	}
 }
 
@@ -161,7 +161,7 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 }
 
 func (px *PeerExchange) options(opt []discovery.Option) (opts *discovery.Options, err error) {
-	opts = &discovery.Options{Limit: px.gossip.c}
+	opts = &discovery.Options{Limit: px.gossip.C}
 	if err = opts.Apply(opt...); err == nil && opts.Ttl == 0 {
 		opts.Ttl = px.tick
 	}
@@ -246,7 +246,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 		defer s.CloseWrite()
 
 		buffer := append(
-			local.Bind(isNot(s.Conn().RemotePeer())).Bind(head(px.gossip.c/2-1)), // save some bandwidth
+			local.Bind(isNot(s.Conn().RemotePeer())).Bind(head(px.gossip.C/2-1)), // save some bandwidth
 			px.self.Load().(*GossipRecord))
 
 		enc := capnp.NewPackedEncoder(s)
@@ -265,7 +265,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 		var (
 			remote gossipSlice
-			r      = io.LimitReader(s, int64(px.gossip.c*mtu))
+			r      = io.LimitReader(s, int64(px.gossip.C*mtu))
 		)
 
 		dec := capnp.NewPackedDecoder(r)

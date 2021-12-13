@@ -168,7 +168,7 @@ func shouldSwap(t *testing.T, p params) {
 
 	local := p.Local.Bind(sorted())
 
-	n.gossip.s = 2
+	n.gossip.S = 2
 	err = n.MergeAndStore(local, p.Remote)
 	require.NoError(t, err)
 	gs, err := n.Records()
@@ -177,7 +177,7 @@ func shouldSwap(t *testing.T, p params) {
 	merge := local.
 		Bind(merged(p.Remote)).
 		Bind(isNot(n.id))
-	s := min(n.gossip.s, max(len(merge)-n.gossip.c, 0))
+	s := min(n.gossip.S, max(len(merge)-n.gossip.C, 0))
 
 	for _, rec := range merge[:s] {
 		_, found := gs.find(rec)
@@ -197,11 +197,11 @@ func shouldRetain(t *testing.T, p params) {
 		Bind(merged(p.Remote)).
 		Bind(isNot(n.id))
 
-	r := min(min(n.gossip.r, n.gossip.c), len(merge))
+	r := min(min(n.gossip.R, n.gossip.C), len(merge))
 	oldest := merge.Bind(sorted()).Bind(tail(r))
 
-	n.gossip.r = 2
-	n.gossip.d = 0
+	n.gossip.R = 2
+	n.gossip.D = 0
 	err = n.MergeAndStore(local, p.Remote)
 	require.NoError(t, err)
 	gs, err := n.RecordsSortedToPush()
@@ -224,11 +224,11 @@ func shouldNotRetain(t *testing.T, p params) {
 		Bind(merged(p.Remote)).
 		Bind(isNot(n.id))
 
-	r := min(min(n.gossip.r, n.gossip.c), len(merge))
+	r := min(min(n.gossip.R, n.gossip.C), len(merge))
 	oldest := merge.Bind(sorted()).Bind(tail(r))
 
-	n.gossip.r = 2
-	n.gossip.d = 1
+	n.gossip.R = 2
+	n.gossip.D = 1
 	err = n.MergeAndStore(local, p.Remote)
 	require.NoError(t, err)
 	gs, err := n.RecordsSortedToPush()

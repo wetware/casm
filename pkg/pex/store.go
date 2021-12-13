@@ -46,7 +46,7 @@ func (n namespace) RecordsSortedToPush() (gossipSlice, error) {
 		return nil, err
 	}
 	recs = recs.Bind(sorted())
-	oldest := recs.Bind(tail(n.gossip.r))
+	oldest := recs.Bind(tail(n.gossip.R))
 	recs = recs[:len(recs)-len(oldest)].Bind(shuffled())
 	return append(recs, oldest...), nil
 }
@@ -129,17 +129,17 @@ func (n namespace) MergeAndStore(local, remote gossipSlice) error {
 		Bind(isNot(n.id))
 
 	// Apply swapping
-	s := min(n.gossip.s, max(len(newLocal)-n.gossip.c, 0))
+	s := min(n.gossip.S, max(len(newLocal)-n.gossip.C, 0))
 	newLocal = newLocal.
 		Bind(tail(len(newLocal) - s)).
 		Bind(sorted())
 
 	// Apply retention
-	r := min(min(n.gossip.r, n.gossip.c), len(newLocal))
-	oldest := newLocal.Bind(tail(r)).Bind(decay(n.gossip.d))
+	r := min(min(n.gossip.R, n.gossip.C), len(newLocal))
+	oldest := newLocal.Bind(tail(r)).Bind(decay(n.gossip.D))
 
 	//Apply random eviction
-	c := n.gossip.c - len(oldest)
+	c := n.gossip.C - len(oldest)
 	newLocal = newLocal[:len(newLocal)-r].
 		Bind(shuffled()).
 		Bind(head(c)).
