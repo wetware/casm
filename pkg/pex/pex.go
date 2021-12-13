@@ -65,7 +65,7 @@ type PeerExchange struct {
 	self   atomic.Value
 	ds     ds.Batching
 	prefix ds.Key
-	k      int // cardinality of the passive view
+	gossip GossipParams
 	e      event.Emitter
 
 	runtime interface{ Stop(context.Context) error }
@@ -96,7 +96,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 func (px *PeerExchange) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"id": px.h.ID(),
-		"k":  px.k,
+		"view_size":  px.gossip.C,
 	}
 }
 
@@ -161,7 +161,7 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 }
 
 func (px *PeerExchange) options(opt []discovery.Option) (opts *discovery.Options, err error) {
-	opts = &discovery.Options{Limit: px.k}
+	opts = &discovery.Options{Limit: px.gossip.C}
 	if err = opts.Apply(opt...); err == nil && opts.Ttl == 0 {
 		opts.Ttl = px.tick
 	}
@@ -237,20 +237,20 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 		return err
 	}
 
+	local, err := n.RecordsSortedToPush()
+	if err != nil {
+		return err
+	}
 	// push
 	j.Go(func() error {
 		defer s.CloseWrite()
 
-		gs, err := n.Records()
-		if err != nil {
-			return err
-		}
-		gs = append(
-			gs.Bind(isNot(s.Conn().RemotePeer())), // save some bandwidth
+		buffer := append(
+			local.Bind(isNot(s.Conn().RemotePeer())).Bind(head(px.gossip.C/2-1)), // save some bandwidth
 			px.self.Load().(*GossipRecord))
 
 		enc := capnp.NewPackedEncoder(s)
-		for _, g := range gs {
+		for _, g := range buffer {
 			if err = enc.Encode(g.Message()); err != nil {
 				break
 			}
@@ -265,7 +265,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 		var (
 			remote gossipSlice
-			r      = io.LimitReader(s, int64(px.k*mtu))
+			r      = io.LimitReader(s, int64(px.gossip.C*mtu))
 		)
 
 		dec := capnp.NewPackedDecoder(r)
@@ -287,7 +287,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 			remote = append(remote, g)
 		}
-		return n.MergeAndStore(remote)
+		return n.MergeAndStore(local, remote)
 	})
 
 	return j.Wait()
@@ -298,7 +298,7 @@ func (px *PeerExchange) namespace(ns string) namespace {
 		prefix: px.prefix.ChildString(ns),
 		ds:     px.ds,
 		id:     px.h.ID(),
-		k:      px.k,
+		gossip: px.gossip,
 		e:      px.e,
 	}
 }
@@ -419,13 +419,13 @@ func newConfig(id peer.ID, opt []Option) (c Config) {
 type pexParams struct {
 	fx.In
 
-	Ctx   context.Context
-	Log   log.Logger
-	K     int
-	Host  host.Host
-	Tick  time.Duration
-	Store ds.Batching
-	Disc  *discover
+	Ctx    context.Context
+	Log    log.Logger
+	Gossip GossipParams
+	Host   host.Host
+	Tick   time.Duration
+	Store  ds.Batching
+	Disc   *discover
 }
 
 func (p pexParams) Prefix() ds.Key {
@@ -437,7 +437,7 @@ func newPeerExchange(p pexParams) (*PeerExchange, error) {
 	return &PeerExchange{
 		ctx:    p.Ctx,
 		log:    p.Log,
-		k:      p.K,
+		gossip: p.Gossip,
 		h:      p.Host,
 		d:      p.Disc,
 		tick:   p.Tick,

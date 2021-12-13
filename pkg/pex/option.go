@@ -11,12 +11,19 @@ import (
 	"go.uber.org/fx"
 )
 
+type GossipParams struct {
+	C int     // maximum View size
+	S int     // swapping amount
+	R int     // retention amount
+	D float64 // retention decay probability
+}
+
 // Config supplies options to the dependency-injection framework.
 type Config struct {
 	fx.Out
 
 	Log          log.Logger
-	MaxSize      int
+	Gossip       GossipParams
 	Tick         time.Duration
 	Store        ds.Batching
 	Discovery    discovery.Discovery
@@ -91,22 +98,31 @@ func WithTick(d time.Duration) Option {
 //
 // Users SHOULD ensure all nodes in a given cluster have
 // the same maximum view size.
-func WithMaxViewSize(n uint) Option {
-	if n == 0 {
-		n = 32
+func WithGossipParams(gossip GossipParams) Option {
+	if gossip.C <= 0 {
+		gossip.C = 32
+	}
+	if gossip.S < 0 {
+		gossip.S = (gossip.C / 2) * (2 / 3)
+	}
+	if gossip.R < 0 {
+		gossip.R = (gossip.C / 2) * (1 / 3)
+	}
+	if gossip.D < 0 {
+		gossip.D = 0.005
 	}
 
 	return func(c *Config) {
-		c.MaxSize = int(n)
+		c.Gossip = gossip
 	}
 }
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
-		WithTick(-1),
+		WithTick(time.Minute),
+		WithGossipParams(GossipParams{32, 10, 5, 0.005}),
 		WithLogger(nil),
 		WithDatastore(nil),
 		WithDiscovery(nil),
-		WithMaxViewSize(0),
 	}, opt...)
 }
