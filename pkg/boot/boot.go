@@ -1,97 +1,75 @@
-// Package boot contains discovery services suitable for cluster bootstrap.
 package boot
 
 import (
 	"context"
+	"net"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
-	ps "github.com/libp2p/go-libp2p-core/peerstore"
-	ma "github.com/multiformats/go-multiaddr"
+	"github.com/wetware/casm/pkg/packet"
 )
 
-var (
-	_ discovery.Discoverer = StaticAddrs(nil)
-)
-
-// StaticAddrs is a set of bootstrap-peer addresses.
-type StaticAddrs []peer.AddrInfo
-
-// NewStaticAddrs from one or more multiaddrs.
-func NewStaticAddrs(as ...ma.Multiaddr) (StaticAddrs, error) {
-	return peer.AddrInfosFromP2pAddrs(as...)
+type Strategy struct {
+	OnAdvertise func(context.Context, string, ...discovery.Option) (time.Duration, error)
+	OnDiscover  func(context.Context, string, ...discovery.Option) (<-chan peer.AddrInfo, error)
 }
 
-func NewStaticAddrStrings(ss ...string) (as StaticAddrs, _ error) {
-	for _, s := range ss {
-		info, err := peer.AddrInfoFromString(s)
-		if err != nil {
-			return nil, err
-		}
-
-		as = append(as, *info)
+func (s Strategy) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+	if s.OnAdvertise == nil {
+		s.OnAdvertise = StaticAddrs(nil).Advertise
 	}
 
-	return as, nil
+	return s.OnAdvertise(ctx, ns, opt...)
 }
 
-func (as StaticAddrs) Len() int           { return len(as) }
-func (as StaticAddrs) Less(i, j int) bool { return as[i].ID < as[j].ID }
-func (as StaticAddrs) Swap(i, j int)      { as[i], as[j] = as[j], as[i] }
-
-func (as StaticAddrs) Filter(f func(peer.AddrInfo) bool) StaticAddrs {
-	filt := make(StaticAddrs, 0, len(as))
-	for _, info := range as {
-		if f(info) {
-			filt = append(filt, info)
-		}
+func (s Strategy) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	if s.OnDiscover == nil {
+		s.OnDiscover = StaticAddrs(nil).FindPeers
 	}
-	return filt
+
+	return s.OnDiscover(ctx, ns, opt...)
 }
 
-// Advertise is a nop that defaults to PermanentAddrTTL.
-func (as StaticAddrs) Advertise(_ context.Context, _ string, opt ...discovery.Option) (time.Duration, error) {
-	opts := &discovery.Options{}
-	if err := opts.Apply(opt...); err != nil {
-		return 0, err
+// Knock on a port and await an answer.
+func Knock(ctx context.Context, r packet.RoundTripper, conn net.PacketConn) (info peer.AddrInfo, err error) {
+	if err := bind(ctx, conn); err != nil {
+		return peer.AddrInfo{}, err
 	}
-	if opts.Ttl == 0 {
-		opts.Ttl = ps.PermanentAddrTTL
-	}
-	return opts.Ttl, nil
+
+	var rec peer.PeerRecord
+	_, err = r.RoundTrip(conn, &rec)
+	return peer.AddrInfo{
+		ID:    rec.PeerID,
+		Addrs: rec.Addrs,
+	}, err
 }
 
-// FindPeers converts the static addresses into AddrInfos
-func (as StaticAddrs) FindPeers(_ context.Context, _ string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	opts := &discovery.Options{}
-	if err := opts.Apply(opt...); err != nil {
-		return nil, err
+// Answer knocks with a record.
+func Answer(ctx context.Context, h packet.Handler, conn net.PacketConn) error {
+	if err := bind(ctx, conn); err != nil {
+		return err
 	}
 
-	return staticChan(limited(opts, as)), nil
-}
-
-func limited(opts *discovery.Options, ps []peer.AddrInfo) []peer.AddrInfo {
-	if opts.Limit > 0 && opts.Limit < len(ps) {
-		ps = ps[:opts.Limit]
+	var buf [packet.MaxMsgSize]byte
+	n, addr, err := conn.ReadFrom(buf[:])
+	if err != nil {
+		return err
 	}
-	return ps
-}
 
-func staticChan(ps []peer.AddrInfo) chan peer.AddrInfo {
-	ch := make(chan peer.AddrInfo, len(ps))
-	for _, info := range ps {
-		ch <- info
+	n, err = h.ServePacket(buf[:], n)
+	if err != nil {
+		return err
 	}
-	close(ch)
-	return ch
+
+	_, err = conn.WriteTo(buf[:n], addr)
+	return err
 }
 
-// func normalizeNS(ns string) string {
-// 	// HACK:  libp2p's pubsub system prefixes topic names with the string "floodsub:",
-// 	//        presumably to avoid collisions with DHT-based discovery.
-// 	//
-// 	// See:  https://github.com/libp2p/go-libp2p-pubsub/blob/v0.5.4/discovery.go#L322-L328
-// 	return strings.TrimPrefix(ns, "floodsub:")
-// }
+func bind(ctx context.Context, conn net.PacketConn) error {
+	if t, ok := ctx.Deadline(); ok {
+		return conn.SetDeadline(t)
+	}
+
+	return conn.SetDeadline(time.Now().Add(time.Millisecond))
+}
