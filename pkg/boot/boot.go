@@ -47,10 +47,6 @@ func Knock(ctx context.Context, r packet.RoundTripper, conn net.PacketConn) (inf
 
 // Answer knocks with a record.
 func Answer(ctx context.Context, h packet.Handler, conn net.PacketConn) error {
-	if err := bind(ctx, conn); err != nil {
-		return err
-	}
-
 	var buf [packet.MaxMsgSize]byte
 	n, addr, err := conn.ReadFrom(buf[:])
 	if err != nil {
