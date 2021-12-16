@@ -8,13 +8,13 @@ Universal middleware for decentralized computing
 
 CASM is short for **Cluster Assembly**.  It is a low-level toolkit for developing efficient, reliable and secure peer-to-peer systems.  It is built using [libp2p](https://libp2p.io/) and integrates seamlessly into the Protocol Labs ecosystem.
 
-CASM appeals to developers in search of firm ground on which to build distributed systems.  It offers a set of zero-cost abstractions<sup>1</sup> that put developers in control of trade-offs, while enforcing the minimum set of guarantees needed for well-behaved systems.
+CASM appeals to developers in search of firm ground on which to build distributed systems.  It offers a set of zero-cost abstractions<sup>1</sup> that put developers in control of trade-offs, while enforcing key properties of well-behaved systems.
 
-In particular, the following properties can be safely assumed throughout the public API:
+In particular, the following invariants are present throughout the public API:
 
 1.  Cluster membership is dynamic.
-2.  The cluster is inconsistent (CASM is a [PA/EL](https://en.wikipedia.org/wiki/PACELC_theorem) system).
-3.  All data transfer is authenticated (through not necessarily encrypted).
+2.  Queries are inconsistent (CASM is a [PA/EL](https://en.wikipedia.org/wiki/PACELC_theorem) system).
+3.  All data is authenticated.
 
 Users can stack additional guarantees in application logic, for example by building a consistency protocol out of CASM parts.
 
