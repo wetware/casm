@@ -52,24 +52,19 @@ func (as StaticAddrs) Filter(f func(peer.AddrInfo) bool) StaticAddrs {
 
 // Advertise is a nop that defaults to PermanentAddrTTL.
 func (as StaticAddrs) Advertise(_ context.Context, _ string, opt ...discovery.Option) (time.Duration, error) {
-	opts := &discovery.Options{}
-	if err := opts.Apply(opt...); err != nil {
-		return 0, err
-	}
-	if opts.Ttl == 0 {
-		opts.Ttl = ps.PermanentAddrTTL
-	}
-	return opts.Ttl, nil
+	var opts = discovery.Options{Ttl: ps.PermanentAddrTTL}
+	err := opts.Apply(opt...)
+	return opts.Ttl, err
 }
 
 // FindPeers converts the static addresses into AddrInfos
 func (as StaticAddrs) FindPeers(_ context.Context, _ string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	opts := &discovery.Options{}
+	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
 	}
 
-	return staticChan(limited(opts, as)), nil
+	return staticChan(limited(&opts, as)), nil
 }
 
 func limited(opts *discovery.Options, ps []peer.AddrInfo) []peer.AddrInfo {
