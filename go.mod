@@ -19,6 +19,7 @@ require (
 	github.com/libp2p/go-libp2p-discovery v0.5.1 // indirect
 	github.com/libp2p/go-libp2p-kad-dht v0.13.1
 	github.com/libp2p/go-libp2p-pubsub v0.5.4
+	github.com/lthibault/jitterbug/v2 v2.2.3-0.20210828000604-93d421a45630
 	github.com/lthibault/log v1.2.1
 	github.com/lthibault/treap v0.1.4
 	github.com/lthibault/util v0.0.11
@@ -40,11 +41,7 @@ require (
 	google.golang.org/protobuf v1.27.1 // indirect
 )
 
-require (
-	github.com/lthibault/jitterbug/v2 v2.2.3-0.20210828000604-93d421a45630
-	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c
-	go.uber.org/multierr v1.7.0
-)
+require go.uber.org/multierr v1.7.0
 
 require (
 	github.com/antlabs/stl v0.0.1 // indirect
