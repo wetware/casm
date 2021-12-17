@@ -2,23 +2,22 @@ package boot
 
 import (
 	"context"
+	"net"
+	"runtime"
 	"sync"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/record"
+	"golang.org/x/sync/semaphore"
 )
 
-type DiscoveryService struct {
-	Strategy ScanStrategy
+type Crawler struct {
 	Net      Dialer
-
-	once  sync.Once
-	scans chan *scanRequest
+	Strategy ScanStrategy
 }
 
-func (d *DiscoveryService) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	d.once.Do(func() { d.scans = make(chan *scanRequest) })
-
+func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	opts := &discovery.Options{
 		Limit: 1,
 	}
@@ -27,67 +26,80 @@ func (d *DiscoveryService) FindPeers(ctx context.Context, ns string, opt ...disc
 		return nil, err
 	}
 
-	chout := make(chan peer.AddrInfo)
-	select {
-	case d.scans <- &scanRequest{opts: opts, chout: chout}:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	out := make(chan peer.AddrInfo)
+	go func() {
+		defer close(out)
 
-	return chout, nil
-}
-
-func (d *DiscoveryService) Serve(ctx context.Context) error {
-	d.once.Do(func() { d.scans = make(chan *scanRequest) })
-
-	var (
-		errs = make(chan error, 1)
-	)
-
-	for {
-		select {
-		case scan := <-d.scans:
-			scanner := scan.Bind(d.Net, d.Strategy)
-			go d.run(ctx, func(e error) { errs <- e }, scanner)
-
-		case err := <-errs:
-			return err
-
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
-func (d *DiscoveryService) run(ctx context.Context, raise func(error), scan func(context.Context) error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	for {
-		if err := scan(ctx); err == nil {
-			break
-		}
-	}
-}
-
-type scanRequest struct {
-	opts  *discovery.Options
-	chout chan<- peer.AddrInfo
-}
-
-func (s scanRequest) Bind(d Dialer, strategy ScanStrategy) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
 		var rec peer.PeerRecord
-
-		_, err := strategy.Scan(ctx, d, &rec)
-		if err == nil {
+		for c.nextPeer(ctx, &rec) {
 			select {
-			case s.chout <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
+			case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
 			case <-ctx.Done():
-				err = ctx.Err()
 			}
 		}
+	}()
 
-		return err
+	return out, nil
+}
+
+func (c Crawler) nextPeer(ctx context.Context, r record.Record) bool {
+	_, err := c.Strategy.Scan(ctx, c.Net, r)
+	return err != nil
+}
+
+// LimitedDialer limits the number of concurrent scans.
+type LimitedDialer struct {
+	Dialer Dialer
+	Limit  int
+
+	once sync.Once
+	s    *semaphore.Weighted
+}
+
+func (d *LimitedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	d.once.Do(func() {
+		if d.Dialer == nil {
+			d.Dialer = new(net.Dialer)
+		}
+
+		if d.Limit == 0 {
+			d.Limit = 8
+		}
+
+		d.s = semaphore.NewWeighted(int64(d.Limit))
+	})
+
+	if err := d.s.Acquire(ctx, 1); err != nil {
+		return nil, err
 	}
+
+	conn, err := d.Dialer.DialContext(ctx, network, addr)
+	if err != nil {
+		d.s.Release(1)
+		return nil, err
+	}
+
+	var (
+		once sync.Once
+		free = func() { once.Do(func() { d.s.Release(1) }) }
+	)
+
+	tc := &trackedConn{
+		Conn: conn,
+		free: free,
+	}
+
+	runtime.SetFinalizer(tc, func(tc *trackedConn) { free() })
+
+	return tc, nil
+}
+
+type trackedConn struct {
+	net.Conn
+	free func()
+}
+
+func (tc *trackedConn) Close() (err error) {
+	defer tc.free()
+	return tc.Conn.Close()
 }
