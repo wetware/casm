@@ -29,10 +29,7 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 		c.Scanner = basicScanner{}
 	}
 
-	opts := &discovery.Options{
-		Limit: 1,
-	}
-
+	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
 	}
@@ -51,6 +48,10 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 			if c.read(ctx, conn, &rec) {
 				select {
 				case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
+					if opts.Limit--; opts.Limit == 0 {
+						return
+					}
+
 				case <-ctx.Done():
 				}
 			}
