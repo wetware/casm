@@ -71,9 +71,22 @@ func (b Beacon) Serve(ctx context.Context) error {
 		}
 
 		go func(conn net.Conn) {
-			if err := payload.ServeConn(conn); err != nil {
-				b.Logger.WithError(err).Debug("conn handler failed")
+			defer conn.Close()
+
+			err := conn.SetWriteDeadline(time.Now().Add(time.Second))
+			if err != nil {
+				b.Logger.WithError(err).Debug("failed to set deadline")
+				return
 			}
+
+			n, err := payload.WriteTo(conn)
+			if err != nil {
+				b.Logger.WithError(err).Debug("failed to write payload")
+				return
+			}
+
+			b.Logger.WithField("bytes", n).Debug("wrote payload")
+
 		}(conn)
 
 	}
@@ -87,7 +100,8 @@ func newAtomicPayload(ctx context.Context, sub event.Subscription) (*atomicPaylo
 	var ap atomicPayload
 	select {
 	case v := <-sub.Out():
-		return &ap, ap.ConsumeEvent(v.(event.EvtLocalAddressesUpdated))
+		err := ap.ConsumeEvent(v.(event.EvtLocalAddressesUpdated))
+		return &ap, err
 
 	case <-ctx.Done():
 		// This usually occurs because the host isn't listening on any addresses.
@@ -95,13 +109,8 @@ func newAtomicPayload(ctx context.Context, sub event.Subscription) (*atomicPaylo
 	}
 }
 
-func (ap *atomicPayload) ServeConn(conn net.Conn) error {
-	err := conn.SetWriteDeadline(time.Now().Add(time.Millisecond * 100))
-	if err == nil {
-		_, err = io.Copy(conn, bytes.NewReader(ap.Load()))
-	}
-
-	return err
+func (ap *atomicPayload) WriteTo(w io.Writer) (int64, error) {
+	return io.Copy(w, bytes.NewReader(ap.Load()))
 }
 
 func (ap *atomicPayload) ConsumeEvent(ev event.EvtLocalAddressesUpdated) error {

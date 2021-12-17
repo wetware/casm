@@ -81,7 +81,7 @@ func (c Crawler) deadline(ctx context.Context, conn net.Conn) error {
 		return conn.SetDeadline(t)
 	}
 
-	return conn.SetDeadline(time.Now().Add(time.Millisecond * 10))
+	return conn.SetDeadline(time.Now().Add(time.Second))
 }
 
 func (c Crawler) dialer() Dialer {
@@ -103,7 +103,7 @@ func (c Crawler) scanner() Scanner {
 type basicScanner struct{}
 
 func (basicScanner) Scan(conn net.Conn, dst record.Record) (*record.Envelope, error) {
-	data, err := ioutil.ReadAll(io.LimitReader(conn, 512)) // arbitrary MTU
+	data, err := ioutil.ReadAll(io.LimitReader(conn, 2048)) // arbitrary MTU
 	if err != nil {
 		return nil, err
 	}
