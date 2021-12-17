@@ -10,15 +10,21 @@ import (
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/lthibault/log"
 )
 
 type Crawler struct {
+	Logger   log.Logger
 	Dialer   Dialer
 	Strategy DialStrategy
 	Scanner  Scanner
 }
 
 func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	if c.Logger == nil {
+		c.Logger = log.New()
+	}
+
 	if c.Scanner == nil {
 		c.Scanner = basicScanner{}
 	}
@@ -42,13 +48,11 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 
 		var rec peer.PeerRecord
 		for conn := range conns {
-			if !c.read(ctx, conn, &rec) {
-				continue
-			}
-
-			select {
-			case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
-			case <-ctx.Done():
+			if c.read(ctx, conn, &rec) {
+				select {
+				case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
+				case <-ctx.Done():
+				}
 			}
 		}
 	}()
@@ -60,10 +64,15 @@ func (c Crawler) read(ctx context.Context, conn net.Conn, r record.Record) bool 
 	defer conn.Close()
 
 	if err := c.deadline(ctx, conn); err != nil {
+		c.Logger.WithError(err).Debug("unable to set deadline")
 		return false
 	}
 
 	_, err := c.scanner().Scan(conn, r)
+	if err != nil {
+		c.Logger.WithError(err).Debug("scan failed")
+	}
+
 	return err == nil
 }
 
