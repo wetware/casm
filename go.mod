@@ -41,7 +41,10 @@ require (
 	google.golang.org/protobuf v1.27.1 // indirect
 )
 
-require go.uber.org/multierr v1.7.0
+require (
+	go.uber.org/multierr v1.7.0
+	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
+)
 
 require (
 	github.com/antlabs/stl v0.0.1 // indirect
