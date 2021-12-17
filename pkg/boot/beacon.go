@@ -12,17 +12,26 @@ import (
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	ps "github.com/libp2p/go-libp2p-core/peerstore"
+	"github.com/lthibault/log"
 )
 
 // Beacon is a small discovery server that binds to a local address
 // and replies to incoming connections with the Host's peer record.
 type Beacon struct {
-	Addr net.Addr
-	Host host.Host
+	Logger log.Logger
+	Addr   net.Addr
+	Host   host.Host
+}
+
+// Used by supervisor to report the service name on failure.
+func (b Beacon) String() string {
+	return "casm.boot.beacon"
 }
 
 func (b Beacon) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	// TODO
+	b.Logger.WithField("ttl", ps.PermanentAddrTTL).
+		Warn("stub call to advertise returned")
+
 	return ps.PermanentAddrTTL, nil
 }
 
@@ -41,19 +50,17 @@ func (b Beacon) Serve(ctx context.Context) error {
 	}
 	defer server.Close()
 
-	var payload atomic.Value
+	payload, err := newAtomicPayload(ctx, sub)
+	if err != nil {
+		return err
+	}
+
 	requests := make(chan net.Conn, 1)
 	defer close(requests)
 
 	go func() {
 		for v := range sub.Out() {
-			ev := v.(event.EvtLocalAddressesUpdated)
-			b, err := ev.SignedPeerRecord.Marshal()
-			if err != nil {
-				return
-			}
-
-			payload.Store(b)
+			payload.ConsumeEvent(v.(event.EvtLocalAddressesUpdated))
 		}
 	}()
 
@@ -63,15 +70,49 @@ func (b Beacon) Serve(ctx context.Context) error {
 			return err
 		}
 
-		go b.handle(conn, &payload)
+		go func(conn net.Conn) {
+			if err := payload.ServeConn(conn); err != nil {
+				b.Logger.WithError(err).Debug("conn handler failed")
+			}
+		}(conn)
 
 	}
 
 	return ctx.Err()
 }
 
-func (b Beacon) handle(conn net.Conn, record *atomic.Value) {
-	if err := conn.SetWriteDeadline(time.Now().Add(time.Second)); err == nil {
-		io.Copy(conn, bytes.NewReader(record.Load().([]byte)))
+type atomicPayload atomic.Value
+
+func newAtomicPayload(ctx context.Context, sub event.Subscription) (*atomicPayload, error) {
+	var ap atomicPayload
+	select {
+	case v := <-sub.Out():
+		return &ap, ap.ConsumeEvent(v.(event.EvtLocalAddressesUpdated))
+
+	case <-ctx.Done():
+		// This usually occurs because the host isn't listening on any addresses.
+		return nil, ctx.Err()
 	}
+}
+
+func (ap *atomicPayload) ServeConn(conn net.Conn) error {
+	err := conn.SetWriteDeadline(time.Now().Add(time.Millisecond * 100))
+	if err == nil {
+		_, err = io.Copy(conn, bytes.NewReader(ap.Load()))
+	}
+
+	return err
+}
+
+func (ap *atomicPayload) ConsumeEvent(ev event.EvtLocalAddressesUpdated) error {
+	data, err := ev.SignedPeerRecord.Marshal()
+	if err == nil {
+		(*atomic.Value)(ap).Store(data)
+	}
+
+	return err
+}
+
+func (ap *atomicPayload) Load() []byte {
+	return (*atomic.Value)(ap).Load().([]byte)
 }
