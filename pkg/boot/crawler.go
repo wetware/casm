@@ -22,12 +22,14 @@ type Crawler struct {
 
 func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	if c.Logger == nil {
-		c.Logger = log.New()
+		c.Logger = log.New(log.WithLevel(log.FatalLevel))
 	}
 
 	if c.Scanner == nil {
 		c.Scanner = basicScanner{}
 	}
+
+	c.Logger.Debugf("crawling for peers in namespace '%s'", ns)
 
 	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
@@ -42,6 +44,7 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 	out := make(chan peer.AddrInfo, 8)
 	go func() {
 		defer close(out)
+		defer c.Logger.Debugf("terminated for namespace '%s'", ns)
 
 		var rec peer.PeerRecord
 		for conn := range conns {
