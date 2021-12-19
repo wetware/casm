@@ -39,7 +39,6 @@ func (hb Heartbeat) MarshalBinary() ([]byte, error) {
 	return hb.h.Message().MarshalPacked()
 }
 
-// BUG:  hb has zero-valued fields after unmarshal.
 func (hb *Heartbeat) UnmarshalBinary(b []byte) error {
 	msg, err := capnp.UnmarshalPacked(b)
 	if err == nil {
