@@ -2,8 +2,10 @@ package pulse_test
 
 import (
 	"testing"
+	"time"
 
 	"capnproto.org/go/capnp/v3"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 )
@@ -13,7 +15,9 @@ func TestHeartbeat_MarshalUnmarshal(t *testing.T) {
 
 	hb, err := pulse.NewHeartbeat(capnp.SingleSegment(nil))
 	require.NoError(t, err)
+
 	hb.SetTTL(42)
+	require.Equal(t, time.Duration(42), hb.TTL())
 
 	// marshal
 	b, err := hb.MarshalBinary()
@@ -21,9 +25,9 @@ func TestHeartbeat_MarshalUnmarshal(t *testing.T) {
 	require.NotEmpty(t, b)
 
 	// unmarshal
-	ev2 := pulse.Heartbeat{}
-	err = ev2.UnmarshalBinary(b)
+	hb2 := pulse.Heartbeat{}
+	err = hb2.UnmarshalBinary(b)
 	require.NoError(t, err)
 
-	// TODO:  check that entries are valid
+	assert.Equal(t, hb.TTL(), hb2.TTL())
 }
