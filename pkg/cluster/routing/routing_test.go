@@ -65,8 +65,6 @@ func TestRoutingTable(t *testing.T) {
 func TestRoutingTable_concurrent(t *testing.T) {
 	t.Parallel()
 
-	t.Skip("TEST FAILING - TODO:  DEBUG")
-
 	cq := make(chan struct{})
 	defer close(cq)
 
