@@ -14,7 +14,7 @@ In particular, the following invariants are present throughout the public API:
 
 1.  Cluster membership is dynamic.
 2.  Queries are inconsistent (CASM is a [PA/EL](https://en.wikipedia.org/wiki/PACELC_theorem) system).
-3.  All data is authenticated.
+3.  Network data is automatically signed and validated.
 
 Users can stack additional guarantees in application logic, for example by building a consistency protocol out of CASM parts.
 
