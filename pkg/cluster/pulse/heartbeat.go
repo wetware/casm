@@ -27,7 +27,7 @@ func NewHeartbeat(a capnp.Arena) (Heartbeat, error) {
 		return Heartbeat{}, err
 	}
 
-	h, err := pulse.NewHeartbeat(seg)
+	h, err := pulse.NewRootHeartbeat(seg)
 	return Heartbeat{h}, err
 }
 
@@ -39,6 +39,7 @@ func (hb Heartbeat) MarshalBinary() ([]byte, error) {
 	return hb.h.Message().MarshalPacked()
 }
 
+// BUG:  hb has zero-valued fields after unmarshal.
 func (hb *Heartbeat) UnmarshalBinary(b []byte) error {
 	msg, err := capnp.UnmarshalPacked(b)
 	if err == nil {
