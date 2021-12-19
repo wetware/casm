@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/lthibault/log"
-	"golang.org/x/time/rate"
 )
 
 var _ DialStrategy = (*ScanSubnet)(nil)
@@ -23,8 +22,7 @@ type ScanSubnet struct {
 	Port   int
 	CIDR   string
 
-	once    sync.Once
-	Limiter *rate.Limiter
+	once sync.Once
 }
 
 func (ss *ScanSubnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, error) {
@@ -44,10 +42,6 @@ func (ss *ScanSubnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, erro
 		if ss.Port == 0 {
 			ss.Port = 8822
 		}
-
-		if ss.Limiter == nil {
-			ss.Limiter = rate.NewLimiter(rate.Limit(200), 32)
-		}
 	})
 
 	iter, err := newSubnetIter(ss.CIDR)
@@ -59,27 +53,21 @@ func (ss *ScanSubnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, erro
 	go func() {
 		defer close(out)
 
+		ip := make(net.IP, 4)
 		for ; iter.More(ctx); iter.Next() {
 			if iter.Skip() {
 				continue
 			}
 
-			ip := make(net.IP, 4)
 			iter.Scan(ip)
 
-			if err := ss.Limiter.Wait(ctx); err != nil {
-				return
-			}
-
-			go func(ip net.IP) {
-				conn, err := ss.dial(ctx, d, ip)
-				if err == nil {
-					select {
-					case out <- conn:
-					case <-ctx.Done():
-					}
+			conn, err := ss.dial(ctx, d, ip)
+			if err == nil {
+				select {
+				case out <- conn:
+				case <-ctx.Done():
 				}
-			}(ip)
+			}
 		}
 	}()
 
