@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"path"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -61,7 +60,6 @@ type PeerExchange struct {
 	h host.Host
 	d *discover
 
-	mu     sync.Mutex
 	self   atomic.Value
 	ds     ds.Batching
 	prefix ds.Key
@@ -95,8 +93,8 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 
 func (px *PeerExchange) Loggable() map[string]interface{} {
 	return map[string]interface{}{
-		"id": px.h.ID(),
-		"view_size":  px.gossip.C,
+		"id":        px.h.ID(),
+		"view_size": px.gossip.C,
 	}
 }
 
