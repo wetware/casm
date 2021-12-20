@@ -3,6 +3,7 @@ package boot
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"sync/atomic"
@@ -36,6 +37,9 @@ func (b Beacon) Advertise(ctx context.Context, ns string, opt ...discovery.Optio
 }
 
 func (b Beacon) Serve(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	sub, err := b.Host.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
 	if err != nil {
 		return err
@@ -58,40 +62,55 @@ func (b Beacon) Serve(ctx context.Context) error {
 	requests := make(chan net.Conn, 1)
 	defer close(requests)
 
+	cherr := make(chan error, 1)
 	go func() {
-		for v := range sub.Out() {
-			payload.ConsumeEvent(v.(event.EvtLocalAddressesUpdated))
+		defer close(cherr)
+
+		for ctx.Err() == nil {
+			conn, err := server.Accept()
+			if err != nil {
+				cherr <- fmt.Errorf("accept: %w", err)
+				return
+			}
+
+			go func(conn net.Conn) {
+				defer conn.Close()
+
+				err := conn.SetWriteDeadline(time.Now().Add(time.Second))
+				if err != nil {
+					cherr <- fmt.Errorf("set deadline: %w", err)
+					return
+				}
+
+				n, err := payload.WriteTo(conn)
+				if err != nil {
+					cherr <- fmt.Errorf("write payload: %w", err)
+					return
+				}
+
+				b.Logger.WithField("bytes", n).Debug("wrote payload")
+
+			}(conn)
+
 		}
 	}()
 
-	for ctx.Err() == nil {
-		conn, err := server.Accept()
-		if err != nil {
+	for {
+		select {
+		case v := <-sub.Out():
+			payload.ConsumeEvent(v.(event.EvtLocalAddressesUpdated))
+
+		case err = <-cherr:
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
 			return err
+
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-
-		go func(conn net.Conn) {
-			defer conn.Close()
-
-			err := conn.SetWriteDeadline(time.Now().Add(time.Second))
-			if err != nil {
-				b.Logger.WithError(err).Debug("failed to set deadline")
-				return
-			}
-
-			n, err := payload.WriteTo(conn)
-			if err != nil {
-				b.Logger.WithError(err).Debug("failed to write payload")
-				return
-			}
-
-			b.Logger.WithField("bytes", n).Debug("wrote payload")
-
-		}(conn)
-
 	}
-
-	return ctx.Err()
 }
 
 type atomicPayload atomic.Value
