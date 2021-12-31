@@ -89,6 +89,7 @@ func (d *discover) Track(ctx context.Context, ns string, ttl time.Duration) erro
 		ns:   ns,
 		ttl:  ttl,
 		sync: sync,
+		ctx:  ctx,
 	}
 
 	select {
@@ -122,7 +123,7 @@ func (d *discover) loop() {
 				topics[req.ns] = t
 			}
 
-			t.SetTTL(d.ctx, req.ttl)
+			t.SetTTL(req.ctx, req.ttl)
 			req.Finish()
 
 		case <-d.ctx.Done():
@@ -224,8 +225,8 @@ type topic chan time.Duration
 
 func (t topic) SetTTL(ctx context.Context, d time.Duration) {
 	select {
-	case <-ctx.Done():
 	case t <- d:
+	case <-ctx.Done():
 	}
 }
 
@@ -233,6 +234,7 @@ type trackRequest struct {
 	ns   string
 	ttl  time.Duration
 	sync interface{ Signal() }
+	ctx  context.Context
 }
 
 func (r trackRequest) Finish() { r.sync.Signal() }

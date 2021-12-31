@@ -33,7 +33,8 @@ const (
 	baseProto             = "/casm/pex"
 	Proto     protocol.ID = baseProto + "/" + Version
 
-	mtu = 2048 // maximum transmission unit => max capnp message size
+	mtu     = 2048 // maximum transmission unit => max capnp message size
+	timeout = time.Second * 15
 )
 
 // PeerExchange is a collection of passive views of various p2p clusters.
@@ -95,8 +96,8 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 
 func (px *PeerExchange) Loggable() map[string]interface{} {
 	return map[string]interface{}{
-		"id": px.h.ID(),
-		"view_size":  px.gossip.C,
+		"id":        px.h.ID(),
+		"view_size": px.gossip.C,
 	}
 }
 
@@ -104,6 +105,7 @@ func (px *PeerExchange) Close() error { return px.runtime.Stop(context.Backgroun
 
 // Bootstrap a namespace by performing an initial gossip round with a known peer.
 func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peer peer.AddrInfo) error {
+
 	if err := px.h.Connect(ctx, peer); err != nil {
 		return err
 	}
@@ -123,12 +125,12 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discove
 		return 0, err
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	if err := px.d.Track(px.ctx, ns, opts.Ttl); err != nil {
 		return 0, err
 	}
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// try the gossip cache first; if it's empty (or if we fail to connect
 	// to the peers within), fall back on the discovery service.
@@ -180,8 +182,9 @@ func (px *PeerExchange) gossipCache(ctx context.Context, ns string) error {
 	}
 
 	// local host should not be in view
+
 	for _, info := range view {
-		if err = px.bootstrap(ctx, ns, info); err != nil {
+		if err = px.Bootstrap(ctx, ns, info); err != nil {
 			if se, ok := err.(streamError); ok {
 				px.log.With(se).Debug("gossip error")
 				continue
@@ -205,35 +208,27 @@ func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
 			continue // don't dial self
 		}
 
-		if err = px.bootstrap(ctx, ns, info); err != nil {
+		if err = px.Bootstrap(ctx, ns, info); err != nil {
 			if se, ok := err.(streamError); ok {
 				px.log.With(se).Debug("gossip error")
 				continue
 			}
 		}
-
 		break
 	}
 
 	return err
 }
 
-// bootstrap calls Bootstrap() with a timeout context
-func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.AddrInfo) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*15)
-	defer cancel()
-
-	return px.Bootstrap(ctx, ns, info)
-}
-
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
-
 	var (
-		t, _ = ctx.Deadline()
-		j    syncutil.Join
+		j      syncutil.Join
+		t, _   = ctx.Deadline()
+		remote gossipSlice
 	)
 
 	if err := s.SetDeadline(t); err != nil {
+
 		return err
 	}
 
@@ -241,12 +236,13 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 	if err != nil {
 		return err
 	}
+
 	// push
 	j.Go(func() error {
 		defer s.CloseWrite()
 
 		buffer := append(
-			local.Bind(isNot(s.Conn().RemotePeer())).Bind(head(px.gossip.C/2-1)), // save some bandwidth
+			local.Bind(isNot(s.Conn().RemotePeer())).Bind(head((px.gossip.C/2)-1)), // save some bandwidth
 			px.self.Load().(*GossipRecord))
 
 		enc := capnp.NewPackedEncoder(s)
@@ -263,10 +259,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 	j.Go(func() error {
 		defer s.CloseRead()
 
-		var (
-			remote gossipSlice
-			r      = io.LimitReader(s, int64(px.gossip.C*mtu))
-		)
+		r := io.LimitReader(s, int64(px.gossip.C*mtu))
 
 		dec := capnp.NewPackedDecoder(r)
 		dec.MaxMessageSize = mtu
@@ -287,10 +280,16 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 			remote = append(remote, g)
 		}
-		return n.MergeAndStore(local, remote)
+		return nil
 	})
 
-	return j.Wait()
+	err = j.Wait()
+	if err != nil {
+		return err
+	}
+
+	err = n.MergeAndStore(local, remote)
+	return err
 }
 
 func (px *PeerExchange) namespace(ns string) namespace {
@@ -311,7 +310,6 @@ func (px *PeerExchange) matcher() (func(s string) bool, error) {
 }
 
 func (px *PeerExchange) handler(ctx context.Context) func(s network.Stream) {
-	const timeout = time.Second * 15
 
 	return func(s network.Stream) {
 		defer s.Close()

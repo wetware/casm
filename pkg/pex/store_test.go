@@ -3,6 +3,7 @@ package pex
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"testing"
 
 	"github.com/libp2p/go-libp2p-core/host"
@@ -15,7 +16,7 @@ import (
 
 const (
 	ns    = "casm.pex.test"
-	vsize = 4 // max view size
+	vsize = 30 // max view size
 )
 
 func TestMerge(t *testing.T) {
@@ -57,6 +58,10 @@ func TestMerge(t *testing.T) {
 		{
 			name: "should_not_retain",
 			test: shouldNotRetain,
+		},
+		{
+			name: "should_sort_to_push",
+			test: shouldSortToPush,
 		},
 	} {
 		runner(t, tt.name, tt.test)
@@ -113,6 +118,30 @@ type params struct {
 
 func (p params) LocalRecord() *record.Envelope {
 	return mustGossipSlice([]host.Host{p.Host})[0].Envelope
+}
+
+func shouldSortToPush(t *testing.T, p params) {
+	err := p.PeX.setLocalRecord(p.LocalRecord())
+	require.NoError(t, err)
+
+	n := p.PeX.namespace(ns)
+
+	// Set random HOPs
+	for _, rec := range p.Local {
+		rec.g.SetHop(uint64(rand.Intn(100-1) + 1))
+	}
+	n.Store(gossipSlice{}, p.Local)
+
+	// Retrieve sorted records
+	recs, err := n.RecordsSortedToPush()
+	require.NoError(t, err)
+
+	// Check records are sorted
+	youngest, oldest := recs.Bind(head(len(recs)-n.gossip.R)), recs.Bind(tail(n.gossip.R))
+	oldestYoungest := youngest.Bind(sorted())[len(youngest)-1]
+	for _, old := range oldest {
+		require.True(t, oldestYoungest.Hop() <= old.Hop())
+	}
 }
 
 func shouldHaveViewSize_vsize(t *testing.T, p params) {
@@ -200,7 +229,7 @@ func shouldRetain(t *testing.T, p params) {
 	r := min(min(n.gossip.R, n.gossip.C), len(merge))
 	oldest := merge.Bind(sorted()).Bind(tail(r))
 
-	n.gossip.R = 2
+	n.gossip.S = 0
 	n.gossip.D = 0
 	err = n.MergeAndStore(local, p.Remote)
 	require.NoError(t, err)
@@ -218,7 +247,7 @@ func shouldNotRetain(t *testing.T, p params) {
 
 	n := p.PeX.namespace(ns)
 
-	local := p.Local.Bind(sorted())
+	local := p.Local
 
 	merge := local.
 		Bind(merged(p.Remote)).
@@ -227,7 +256,7 @@ func shouldNotRetain(t *testing.T, p params) {
 	r := min(min(n.gossip.R, n.gossip.C), len(merge))
 	oldest := merge.Bind(sorted()).Bind(tail(r))
 
-	n.gossip.R = 2
+	n.gossip.S = 0
 	n.gossip.D = 1
 	err = n.MergeAndStore(local, p.Remote)
 	require.NoError(t, err)
