@@ -269,15 +269,15 @@ func shouldNotRetain(t *testing.T, p params) {
 }
 
 func shouldRetainHigherSeq(t *testing.T, p params) {
-	t.Skip("Skipping ... (NOT IMPLEMENTED)")
+	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
 }
 
 func shouldRetainLowerHop(t *testing.T, p params) {
-	t.Skip("Skipping ... (NOT IMPLEMENTED)")
+	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
 }
 
 func shouldRetainHigherSeqDespiteLowerHop(t *testing.T, p params) {
-	t.Skip("Skipping ... (NOT IMPLEMENTED)")
+	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
 }
 
 func mkValidView(n int) gossipSlice {

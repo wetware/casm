@@ -25,7 +25,7 @@ type Config struct {
 	Log          log.Logger
 	Gossip       GossipParams
 	Tick         time.Duration
-	Store        ds.Batching
+	StoreFactory func(ns string) ds.Batching
 	Discovery    discovery.Discovery
 	DiscoveryOpt []discovery.Option
 }
@@ -55,13 +55,18 @@ func WithLogger(l log.Logger) Option {
 // is used.
 //
 // Note that s MUST be thread-safe.
-func WithDatastore(s ds.Batching) Option {
-	if s == nil {
-		s = sync.MutexWrap(ds.NewMapDatastore())
+func WithDatastore(dsb func(ns string) ds.Batching) Option {
+	deafaultDsb := func(ns string) ds.Batching {
+		s := sync.MutexWrap(ds.NewMapDatastore())
+		return nsds.Wrap(s, ds.NewKey("/casm/pex"))
+	}
+
+	if dsb == nil {
+		dsb = deafaultDsb
 	}
 
 	return func(c *Config) {
-		c.Store = nsds.Wrap(s, ds.NewKey("/casm/pex"))
+		c.StoreFactory = dsb
 	}
 }
 

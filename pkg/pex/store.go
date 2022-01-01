@@ -1,6 +1,7 @@
 package pex
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -24,11 +25,16 @@ type EvtViewUpdated []*GossipRecord
 //
 // Note that namespace DOES NOT provide ACID guarantees.
 type namespace struct {
+	nss    string
 	prefix ds.Key
 	ds     ds.Batching
 	id     peer.ID
 	gossip GossipParams
 	e      event.Emitter
+
+	ttl    chan time.Duration
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func (n namespace) String() string { return n.prefix.BaseNamespace() }

@@ -3,6 +3,7 @@ package pex
 import (
 	"context"
 	"errors"
+
 	"io"
 	"path"
 	"sync"
@@ -64,7 +65,8 @@ type PeerExchange struct {
 
 	mu     sync.Mutex
 	self   atomic.Value
-	ds     ds.Batching
+	dsf    func(ns string) ds.Batching
+	ns     map[string]namespace
 	prefix ds.Key
 	gossip GossipParams
 	e      event.Emitter
@@ -81,7 +83,6 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 			fx.Provide(
 				newConfig,
 				newEvents,
-				newDiscover,
 				newPeerExchange,
 				supply(ctx, h)),
 			fx.Invoke(run))
@@ -128,9 +129,7 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discove
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	if err := px.d.Track(px.ctx, ns, opts.Ttl); err != nil {
-		return 0, err
-	}
+	px.trackNamespace(ns, opts.Ttl)
 
 	// try the gossip cache first; if it's empty (or if we fail to connect
 	// to the peers within), fall back on the discovery service.
@@ -292,14 +291,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 	return err
 }
 
-func (px *PeerExchange) namespace(ns string) namespace {
-	return namespace{
-		prefix: px.prefix.ChildString(ns),
-		ds:     px.ds,
-		id:     px.h.ID(),
-		gossip: px.gossip,
-		e:      px.e,
-	}
+type tracker struct {
 }
 
 func (px *PeerExchange) matcher() (func(s string) bool, error) {
@@ -354,6 +346,71 @@ func limit(opts *discovery.Options, is []peer.AddrInfo) []peer.AddrInfo {
 	}
 
 	return is
+}
+
+func (px *PeerExchange) namespace(nss string) namespace {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+
+	ns, ok := px.ns[nss]
+
+	if !ok {
+		ns = px.createNamespace(nss)
+		px.ns[nss] = ns
+	}
+
+	return ns
+}
+
+func (px *PeerExchange) trackNamespace(nss string, ttl time.Duration) {
+	for {
+		select {
+		case px.namespace(nss).ttl <- ttl:
+			return
+		case <-px.namespace(nss).ctx.Done():
+		}
+	}
+}
+
+func (px *PeerExchange) createNamespace(nss string) namespace {
+	if ns, ok := px.ns[nss]; ok {
+		return ns
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ns := namespace{
+		nss:    nss,
+		prefix: px.prefix.ChildString(nss),
+		id:     px.h.ID(),
+		gossip: px.gossip,
+		e:      px.e,
+		ds:     px.dsf(nss),
+
+		ttl:    make(chan time.Duration),
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
+	go px.removeNamespace(ns, timeout)
+	return ns
+}
+
+func (px *PeerExchange) removeNamespace(ns namespace, ttl time.Duration) {
+	timer := time.NewTimer(ttl)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			px.mu.Lock()
+			defer px.mu.Unlock()
+			delete(px.ns, ns.nss)
+			ns.cancel()
+			return
+		case ttl := <-ns.ttl:
+			timer.Reset(ttl)
+		}
+	}
 }
 
 /*
@@ -417,13 +474,13 @@ func newConfig(id peer.ID, opt []Option) (c Config) {
 type pexParams struct {
 	fx.In
 
-	Ctx    context.Context
-	Log    log.Logger
-	Gossip GossipParams
-	Host   host.Host
-	Tick   time.Duration
-	Store  ds.Batching
-	Disc   *discover
+	Ctx          context.Context
+	Log          log.Logger
+	Gossip       GossipParams
+	Host         host.Host
+	Tick         time.Duration
+	StoreFactory func(ns string) ds.Batching
+	Disc         *discover
 }
 
 func (p pexParams) Prefix() ds.Key {
@@ -439,7 +496,8 @@ func newPeerExchange(p pexParams) (*PeerExchange, error) {
 		h:      p.Host,
 		d:      p.Disc,
 		tick:   p.Tick,
-		ds:     p.Store,
+		dsf:    p.StoreFactory,
+		ns:     make(map[string]namespace, 0),
 		prefix: p.Prefix(),
 		e:      e,
 	}, err
