@@ -3,12 +3,11 @@
 package casm
 
 import (
-	context "context"
-
 	capnp "capnproto.org/go/capnp/v3"
 	text "capnproto.org/go/capnp/v3/encoding/text"
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
+	context "context"
 )
 
 type Envelope struct{ capnp.Struct }
