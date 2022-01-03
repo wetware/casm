@@ -70,7 +70,10 @@ func WithMeta(meta pulse.Preparer) Option {
 // entered a ready state, or the context has expired.
 func WithReadiness(r pubsub.RouterReady) Option {
 	if r == nil {
-		r = pubsub.MinTopicSize(1)
+		// r = pubsub.MinTopicSize(1)  // TODO:  consider enabling this
+		r = func(pubsub.PubSubRouter, string) (bool, error) {
+			return true, nil // nop
+		}
 	}
 
 	return func(m *Node) {

@@ -78,11 +78,10 @@ func runner(t *testing.T, name string, f func(t *testing.T, p params)) {
 		fx.Supply(out{
 			Local:  mkValidView(vsize),
 			Remote: mkValidView(vsize),
-			Opt:    []Option{WithGossipParams(GossipParams{vsize, -1, -1, -1})},
+			Opt:    []Option{WithGossip(func(ns string) Gossip { return Gossip{vsize, 10, 5, 0.005} })},
 		}),
 		fx.Provide(
 			newConfig,
-			newDiscover,
 			newPeerExchange,
 			supply(ctx, mx.New(ctx).MustHost(ctx))),
 		fx.Invoke(func(p params) {

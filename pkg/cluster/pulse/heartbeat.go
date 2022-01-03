@@ -27,7 +27,7 @@ func NewHeartbeat(a capnp.Arena) (Heartbeat, error) {
 		return Heartbeat{}, err
 	}
 
-	h, err := pulse.NewHeartbeat(seg)
+	h, err := pulse.NewRootHeartbeat(seg)
 	return Heartbeat{h}, err
 }
 

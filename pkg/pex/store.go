@@ -29,7 +29,7 @@ type namespace struct {
 	prefix ds.Key
 	ds     ds.Batching
 	id     peer.ID
-	gossip GossipParams
+	gossip Gossip
 	e      event.Emitter
 
 	ttl    chan time.Duration
@@ -221,7 +221,7 @@ func randomOrder() query.OrderByFunction {
 
 func filter(f func(*GossipRecord) bool) func(gossipSlice) gossipSlice {
 	return func(gs gossipSlice) gossipSlice {
-		filtered := make(gossipSlice, 0)
+		filtered := make(gossipSlice, 0, len(gs))
 		for _, g := range gs {
 			if f(g) {
 				filtered = append(filtered, g)

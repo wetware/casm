@@ -63,12 +63,10 @@ The ideal recovery cache would exhibit the following properties:
 Crucially, the PubSub router and the Kademlia DHT fail to satisfy one or more of these requirements.
 
 ## Protocol Specification
-### Overview
 
-**PeX** stands for *Peer-Exchange* and takes care of maintaining a peer-to-peer unstructured overlay. In other words it is responsible for ensuring connectivity, so that all the nodes form a single connected random network. Also, it provides a [Discovery](https://github.com/libp2p/go-libp2p-core/blob/master/discovery/discovery.go) API for providing a random set of nodes from the network at any given time. This is mainly used by other services that need to discover new peers for staying connected in the network.
+PeX provides a random sample of networked peers to applications.  It adheres to libp2p's [Discovery](https://github.com/libp2p/go-libp2p-core/blob/master/discovery/discovery.go) API, allowing it to seamlessly integrate with existing application.  In particular, it is suitable for use with PubSub.
 
-To do this, it uses a gossiping protocol that forms an unstructured peer-to-peer overlay.  
-This protocol is based on [Gossip-Based Peer Sampling](https://dl.acm.org/doi/abs/10.1145/1275517.1275520).
+PeX continuously updates a cache of random peers by gossipping with the peers currently in the cache.  The result is an unstructured overlay network, similar to the one described in *[Gossip-Based Peer Sampling](https://dl.acm.org/doi/abs/10.1145/1275517.1275520)*.
 
 ### Conventions
 
@@ -78,33 +76,32 @@ This protocol is based on [Gossip-Based Peer Sampling](https://dl.acm.org/doi/ab
 - **Overlay**: a network that is layered on top of another network. The nodes within the overlay can be seen as connected to other nodes via logical paths or links, which correspond to a path in the underlying network.
 - **Peer**: a physical host in the overlay.  Synonymous with node.
 - **Neighbor/Neighborhod**: adjacent nodes in the overlay.  These nodes are directly connected via a libp2p transport connection, without any intermediate hops in the overlay.  A node's neighborhood is the set of its neighbors.
-- **View**:  A node's view of the cluster is a set of [`GossipRecord`](#gossip-record) instances, which contains a record for each neighbor.
-  Throughout the specification, the maximum view size is defined by `c`.
-- **Gossiping**: a broadcast mechanism whereby each peer transmits each message to its neighbors.
+- **View**:  A node's view of the cluster is a set of [`GossipRecord`](#gossip-record) instances, which contains addressing information.  Importantly, the view is assumed to be small with respect to the overall size of the cluster.  Throughout the specification, the maximum view size for each node is defined by the cluster-wide constant `c`.
+- **Gossiping**: a broadcast mechanism in which peers relay messages to their neighbors.
 - **Gossip Round**:  a single exchange of gossip with a neighbor.
 - **Merge Policy**: in the context of a gossip round, this refers to strategy for selecting a new view from the union of one's local view and a view received from a peer.
-- **Healing**:  eviction of disconnected/partitioned peers from local views.
+- **Eviction**:  the process of removing an entry from the local view of a peer.  The term "eviction" may also be applied in the context of an entire cluster to refer to the process by which an accumulation of evictions by individual nodes results in the record being purged from a given partition.
 
-### Gossiping
+### Protocol Description
 
-#### Mechanism
+Gossiping can be well understood by analogy.  Imagine a high-school where students talk to each other in the hall whenever they have a break. Each student encounters other randomly, and shares the rumour. If a new rumour is first told in the morning, by the end of the day, almost every student will have heard about it.
 
-Gossiping can be well understood by analogy.  Imagine
-a high-school where students talk to each other in the hall
-whenever they have a break. Each student encounters other
-randomly, and shares the rumour. If a new rumour is first
-told in the morning, by the end of the day, almost every student will have heard about it. Notice that when gossiping, students do not know whether or not the people they are talking to already know the rumor.  So, there will be some redundant exchanges.
+Instead of spreading mere rumors, PeX spreads records of nodes that are within the network.  Nevertheless, these records share two noteworthy properties with rumors:
 
-**PeX** implements a peer-sampling service using a gossiping strategy.  Instead of spreading rumours it spreads records of nodes that are within the network.  This gossip takes place in *gossip rounds*.  Each node maintains a timer and initiates a gossip round every *t* seconds.  The value of *t* is jittered to avoid message storms.
+1. They may be untrue.  The information may be outdated or false.
+2. There are redundant exchanges.  Nodes, like students, do not know *a priori* whether their peers already have the information they are about to share.
+
+In PeX, gossip occurs in synchronous *gossip rounds* between pairs of nodes.  Gossip rounds are initiated periodically by each peer, every *t* seconds.  The value of *t* SHOULD be jittered to avoid message storms.
 
 Gossip rounds comprise three steps:
 
-1. **Peer Selection**.  The node randomly selects one peer from its current view according to some policy.  It may repeat this process if the selected node is unreachable.
+1. **Peer Selection**.  A node randomly selects one peer from its current view according to a _view selection policy_.  It MAY repeat this process if the selected node proves unreachable.
 2. **Push-Pull**.  The peers exchange their respective views.
-3. **View Merging**.  The peers each combine their current view with the one received by its counterpart, as per merge policy.  A subset of these peers are retained to form the new view.
+3. **View Merging**.  Each peer combines its current view with the freshly received view and selects duplicate entries.  If the length of a combined view exceeds _c_, the affected node selects a subset of records to form the final view according to a _merge policy_.
 
+We examine each phase of the protocol in detail below.
 
-contacts with the neighbor, and they exchange their
+<!-- contacts with the neighbor, and they exchange their
 current set of neighbors (also named "views"). After the exchange, each node generates a
 new set of neighbors, by merging the received neighbours with
 the current ones. In order to implement this 50% of probability, a deterministic approach is used.
@@ -114,22 +111,30 @@ receiver's, the head or random policies are used, respectively.
 
 This is how the **pex** protocol forms and maintains the overlay.
 Moreover, it also provides an API call for retrieving the current set of neighbors, and some piggybacked information about them.
-
+ -->
+ 
 #### Peer Selection
 
-**PeX** chooses the neighbor with whom to gossip randomly (`rand`).
+PeX chooses the neighbor with whom to gossip randomly (`rand`).
 This provides a faster self-healing overlay than alternative policies
 such as choosing the youngest (`young`) or oldest (`old`) neighbor.
 
 #### Push-Pull
-After the peer selection, the selected and selector nodes connect with each
-other and send their views. However, they do not send the entire view. 
-At most, they send half of the maximum view size. The peers are selected randomly,
-ignoring the oldest `R` nodes (later `R` will be further explained). However, in case there aren't enough nodes, 
-the oldest nodes are also sent. Finally, a descriptor of the sender is appended
-to the tail, before sending it.
 
-The pseudocode for the pushing is the following:
+After the peer selection, the selected and selector nodes connect with each
+other and send their views. However, they generally do not send the entire view, but instead
+select the *c-R* "youngest" records.  If, however, `len(view) <= R`, the peer  MUST transmit
+its entire view.  We define the notion of record age and provide additional details regarding
+the *R* parameter below.
+
+Finally, each peer transmits a record containing its own routing information.
+<!-- 
+At most, they send half of the maximum view size. The transmitted records are selected randomly,
+ignoring the oldest `R` nodes. However, in case there aren't enough nodes, 
+the oldest nodes are also sent. Finally, a descriptor of the sender is appended
+to the tail, before sending it. -->
+
+The pseudocode for the push-pull phase is as follows:
 ```
 view.RandomShuffle()
 view.MoveToTailOldest(R)
@@ -139,29 +144,30 @@ Push(buffer)
 ```
 
 It is important to note that the random shuffling and moving oldest entries
-to the tail is done inplace. That is to say, the order of the elements in
-the view is permanently changed. This is important for other mechanisms
+to the tail is done in-place. That is to say, the order of the elements in
+the view is permanently changed. This is crucial for other mechanisms
 during view merging (e.g. Swapping).
 
 #### View Merging
 
-**PeX** mechanism to merge the view comprises five main steps:
+View merging is the most complex and delicate phase of the PeX protocol. It comprises
+five steps:
 
-1. **Merging:** merges the received and local views, by joining them into 
-   a single list and removing duplicate entries. Local entries are put
-   first, in front of the remote entries.
-2. **Swapping:** the first `S` entries of the merged view are removed. 
-   Recall that the local view is put in front of the remote one in the previous step,
-   so, the first items are the ones that were previously sent to peer. 
-   Therefore, `S` is used to control priority given to the remote view entries.  
-3. **Retention and decay:** the oldest `R` items are moved into a separate 
-   buffer. Then, with a probability of `D` items are removed 
-   from the buffer. The oldest items are put aside to protect them from eviction.
-4. **Random eviction**: items from the merged list are randomly evicted
-   until the amount of entries of the oldest buffer together with the merged view 
-   do not exceed the maximum view size. After, the buffer 
-   containing the oldest nodes is appended to the merged view.
-
+1. **Merge** the received and local views by joining them into a single list and
+   removing duplicate entries. Local entries are put first, in front of the remote
+   entries.
+2. **Swap** the first `S` records in the merged view by removing them.  Recall that
+   local entries were placed at the head of the list in the previous step, so removing
+   these is tantamount to "swapping" `S` records with the remote peer.   In effect, 
+   `S` is used to control priority given to the remote view entries over the records
+   already known to a node.
+3. **Retain-and-Decay:** the oldest `R` items are moved into a separate buffer. Then,
+   `D` items are selected at random and discarded from removed from the main buffer.
+   The `R` oldest that have been set aside are effectively protected from eviction.
+   This a crucial step in deriving PeX's strong partition-resistance properties.
+4. **Evict** items from the merged list at random until the combined size of the main
+   and protected buffers is less than or equal to `c`.  Then, append the the buffer
+   protected buffer to the main buffer.
 5. **Increase hops**: the age (hop counters) of the entries of the resulting view
    are increased by one.
 

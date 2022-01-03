@@ -47,8 +47,8 @@ func (a *announcer) Close() error {
 }
 
 func (a *announcer) tick() {
-	log.Debug("started heartbeat loop")
-	defer log.Debug("exited heartbeat loop")
+	a.log.WithField("ttl", a.ttl).Debug("started heartbeat loop")
+	defer a.log.Debug("exited heartbeat loop")
 
 	ticker := jitterbug.New(a.ttl/2, jitterbug.Uniform{
 		Min:    a.ttl / 10,

@@ -11,7 +11,7 @@ import (
 	"go.uber.org/fx"
 )
 
-type GossipParams struct {
+type Gossip struct {
 	C int     // maximum View size
 	S int     // swapping amount
 	R int     // retention amount
@@ -23,9 +23,9 @@ type Config struct {
 	fx.Out
 
 	Log          log.Logger
-	Gossip       GossipParams
-	Tick         time.Duration
-	StoreFactory func(ns string) ds.Batching
+	NewGossip    func(ns string) Gossip
+	NewTick      func(ns string) time.Duration
+	NewStore     func(ns string) ds.Batching
 	Discovery    discovery.Discovery
 	DiscoveryOpt []discovery.Option
 }
@@ -51,22 +51,22 @@ func WithLogger(l log.Logger) Option {
 }
 
 // WithDatastore sets the storage backend for gossip
-// records.  If s == nil, a volatile storage backend
+// records.  If newStore == nil, a volatile storage backend
 // is used.
 //
 // Note that s MUST be thread-safe.
-func WithDatastore(dsb func(ns string) ds.Batching) Option {
-	deafaultDsb := func(ns string) ds.Batching {
+func WithDatastore(newStore func(ns string) ds.Batching) Option {
+	deafaultNewStore := func(ns string) ds.Batching {
 		s := sync.MutexWrap(ds.NewMapDatastore())
 		return nsds.Wrap(s, ds.NewKey("/casm/pex"))
 	}
 
-	if dsb == nil {
-		dsb = deafaultDsb
+	if newStore == nil {
+		newStore = deafaultNewStore
 	}
 
 	return func(c *Config) {
-		c.StoreFactory = dsb
+		c.NewStore = newStore
 	}
 }
 
@@ -82,50 +82,50 @@ func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 }
 
 // WithTick sets the interval between gossip rounds.
-// A lower value of 'd' improves cluster resiliency
+// A lower value of 'tick' improves cluster resiliency
 // at the cost of increased bandwidth usage.
 //
-// If d <= 0, a default value of 1m is used.  Users
+// If d == nil, a default value of 1m is used.  Users
 // SHOULD NOT alter this value without good reason.
-func WithTick(d time.Duration) Option {
-	if d <= 0 {
-		d = time.Minute
+func WithTick(newTick func(ns string) time.Duration) Option {
+	defaultNewTick := func(ns string) time.Duration {
+		return time.Minute
+	}
+	if newTick == nil {
+		newTick = defaultNewTick
 	}
 
 	return func(c *Config) {
-		c.Tick = d
+		c.NewTick = newTick
 	}
 }
 
-// WithMaxViewSize sets the maximum size of the view.
+// WithGossip sets the parameters for gossiping:
+// C, S, R and D. Check github.com/wetware/casm/specs/pex.md
+// for more information on the meaining of each parameter.
 //
-// If n == 0, a default value of 32 is used.
+// If n == nil, default values of {c=30, s=10, r=5, d=0.005} are used.
 //
 // Users SHOULD ensure all nodes in a given cluster have
-// the same maximum view size.
-func WithGossipParams(gossip GossipParams) Option {
-	if gossip.C <= 0 {
-		gossip.C = 32
+// the same gossiping parameters.
+func WithGossip(newGossip func(ns string) Gossip) Option {
+	deafaultNewGossip := func(ns string) Gossip {
+		return Gossip{30, 10, 5, 0.005}
 	}
-	if gossip.S < 0 {
-		gossip.S = int((float64(gossip.C) / 2.0) * (2.0 / 3.0))
-	}
-	if gossip.R < 0 {
-		gossip.R = (gossip.C / 2) - gossip.S
-	}
-	if gossip.D < 0 {
-		gossip.D = 0.005
+
+	if newGossip == nil {
+		newGossip = deafaultNewGossip
 	}
 
 	return func(c *Config) {
-		c.Gossip = gossip
+		c.NewGossip = newGossip
 	}
 }
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
-		WithTick(time.Minute),
-		WithGossipParams(GossipParams{32, 10, 5, 0.005}),
+		WithTick(nil),
+		WithGossip(nil),
 		WithLogger(nil),
 		WithDatastore(nil),
 		WithDiscovery(nil),
