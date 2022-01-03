@@ -136,7 +136,7 @@ func shouldSortToPush(t *testing.T, p params) {
 	require.NoError(t, err)
 
 	// Check records are sorted
-	youngest, oldest := recs.Bind(head(len(recs)-n.gossip.R)), recs.Bind(tail(n.gossip.R))
+	youngest, oldest := recs.Bind(head(len(recs)-n.gossip.P)), recs.Bind(tail(n.gossip.P))
 	oldestYoungest := youngest.Bind(sorted())[len(youngest)-1]
 	for _, old := range oldest {
 		require.True(t, oldestYoungest.Hop() <= old.Hop())
@@ -225,7 +225,7 @@ func shouldRetain(t *testing.T, p params) {
 		Bind(merged(p.Remote)).
 		Bind(isNot(n.id))
 
-	r := min(min(n.gossip.R, n.gossip.C), len(merge))
+	r := min(min(n.gossip.P, n.gossip.C), len(merge))
 	oldest := merge.Bind(sorted()).Bind(tail(r))
 
 	n.gossip.S = 0
@@ -252,7 +252,7 @@ func shouldNotRetain(t *testing.T, p params) {
 		Bind(merged(p.Remote)).
 		Bind(isNot(n.id))
 
-	r := min(min(n.gossip.R, n.gossip.C), len(merge))
+	r := min(min(n.gossip.P, n.gossip.C), len(merge))
 	oldest := merge.Bind(sorted()).Bind(tail(r))
 
 	n.gossip.S = 0

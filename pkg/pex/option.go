@@ -14,7 +14,7 @@ import (
 type Gossip struct {
 	C int     // maximum View size
 	S int     // swapping amount
-	R int     // retention amount
+	P int     // protection amount
 	D float64 // retention decay probability
 }
 

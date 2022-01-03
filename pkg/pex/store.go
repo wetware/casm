@@ -52,7 +52,7 @@ func (n namespace) RecordsSortedToPush() (gossipSlice, error) {
 		return nil, err
 	}
 	recs = recs.Bind(sorted())
-	oldest := recs.Bind(tail(n.gossip.R))
+	oldest := recs.Bind(tail(n.gossip.P))
 	recs = recs.Bind(head(len(recs) - len(oldest))).Bind(shuffled())
 	return append(recs, oldest...), nil
 }
@@ -141,7 +141,7 @@ func (n namespace) MergeAndStore(local, remote gossipSlice) error {
 		Bind(sorted())
 
 	// Apply retention
-	r := min(min(n.gossip.R, n.gossip.C), len(newLocal))
+	r := min(min(n.gossip.P, n.gossip.C), len(newLocal))
 	maxDecay := min(r, max(len(newLocal)-n.gossip.C, 0))
 	oldest := newLocal.Bind(tail(r)).Bind(decay(n.gossip.D, maxDecay))
 
