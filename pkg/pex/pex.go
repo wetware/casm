@@ -3,6 +3,8 @@ package pex
 import (
 	"context"
 	"errors"
+	"sync"
+
 	"io"
 	"path"
 	"sync/atomic"
@@ -32,7 +34,8 @@ const (
 	baseProto             = "/casm/pex"
 	Proto     protocol.ID = baseProto + "/" + Version
 
-	mtu = 2048 // maximum transmission unit => max capnp message size
+	mtu     = 2048             // maximum transmission unit => max capnp message size
+	timeout = time.Second * 15 // Push-pull timeout
 )
 
 // PeerExchange is a collection of passive views of various p2p clusters.
@@ -53,18 +56,20 @@ const (
 // these have been carefully selected to work in a broad range of applications
 // and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
-	ctx  context.Context
-	log  log.Logger
-	tick time.Duration
+	ctx context.Context
+	log log.Logger
 
 	h host.Host
-	d *discover
+	d discovery.Discovery
 
-	self   atomic.Value
-	ds     ds.Batching
-	prefix ds.Key
-	gossip GossipParams
-	e      event.Emitter
+	mu        sync.Mutex
+	self      atomic.Value
+	newGossip func(ns string) Gossip
+	newTick   func(ns string) time.Duration
+	newStore  func(ns string) ds.Batching
+	ns        map[string]namespace
+	prefix    ds.Key
+	e         event.Emitter
 
 	runtime interface{ Stop(context.Context) error }
 }
@@ -78,7 +83,6 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 			fx.Provide(
 				newConfig,
 				newEvents,
-				newDiscover,
 				newPeerExchange,
 				supply(ctx, h)),
 			fx.Invoke(run))
@@ -93,8 +97,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (px *PeerExchange, err
 
 func (px *PeerExchange) Loggable() map[string]interface{} {
 	return map[string]interface{}{
-		"id":        px.h.ID(),
-		"view_size": px.gossip.C,
+		"id": px.h.ID(),
 	}
 }
 
@@ -116,17 +119,15 @@ func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peer peer.Addr
 }
 
 func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	opts, err := px.options(opt)
+	opts, err := px.options(ns, opt)
 	if err != nil {
 		return 0, err
 	}
 
-	if err := px.d.Track(px.ctx, ns, opts.Ttl); err != nil {
-		return 0, err
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	px.trackNamespace(ns, opts.Ttl)
 
 	// try the gossip cache first; if it's empty (or if we fail to connect
 	// to the peers within), fall back on the discovery service.
@@ -138,7 +139,7 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discove
 }
 
 func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	opts, err := px.options(opt)
+	opts, err := px.options(ns, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -158,10 +159,10 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 	return out, nil
 }
 
-func (px *PeerExchange) options(opt []discovery.Option) (opts *discovery.Options, err error) {
-	opts = &discovery.Options{Limit: px.gossip.C}
+func (px *PeerExchange) options(ns string, opt []discovery.Option) (opts *discovery.Options, err error) {
+	opts = &discovery.Options{Limit: px.newGossip(ns).C}
 	if err = opts.Apply(opt...); err == nil && opts.Ttl == 0 {
-		opts.Ttl = px.tick
+		opts.Ttl = px.newTick(ns)
 	}
 
 	return
@@ -178,8 +179,9 @@ func (px *PeerExchange) gossipCache(ctx context.Context, ns string) error {
 	}
 
 	// local host should not be in view
+
 	for _, info := range view {
-		if err = px.bootstrap(ctx, ns, info); err != nil {
+		if err = px.Bootstrap(ctx, ns, info); err != nil {
 			if se, ok := err.(streamError); ok {
 				px.log.With(se).Debug("gossip error")
 				continue
@@ -193,7 +195,7 @@ func (px *PeerExchange) gossipCache(ctx context.Context, ns string) error {
 }
 
 func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
-	ps, err := px.d.Discover(ctx, ns)
+	ps, err := px.d.FindPeers(ctx, ns)
 	if err != nil {
 		return err
 	}
@@ -203,35 +205,27 @@ func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
 			continue // don't dial self
 		}
 
-		if err = px.bootstrap(ctx, ns, info); err != nil {
+		if err = px.Bootstrap(ctx, ns, info); err != nil {
 			if se, ok := err.(streamError); ok {
 				px.log.With(se).Debug("gossip error")
 				continue
 			}
 		}
-
 		break
 	}
 
 	return err
 }
 
-// bootstrap calls Bootstrap() with a timeout context
-func (px *PeerExchange) bootstrap(ctx context.Context, ns string, info peer.AddrInfo) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*15)
-	defer cancel()
-
-	return px.Bootstrap(ctx, ns, info)
-}
-
 func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Stream) error {
-
 	var (
-		t, _ = ctx.Deadline()
-		j    syncutil.Join
+		j      syncutil.Join
+		t, _   = ctx.Deadline()
+		remote gossipSlice
 	)
 
 	if err := s.SetDeadline(t); err != nil {
+
 		return err
 	}
 
@@ -239,12 +233,13 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 	if err != nil {
 		return err
 	}
+
 	// push
 	j.Go(func() error {
 		defer s.CloseWrite()
 
 		buffer := append(
-			local.Bind(isNot(s.Conn().RemotePeer())).Bind(head(px.gossip.C/2-1)), // save some bandwidth
+			local.Bind(isNot(s.Conn().RemotePeer())).Bind(head((n.gossip.C/2)-1)), // save some bandwidth
 			px.self.Load().(*GossipRecord))
 
 		enc := capnp.NewPackedEncoder(s)
@@ -261,10 +256,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 	j.Go(func() error {
 		defer s.CloseRead()
 
-		var (
-			remote gossipSlice
-			r      = io.LimitReader(s, int64(px.gossip.C*mtu))
-		)
+		r := io.LimitReader(s, int64(n.gossip.C*mtu))
 
 		dec := capnp.NewPackedDecoder(r)
 		dec.MaxMessageSize = mtu
@@ -285,20 +277,19 @@ func (px *PeerExchange) pushpull(ctx context.Context, n namespace, s network.Str
 
 			remote = append(remote, g)
 		}
-		return n.MergeAndStore(local, remote)
+		return nil
 	})
 
-	return j.Wait()
+	err = j.Wait()
+	if err != nil {
+		return err
+	}
+
+	err = n.MergeAndStore(local, remote)
+	return err
 }
 
-func (px *PeerExchange) namespace(ns string) namespace {
-	return namespace{
-		prefix: px.prefix.ChildString(ns),
-		ds:     px.ds,
-		id:     px.h.ID(),
-		gossip: px.gossip,
-		e:      px.e,
-	}
+type tracker struct {
 }
 
 func (px *PeerExchange) matcher() (func(s string) bool, error) {
@@ -309,7 +300,6 @@ func (px *PeerExchange) matcher() (func(s string) bool, error) {
 }
 
 func (px *PeerExchange) handler(ctx context.Context) func(s network.Stream) {
-	const timeout = time.Second * 15
 
 	return func(s network.Stream) {
 		defer s.Close()
@@ -354,6 +344,69 @@ func limit(opts *discovery.Options, is []peer.AddrInfo) []peer.AddrInfo {
 	}
 
 	return is
+}
+
+func (px *PeerExchange) namespace(ns string) namespace {
+	// function for abstracting of internal management of the namespace
+	return px.getOrCreateNamespace(ns)
+}
+
+func (px *PeerExchange) trackNamespace(ns string, ttl time.Duration) {
+	for {
+		select {
+		case px.getOrCreateNamespace(ns).ttl <- ttl:
+			return
+		case <-px.getOrCreateNamespace(ns).ctx.Done():
+			// If namespace context is Done, the loop continues
+			// until a new namespace is created and the TTL is set
+		}
+	}
+}
+
+func (px *PeerExchange) getOrCreateNamespace(nss string) namespace {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+
+	if ns, ok := px.ns[nss]; ok {
+		return ns
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ns := namespace{
+		nss:    nss,
+		prefix: px.prefix.ChildString(nss),
+		id:     px.h.ID(),
+		gossip: px.newGossip(nss),
+		e:      px.e,
+		ds:     px.newStore(nss),
+
+		ttl:    make(chan time.Duration),
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	px.ns[nss] = ns
+	// Namespace is reomved after 15 seconds,
+	// unless the user requests for a longer tracking TTL
+	go px.removeNamespace(ns, 15*time.Second)
+	return ns
+}
+
+func (px *PeerExchange) removeNamespace(ns namespace, ttl time.Duration) {
+	timer := time.NewTimer(ttl)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			px.mu.Lock()
+			defer px.mu.Unlock()
+			delete(px.ns, ns.nss)
+			ns.cancel()
+			return
+		case ttl := <-ns.ttl:
+			timer.Reset(ttl)
+		}
+	}
 }
 
 /*
@@ -417,13 +470,13 @@ func newConfig(id peer.ID, opt []Option) (c Config) {
 type pexParams struct {
 	fx.In
 
-	Ctx    context.Context
-	Log    log.Logger
-	Gossip GossipParams
-	Host   host.Host
-	Tick   time.Duration
-	Store  ds.Batching
-	Disc   *discover
+	Ctx         context.Context
+	Log         log.Logger
+	Host        host.Host
+	NewGossip   func(ns string) Gossip
+	TickFactory func(ns string) time.Duration
+	NewStore    func(ns string) ds.Batching
+	Disc        discovery.Discovery
 }
 
 func (p pexParams) Prefix() ds.Key {
@@ -433,15 +486,16 @@ func (p pexParams) Prefix() ds.Key {
 func newPeerExchange(p pexParams) (*PeerExchange, error) {
 	e, err := p.Host.EventBus().Emitter(new(EvtViewUpdated))
 	return &PeerExchange{
-		ctx:    p.Ctx,
-		log:    p.Log,
-		gossip: p.Gossip,
-		h:      p.Host,
-		d:      p.Disc,
-		tick:   p.Tick,
-		ds:     p.Store,
-		prefix: p.Prefix(),
-		e:      e,
+		ctx:       p.Ctx,
+		log:       p.Log,
+		newGossip: p.NewGossip,
+		h:         p.Host,
+		d:         p.Disc,
+		newTick:   p.TickFactory,
+		newStore:  p.NewStore,
+		ns:        make(map[string]namespace),
+		prefix:    p.Prefix(),
+		e:         e,
 	}, err
 }
 

@@ -1,6 +1,7 @@
 package pex
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -24,11 +25,16 @@ type EvtViewUpdated []*GossipRecord
 //
 // Note that namespace DOES NOT provide ACID guarantees.
 type namespace struct {
+	nss    string
 	prefix ds.Key
 	ds     ds.Batching
 	id     peer.ID
-	gossip GossipParams
+	gossip Gossip
 	e      event.Emitter
+
+	ttl    chan time.Duration
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func (n namespace) String() string { return n.prefix.BaseNamespace() }
@@ -46,8 +52,8 @@ func (n namespace) RecordsSortedToPush() (gossipSlice, error) {
 		return nil, err
 	}
 	recs = recs.Bind(sorted())
-	oldest := recs.Bind(tail(n.gossip.R))
-	recs = recs[:len(recs)-len(oldest)].Bind(shuffled())
+	oldest := recs.Bind(tail(n.gossip.P))
+	recs = recs.Bind(head(len(recs) - len(oldest))).Bind(shuffled())
 	return append(recs, oldest...), nil
 }
 
@@ -123,7 +129,7 @@ func (n namespace) MergeAndStore(local, remote gossipSlice) error {
 		return err
 	}
 
-	// Remove duplicates and join local and remote records
+	// Remove duplicates and combine local and remote records
 	newLocal := local.
 		Bind(merged(remote)).
 		Bind(isNot(n.id))
@@ -135,14 +141,19 @@ func (n namespace) MergeAndStore(local, remote gossipSlice) error {
 		Bind(sorted())
 
 	// Apply retention
-	r := min(min(n.gossip.R, n.gossip.C), len(newLocal))
-	oldest := newLocal.Bind(tail(r)).Bind(decay(n.gossip.D))
+	r := min(min(n.gossip.P, n.gossip.C), len(newLocal))
+	maxDecay := min(r, max(len(newLocal)-n.gossip.C, 0))
+	oldest := newLocal.Bind(tail(r)).Bind(decay(n.gossip.D, maxDecay))
 
 	//Apply random eviction
 	c := n.gossip.C - len(oldest)
-	newLocal = newLocal[:len(newLocal)-r].
+	newLocal = newLocal.
+		Bind(head(max(len(newLocal)-r, 0))).
 		Bind(shuffled()).
-		Bind(head(c)).
+		Bind(head(c))
+
+	// Merge with oldest nodes
+	newLocal = newLocal.
 		Bind(merged(oldest))
 
 	newLocal.incrHops()
@@ -210,7 +221,7 @@ func randomOrder() query.OrderByFunction {
 
 func filter(f func(*GossipRecord) bool) func(gossipSlice) gossipSlice {
 	return func(gs gossipSlice) gossipSlice {
-		filtered := gs[:0]
+		filtered := make(gossipSlice, 0, len(gs))
 		for _, g := range gs {
 			if f(g) {
 				filtered = append(filtered, g)
@@ -283,17 +294,18 @@ func tail(n int) func(gossipSlice) gossipSlice {
 
 	return func(gs gossipSlice) gossipSlice {
 		if n < len(gs) {
-			gs = gs[:n]
+			gs = gs[len(gs)-n:]
 		}
 
 		return gs
 	}
 }
 
-func decay(d float64) func(gossipSlice) gossipSlice {
+func decay(d float64, maxDecay int) func(gossipSlice) gossipSlice {
 	return func(gs gossipSlice) gossipSlice {
-		for len(gs) > 0 && rand.Float64() < d {
-			gs = gs[1:]
+		for len(gs) > 0 && rand.Float64() < d && maxDecay > 0 {
+			gs = gs[:len(gs)-1]
+			maxDecay--
 		}
 		return gs
 	}

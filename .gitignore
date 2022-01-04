@@ -19,3 +19,6 @@ cmd/scratch/**
 .vscode/**
 **/__debug_bin
 .idea
+
+# pre-commit
+.pre-commit-config.yaml

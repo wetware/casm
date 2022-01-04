@@ -123,21 +123,21 @@ such as choosing the youngest (`young`) or oldest (`old`) neighbor.
 
 After the peer selection, the selected and selector nodes connect with each
 other and send their views. However, they generally do not send the entire view, but instead
-select the *c-R* "youngest" records.  If, however, `len(view) <= R`, the peer  MUST transmit
+select the *c-P* "youngest" records.  If, however, `len(view) <= P`, the peer  MUST transmit
 its entire view.  We define the notion of record age and provide additional details regarding
-the *R* parameter below.
+the *P* parameter below.
 
 Finally, each peer transmits a record containing its own routing information.
 <!-- 
 At most, they send half of the maximum view size. The transmitted records are selected randomly,
-ignoring the oldest `R` nodes. However, in case there aren't enough nodes, 
+ignoring the oldest `P` nodes. However, in case there aren't enough nodes, 
 the oldest nodes are also sent. Finally, a descriptor of the sender is appended
 to the tail, before sending it. -->
 
 The pseudocode for the push-pull phase is as follows:
 ```
 view.RandomShuffle()
-view.MoveToTailOldest(R)
+view.MoveToTailOldest(P)
 buffer = view.Head((c/2)-1)
 buffer.append(MyDescriptor) 
 Push(buffer)
@@ -161,9 +161,9 @@ five steps:
    these is tantamount to "swapping" `S` records with the remote peer.   In effect, 
    `S` is used to control priority given to the remote view entries over the records
    already known to a node.
-3. **Retain-and-Decay:** the oldest `R` items are moved into a separate buffer. Then,
+3. **Protect-and-Decay:** the oldest `P` items are moved into a separate buffer. Then,
    `D` items are selected at random and discarded from removed from the main buffer.
-   The `R` oldest that have been set aside are effectively protected from eviction.
+   The `P` oldest that have been set aside are effectively protected from eviction.
    This a crucial step in deriving PeX's strong partition-resistance properties.
 4. **Evict** items from the merged list at random until the combined size of the main
    and protected buffers is less than or equal to `c`.  Then, append the the buffer
@@ -176,7 +176,7 @@ The pseudocode for the previous four steps is the following:
 remote = Pull()
 view = view.append(remote)
 view.RemoveHead(min(S, view.Size-c))
-oldest = view.PopOldest(min(R, view.Size-c))
+oldest = view.PopOldest(min(P, view.Size-c))
 oldest.RemoveWithPropbability(D)
 view.RemoveRandom(view.Size-(c-oldest.Size)))
 view.append(oldest)
@@ -191,7 +191,7 @@ Pex makes use of three parameters to tune the policies for merging the view.
   remote one, so removing from the head, means prioritizing entries from the
   remote view. This parameter is used to reduce the randomness in the network.
   The higher the value, the more random the network will be.
-- **R**(etention): the number of oldest entries to be protected from eviction.
+- **P**(rotection): the number of oldest entries to be protected from eviction.
   This parameter is used to tune the speed at which disconnected/partitioned 
   peer are removed from the network. The higher the value the slower the speed. 
 - **D**(ecay): the probability of evicting the protected oldest entries. 
