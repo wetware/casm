@@ -8,6 +8,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/protocol"
 )
 
+const sep = "/"
+
 // Join multiple protocol.IDs into one, using the path separator.
 func Join(ids ...protocol.ID) protocol.ID {
 	ss := protocol.ConvertToStrings(ids)
@@ -53,7 +55,7 @@ func Split(id protocol.ID) (base, end protocol.ID) {
 	default:
 		end = parts[len(parts)-1]
 		parts = parts[:len(parts)-1]
-		base = "/" + Join(parts...)
+		base = sep + Join(parts...)
 		return
 	}
 }
