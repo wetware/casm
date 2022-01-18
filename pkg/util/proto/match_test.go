@@ -75,6 +75,13 @@ func TestMatchers(t *testing.T) {
 				Exactly("rpc")),
 			input: "/ww/1.0.0/ns/rpc/",
 		},
+		{
+			name: "Chain",
+			match: Match(
+				Prefix("ww"),
+				SemVer("0.0.0")).Then(Exactly("ns")),
+			input: "/ww/0.0.0/ns",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if match := tt.match(tt.input); tt.expectNoMatch {

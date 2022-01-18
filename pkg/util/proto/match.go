@@ -11,13 +11,13 @@ import (
 type MatchFunc func(string) bool
 
 func (f MatchFunc) Then(next MatchFunc) MatchFunc {
-	if next == nil {
-		return f
+	if f == nil {
+		return next
 	}
 
 	return match(func(s string) (ok bool) {
-		if ok = f(s); ok {
-			ok = next(path.Dir(s)) // pop last path elem
+		if ok = next(s); ok {
+			ok = f(path.Dir(s)) // pop last path elem
 		}
 		return
 	})
@@ -25,7 +25,7 @@ func (f MatchFunc) Then(next MatchFunc) MatchFunc {
 
 func Match(ms ...MatchFunc) (f MatchFunc) {
 	for _, next := range ms {
-		f = next.Then(f)
+		f = f.Then(next)
 	}
 
 	return
