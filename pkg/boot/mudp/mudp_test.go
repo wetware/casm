@@ -63,7 +63,7 @@ func TestDiscover(t *testing.T) {
 	}
 
 	require.True(t, len(infos) == 1)
-
+	require.Equal(t, infos[0].ID, h2.ID())
 }
 
 func waitReady(h host.Host) {
