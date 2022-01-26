@@ -22,6 +22,13 @@ type ScanSubnet struct {
 	Port   int
 	CIDR   string
 
+	// Timeout specifies the timeout duration for each attempted
+	// schan.  Increasing this value will will increase the time
+	// needed to traverse a CIDR block.
+	//
+	// Defaults to 100ms.
+	Timeout time.Duration
+
 	once sync.Once
 }
 
@@ -42,6 +49,17 @@ func (ss *ScanSubnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, erro
 		if ss.Port == 0 {
 			ss.Port = 8822
 		}
+
+		if ss.Timeout <= 0 {
+			ss.Timeout = time.Millisecond * 100
+		}
+
+		ss.Logger = ss.Logger.With(log.F{
+			"net":     ss.Net,
+			"port":    ss.Port,
+			"cidr":    ss.CIDR,
+			"timeout": ss.Timeout,
+		})
 	})
 
 	iter, err := newSubnetIter(ss.CIDR)
@@ -62,11 +80,21 @@ func (ss *ScanSubnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, erro
 			iter.Scan(ip)
 
 			conn, err := ss.dial(ctx, d, ip)
-			if err == nil {
-				select {
-				case out <- conn:
-				case <-ctx.Done():
-				}
+			if err != nil {
+				ss.Logger.
+					WithError(err).
+					WithField("ip", ip).
+					Trace("no response")
+				continue
+			}
+
+			select {
+			case out <- conn:
+				ss.Logger.
+					WithField("peer", conn.RemoteAddr()).
+					Trace("connected to port")
+
+			case <-ctx.Done():
 			}
 		}
 	}()
@@ -75,10 +103,8 @@ func (ss *ScanSubnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, erro
 }
 
 func (ss *ScanSubnet) dial(ctx context.Context, d Dialer, ip net.IP) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(ctx, ss.Timeout)
 	defer cancel()
-
-	ss.Logger.Tracef("dialing %s", ip)
 
 	return d.DialContext(ctx,
 		ss.Net,

@@ -41,13 +41,15 @@ require (
 	google.golang.org/protobuf v1.27.1 // indirect
 )
 
-require go.uber.org/multierr v1.7.0
+require (
+	github.com/coreos/go-semver v0.3.0
+	go.uber.org/multierr v1.7.0
+)
 
 require (
 	github.com/antlabs/stl v0.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
-	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.1 // indirect
 	github.com/cstockton/go-conv v1.0.0
 	github.com/davecgh/go-spew v1.1.1 // indirect

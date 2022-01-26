@@ -29,7 +29,7 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 		c.Scanner = basicScanner{}
 	}
 
-	c.Logger.Debugf("crawling for peers in namespace '%s'", ns)
+	c.Logger = c.Logger.WithField("ns", ns)
 
 	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
@@ -44,7 +44,9 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 	out := make(chan peer.AddrInfo, 8)
 	go func() {
 		defer close(out)
-		defer c.Logger.Debugf("terminated for namespace '%s'", ns)
+
+		c.Logger.Debug("crawl started")
+		defer c.Logger.Debugf("crawl finished")
 
 		var rec peer.PeerRecord
 		for conn := range conns {
