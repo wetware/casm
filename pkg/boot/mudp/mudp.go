@@ -30,25 +30,26 @@ const (
 
 type Mudp struct {
 	h             host.Host
-	mc            multicaster
+	mc            *multicaster
 	disc          discovery.Discoverer
 	mustFind      map[string]chan peer.AddrInfo
 	mustAdvertise map[string]chan time.Duration
 	mu            sync.Mutex
 }
 
-func NewMudp(h host.Host, disc discovery.Discoverer) (mudp Mudp, err error) {
+func NewMudp(h host.Host, disc discovery.Discoverer) (mudp *Mudp, err error) {
 	mc, err := NewMulticaster(multicastAddr)
 	if err != nil {
 		return
 	}
 
+	mudp = &Mudp{h: h, mc: mc, disc: disc, mustFind: make(map[string]chan peer.AddrInfo),
+		mustAdvertise: make(map[string]chan time.Duration)}
 	ready := make(chan bool)
 	go mc.Listen(ready, mudp.multicastHandler)
 	<-ready
 
-	return Mudp{h: h, mc: mc, disc: disc, mustFind: make(map[string]chan peer.AddrInfo),
-		mustAdvertise: make(map[string]chan time.Duration)}, nil
+	return mudp, nil
 }
 
 func (mudp *Mudp) Close() {
@@ -197,6 +198,9 @@ func (mudp *Mudp) handleMudpResponse(response cpMudp.MudpResponse) {
 }
 
 func (mudp *Mudp) deliverResponse(response cpMudp.MudpResponse, finder chan peer.AddrInfo) {
+	mudp.mu.Lock()
+	defer mudp.mu.Unlock()
+
 	var (
 		envelopes capnp.DataList
 		err       error
@@ -221,8 +225,6 @@ func (mudp *Mudp) deliverResponse(response cpMudp.MudpResponse, finder chan peer
 		default:
 			return
 		}
-
-		// TODO: handle when there is no consumer?
 	}
 }
 

@@ -64,7 +64,7 @@ func TestDiscover(t *testing.T) {
 		}
 	}
 
-	require.True(t, len(infos) == 1)
+	require.Len(t, infos, 1)
 	require.Equal(t, infos[0].ID, h2.ID())
 }
 
@@ -98,7 +98,7 @@ func TestDiscoverNone(t *testing.T) {
 		}
 	}
 
-	require.True(t, len(infos) == 0)
+	require.Len(t, infos, 0)
 }
 
 func waitReady(h host.Host) {
