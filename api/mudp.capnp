@@ -5,7 +5,7 @@ $Go.import("github.com/wetware/casm/internal/api/mudp");
 
 
 struct MudpRequest {
-    peer @0 :Data;
+    src @0 :Data;
     distance @1 :UInt8;
     namespace @2 :Text;
 }

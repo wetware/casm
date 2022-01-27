@@ -88,7 +88,7 @@ func (mudp *Mudp) handleMudpRequest(request cpMudp.MudpRequest) {
 	defer mudp.mu.Unlock()
 
 	// validate requester
-	envelope, err := request.Peer()
+	envelope, err := request.Src()
 	if err != nil {
 		return
 	}
@@ -354,7 +354,7 @@ func (mudp *Mudp) buildRequest(ns string, dist uint8) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		request.SetPeer(rec)
+		request.SetSrc(rec)
 	} else {
 		return nil, errors.New("unable to get certified address book from libp2p host")
 	}
