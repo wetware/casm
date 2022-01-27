@@ -31,19 +31,21 @@ const (
 type Mudp struct {
 	h             host.Host
 	mc            *multicaster
-	disc          discovery.Discoverer
 	mustFind      map[string]chan peer.AddrInfo
 	mustAdvertise map[string]chan time.Duration
 	mu            sync.Mutex
 }
 
-func NewMudp(h host.Host, disc discovery.Discoverer) (mudp *Mudp, err error) {
-	mc, err := NewMulticaster(multicastAddr)
+func NewMudp(h host.Host, opt ...Option) (mudp *Mudp, err error) {
+	config := Config{}
+	config.Apply(opt)
+
+	mc, err := NewMulticaster(config.Addr, config.Dial, config.Listen)
 	if err != nil {
 		return
 	}
 
-	mudp = &Mudp{h: h, mc: mc, disc: disc, mustFind: make(map[string]chan peer.AddrInfo),
+	mudp = &Mudp{h: h, mc: mc, mustFind: make(map[string]chan peer.AddrInfo),
 		mustAdvertise: make(map[string]chan time.Duration)}
 	ready := make(chan bool)
 	go mc.Listen(ready, mudp.multicastHandler)
@@ -56,7 +58,7 @@ func (mudp *Mudp) Close() {
 	mudp.mc.Close()
 }
 
-func (mudp *Mudp) multicastHandler(addr *net.UDPAddr, n int, buffer []byte) {
+func (mudp *Mudp) multicastHandler(n int, src net.Addr, buffer []byte) {
 	msg, err := capnp.UnmarshalPacked(buffer[:n])
 	if err != nil {
 		return
@@ -120,29 +122,13 @@ func (mudp *Mudp) handleMudpRequest(request cpMudp.MudpRequest) {
 		return
 	}
 
-	go mudp.respondRequest(ns)
-}
-
-func (mudp *Mudp) respondRequest(ns string) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	finder, err := mudp.disc.FindPeers(ctx, ns, discovery.TTL(timeout))
-	if err != nil {
-		return
-	}
-	peers := make([]peer.AddrInfo, 0)
-	for peer := range finder {
-		peers = append(peers, peer)
-	}
-
-	response, err := mudp.buildResponse(ns, peers)
+	response, err := mudp.buildResponse(ns)
 	if err == nil {
 		go mudp.mc.Multicast(response)
 	}
 }
 
-func (mudp *Mudp) buildResponse(ns string, peers []peer.AddrInfo) ([]byte, error) {
+func (mudp *Mudp) buildResponse(ns string) ([]byte, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(err)
@@ -159,31 +145,25 @@ func (mudp *Mudp) buildResponse(ns string, peers []peer.AddrInfo) ([]byte, error
 
 	response.SetNamespace(ns)
 
-	// TODO add itself?: peers = append(peers, *host.InfoFromHost(mudp.h))
-	envelope, err := response.NewEnvelopes(int32(min(len(peers), discLimit)))
-
 	if cab, ok := peerstore.GetCertifiedAddrBook(mudp.h.Peerstore()); ok {
-		i := 0
-		for _, info := range peers {
-			env := cab.GetPeerRecord(info.ID)
-			rec, err := env.Marshal()
-			if err == nil {
-				envelope.Set(i, rec)
-				i++
-			}
+		env := cab.GetPeerRecord(mudp.h.ID())
+		rec, err := env.Marshal()
+		if err != nil {
+			return nil, err
 		}
+		response.SetEnvelope(rec)
 	}
 	return root.Message().MarshalPacked()
 }
 
-func min(i1, i2 int) int {
-	if i1 < i2 {
-		return i1
-	}
-	return i2
-}
-
 func (mudp *Mudp) handleMudpResponse(response cpMudp.MudpResponse) {
+	var (
+		finder chan peer.AddrInfo
+		rec    peer.PeerRecord
+		err    error
+		ok     bool
+	)
+
 	mudp.mu.Lock()
 	defer mudp.mu.Unlock()
 
@@ -192,39 +172,22 @@ func (mudp *Mudp) handleMudpResponse(response cpMudp.MudpResponse) {
 		return
 	}
 
-	if finder, ok := mudp.mustFind[ns]; ok {
-		go mudp.deliverResponse(response, finder)
-	}
-}
-
-func (mudp *Mudp) deliverResponse(response cpMudp.MudpResponse, finder chan peer.AddrInfo) {
-	mudp.mu.Lock()
-	defer mudp.mu.Unlock()
-
-	var (
-		envelopes capnp.DataList
-		err       error
-	)
-
-	if envelopes, err = response.Envelopes(); err != nil {
+	if finder, ok = mudp.mustFind[ns]; !ok {
 		return
 	}
 
-	for i := 0; i < envelopes.Len(); i++ {
-		var rec peer.PeerRecord
+	envelope, err := response.Envelope()
+	if err != nil {
+		return
+	}
 
-		rawEnvelope, err := envelopes.At(0)
-		if err != nil {
-			continue
-		}
-		if _, err = record.ConsumeTypedEnvelope(rawEnvelope, &rec); err != nil {
-			continue
-		}
-		select {
-		case finder <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
-		default:
-			return
-		}
+	if _, err = record.ConsumeTypedEnvelope(envelope, &rec); err != nil {
+		return
+	}
+	select {
+	case finder <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
+	default:
+		return
 	}
 }
 
@@ -370,12 +333,4 @@ func dist(id1, id2 []byte) uint32 {
 	}
 
 	return binary.BigEndian.Uint32(xored)
-}
-
-func Distance(dist uint8) discovery.Option {
-	return func(opts *discovery.Options) error {
-		opts.Other = make(map[interface{}]interface{})
-		opts.Other["distance"] = dist
-		return nil
-	}
 }

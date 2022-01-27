@@ -43,11 +43,11 @@ func TestDiscover(t *testing.T) {
 	waitReady(h1)
 	waitReady(h2)
 
-	a1, err := NewMudp(h1, &MockDisc{h: h1})
+	a1, err := NewMudp(h1)
 	require.NoError(t, err)
 	defer a1.Close()
 
-	a2, err := NewMudp(h2, &MockDisc{h: h2})
+	a2, err := NewMudp(h2)
 	require.NoError(t, err)
 	defer a2.Close()
 
@@ -56,7 +56,7 @@ func TestDiscover(t *testing.T) {
 
 	infos := make([]peer.AddrInfo, 0)
 	for i := uint8(1); i < uint8(255) && len(infos) == 0; i += 5 {
-		finder, err := a1.FindPeers(ctx, testNs, discovery.TTL(findPeersTTL), Distance(i))
+		finder, err := a1.FindPeers(ctx, testNs, discovery.TTL(findPeersTTL), WithDistance(i))
 		require.NoError(t, err)
 
 		for info := range finder {
@@ -80,17 +80,17 @@ func TestDiscoverNone(t *testing.T) {
 	waitReady(h1)
 	waitReady(h2)
 
-	a1, err := NewMudp(h1, &MockDisc{h: h1})
+	a1, err := NewMudp(h1)
 	require.NoError(t, err)
 	defer a1.Close()
 
-	a2, err := NewMudp(h2, &MockDisc{h: h2})
+	a2, err := NewMudp(h2)
 	require.NoError(t, err)
 	defer a2.Close()
 
 	infos := make([]peer.AddrInfo, 0)
 	for i := uint8(1); i < uint8(255) && len(infos) == 0; i += 5 {
-		finder, err := a1.FindPeers(ctx, testNs, discovery.TTL(findPeersTTL), Distance(i))
+		finder, err := a1.FindPeers(ctx, testNs, discovery.TTL(findPeersTTL), WithDistance(i))
 		require.NoError(t, err)
 
 		for info := range finder {

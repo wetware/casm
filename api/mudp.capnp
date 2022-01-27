@@ -12,7 +12,7 @@ struct MudpRequest {
 
 struct MudpResponse {
     namespace @0 :Text;
-    envelopes @1 :List(Data);
+    envelope @1 :Data;
 }
 
 struct MudpPacket {

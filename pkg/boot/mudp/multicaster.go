@@ -10,22 +10,22 @@ const (
 	maxDatagramSize = 8192
 )
 
+type DialFunc func(laddr, raddr *net.UDPAddr) (*net.UDPConn, error)
+type ListenFunc func(laddr *net.UDPAddr) (*net.UDPConn, error)
+
 type multicaster struct {
-	addr  *net.UDPAddr
-	close chan chan error
-	conn  *net.UDPConn
+	addr   *net.UDPAddr
+	dial   DialFunc
+	listen ListenFunc
+	conn   *net.UDPConn
 }
 
-func NewMulticaster(addr string) (mc *multicaster, err error) {
-	udpAddr, err := net.ResolveUDPAddr("udp4", addr)
-	if err != nil {
-		return
-	}
-	return &multicaster{addr: udpAddr, close: make(chan chan error)}, nil
+func NewMulticaster(addr *net.UDPAddr, dial DialFunc, listen ListenFunc) (mc *multicaster, err error) {
+	return &multicaster{addr: addr, dial: dial, listen: listen}, nil
 }
 
-func (mc *multicaster) Listen(ready chan bool, handler func(*net.UDPAddr, int, []byte)) {
-	conn, err := net.ListenMulticastUDP("udp4", nil, mc.addr)
+func (mc *multicaster) Listen(ready chan bool, handler func(int, net.Addr, []byte)) {
+	conn, err := mc.listen(mc.addr)
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -34,23 +34,21 @@ func (mc *multicaster) Listen(ready chan bool, handler func(*net.UDPAddr, int, [
 	mc.conn = conn
 	ready <- true
 
-	mc.conn.SetReadBuffer(maxDatagramSize)
-
 	for {
 		buffer := make([]byte, maxDatagramSize)
-		numBytes, src, err := mc.conn.ReadFromUDP(buffer)
+		numBytes, src, err := mc.conn.ReadFrom(buffer)
 		if err != nil {
 			if strings.Contains(err.Error(), "use of closed network connection") {
 				return
 			}
 			log.Fatal("ReadFromUDP failed:", err)
 		}
-		handler(src, numBytes, buffer)
+		handler(numBytes, src, buffer)
 	}
 }
 
 func (mc *multicaster) Multicast(data []byte) (int, error) {
-	conn, err := net.DialUDP("udp4", nil, mc.addr)
+	conn, err := mc.dial(nil, mc.addr)
 	if err != nil {
 		return 0, err
 	}
