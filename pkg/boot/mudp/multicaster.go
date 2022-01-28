@@ -3,7 +3,6 @@ package mudp
 import (
 	"log"
 	"net"
-	"strings"
 )
 
 const (
@@ -38,10 +37,11 @@ func (mc *multicaster) Listen(ready chan bool, handler func(int, net.Addr, []byt
 		buffer := make([]byte, maxDatagramSize)
 		numBytes, src, err := mc.conn.ReadFrom(buffer)
 		if err != nil {
-			if strings.Contains(err.Error(), "use of closed network connection") {
+			if e, ok := err.(net.Error); ok && !e.Temporary() {
 				return
+			} else {
+				log.Fatal(err)
 			}
-			log.Fatal("ReadFromUDP failed:", err)
 		}
 		handler(numBytes, src, buffer)
 	}
