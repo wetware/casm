@@ -49,6 +49,7 @@ func New(ctx context.Context, ps PubSub, opt ...Option) (*Node, error) {
 }
 
 func (n *Node) Close() error         { return n.s.Close() }
+func (n *Node) String() string       { return n.ns }
 func (n *Node) Topic() *pubsub.Topic { return n.a.t }
 func (n *Node) View() View           { return n.rt }
 
