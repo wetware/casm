@@ -8,35 +8,9 @@ import (
 	"github.com/ipfs/go-datastore/sync"
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/lthibault/log"
-	"go.uber.org/fx"
 )
 
-type Gossip struct {
-	C int     // maximum View size
-	S int     // swapping amount
-	P int     // protection amount
-	D float64 // retention decay probability
-}
-
-// Config supplies options to the dependency-injection framework.
-type Config struct {
-	fx.Out
-
-	Log          log.Logger
-	NewGossip    func(ns string) Gossip
-	NewTick      func(ns string) time.Duration
-	NewStore     func(ns string) ds.Batching
-	Discovery    discovery.Discovery
-	DiscoveryOpt []discovery.Option
-}
-
-func (c *Config) Apply(opt []Option) {
-	for _, option := range withDefaults(opt) {
-		option(c)
-	}
-}
-
-type Option func(c *Config)
+type Option func(px *PeerExchange)
 
 // WithLogger sets the logger for the peer exchange.
 // If l == nil, a default logger is used.
@@ -45,8 +19,8 @@ func WithLogger(l log.Logger) Option {
 		l = log.New()
 	}
 
-	return func(c *Config) {
-		c.Log = l
+	return func(px *PeerExchange) {
+		px.log = l
 	}
 }
 
@@ -65,8 +39,8 @@ func WithDatastore(newStore func(ns string) ds.Batching) Option {
 		newStore = deafaultNewStore
 	}
 
-	return func(c *Config) {
-		c.NewStore = newStore
+	return func(px *PeerExchange) {
+		px.newStore = newStore
 	}
 }
 
@@ -75,9 +49,9 @@ func WithDatastore(newStore func(ns string) ds.Batching) Option {
 // be called with 'opt' whenever the PeeerExchange is
 // unable to connect to peers in its cache.
 func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
-	return func(c *Config) {
-		c.DiscoveryOpt = opt
-		c.Discovery = d
+	return func(px *PeerExchange) {
+		px.DiscoveryOpt = opt
+		px.Discovery = d
 	}
 }
 
@@ -95,8 +69,8 @@ func WithTick(newTick func(ns string) time.Duration) Option {
 		newTick = defaultNewTick
 	}
 
-	return func(c *Config) {
-		c.NewTick = newTick
+	return func(px *PeerExchange) {
+		px.newTick = newTick
 	}
 }
 
@@ -117,8 +91,8 @@ func WithGossip(newGossip func(ns string) Gossip) Option {
 		newGossip = deafaultNewGossip
 	}
 
-	return func(c *Config) {
-		c.NewGossip = newGossip
+	return func(px *PeerExchange) {
+		px.newGossip = newGossip
 	}
 }
 

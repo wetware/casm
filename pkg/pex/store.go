@@ -1,7 +1,6 @@
 package pex
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -9,57 +8,49 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	ds "github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/query"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/peer"
 )
 
 func init() { rand.Seed(time.Now().UnixNano()) }
 
-type EvtViewUpdated []*GossipRecord
-
-// namespace encapsulates a namespace-scoped store
-// containing gossip records, along with supplementary
-// data types from *PeerExchange needed to perform various
-// queries.
-//
-// Note that namespace DOES NOT provide ACID guarantees.
-type namespace struct {
-	nss    string
-	prefix ds.Key
-	ds     ds.Batching
-	id     peer.ID
-	gossip Gossip
-	e      event.Emitter
-
-	ttl    chan time.Duration
-	ctx    context.Context
-	cancel context.CancelFunc
+// Gossip contains parameters for the PeX gossip algorithm.
+type Gossip struct {
+	C int     // maximum View size
+	S int     // swapping amount
+	P int     // protection amount
+	D float64 // retention decay probability
 }
 
-func (n namespace) String() string { return n.prefix.BaseNamespace() }
+type GossipStore struct {
+	ns    string
+	store ds.Batching
+	g     Gossip
+}
 
-func (n namespace) Query() (query.Results, error) {
-	return n.ds.Query(query.Query{
-		Prefix: n.prefix.String(),
+func NewGossipStore(ns string, store ds.Batching, g Gossip) GossipStore {
+	return GossipStore{
+		ns:    ns,
+		store: namespace.Wrap(store, ds.NewKey(ns)),
+		g:     g,
+	}
+}
+
+func (gs GossipStore) String() string { return gs.ns }
+
+func (gs GossipStore) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"ns": gs.ns,
+	}
+}
+
+func (gs GossipStore) LoadRecords() (gossipSlice, error) {
+	// return all entries under the local instance's key prefix
+	res, err := gs.store.Query(query.Query{
+		Prefix: "/",
 		Orders: []query.Order{randomOrder()},
 	})
-}
-
-func (n namespace) RecordsSortedToPush() (gossipSlice, error) {
-	recs, err := n.Records()
-	if err != nil {
-		return nil, err
-	}
-	recs = recs.Bind(sorted())
-	oldest := recs.Bind(tail(n.gossip.P))
-	recs = recs.Bind(head(len(recs) - len(oldest))).Bind(shuffled())
-	return append(recs, oldest...), nil
-}
-
-func (n namespace) Records() (gossipSlice, error) {
-	// return all entries under the local instance's key prefix
-	res, err := n.Query()
 	if err != nil {
 		return nil, err
 	}
@@ -86,45 +77,17 @@ func (n namespace) Records() (gossipSlice, error) {
 	return recs, nil
 }
 
-// View is like Records() except that it reuses a single GossipRecord
-// to avoid allocating.
-func (n namespace) View() ([]peer.AddrInfo, error) {
-	// return all entries under the local instance's key prefix
-	res, err := n.Query()
-	if err != nil {
-		return nil, err
-	}
+func (gs GossipStore) mtu() int64 { return int64(gs.g.C * mtu) }
 
-	es, err := res.Rest()
-	if err != nil {
-		return nil, err
-	}
-
-	var (
-		g    GossipRecord
-		view = make([]peer.AddrInfo, len(es))
-	)
-
-	for i, entry := range es {
-		msg, err := capnp.Unmarshal(entry.Value)
-		if err != nil {
-			return nil, err
-		}
-
-		if err = g.ReadMessage(msg); err != nil {
-			return nil, err
-		}
-
-		view[i].ID = g.PeerID
-		view[i].Addrs = g.Addrs
-
-		g.Message().Reset(nil)
-	}
-
-	return view, nil
+func (gs GossipStore) tail() func(gossipSlice) gossipSlice {
+	return tail(gs.g.P)
 }
 
-func (n namespace) MergeAndStore(local, remote gossipSlice) error {
+func (gs GossipStore) head() func(gossipSlice) gossipSlice {
+	return head((gs.g.C / 2) - 1)
+}
+
+func (gs GossipStore) MergeAndStore(self peer.ID, local, remote gossipSlice) error {
 	if err := remote.Validate(); err != nil {
 		return err
 	}
@@ -132,21 +95,21 @@ func (n namespace) MergeAndStore(local, remote gossipSlice) error {
 	// Remove duplicates and combine local and remote records
 	newLocal := local.
 		Bind(merged(remote)).
-		Bind(isNot(n.id))
+		Bind(isNot(self))
 
 	// Apply swapping
-	s := min(n.gossip.S, max(len(newLocal)-n.gossip.C, 0))
+	s := min(gs.g.S, max(len(newLocal)-gs.g.C, 0))
 	newLocal = newLocal.
 		Bind(tail(len(newLocal) - s)).
 		Bind(sorted())
 
 	// Apply retention
-	r := min(min(n.gossip.P, n.gossip.C), len(newLocal))
-	maxDecay := min(r, max(len(newLocal)-n.gossip.C, 0))
-	oldest := newLocal.Bind(tail(r)).Bind(decay(n.gossip.D, maxDecay))
+	r := min(min(gs.g.P, gs.g.C), len(newLocal))
+	maxDecay := min(r, max(len(newLocal)-gs.g.C, 0))
+	oldest := newLocal.Bind(tail(r)).Bind(decay(gs.g.D, maxDecay))
 
 	//Apply random eviction
-	c := n.gossip.C - len(oldest)
+	c := gs.g.C - len(oldest)
 	newLocal = newLocal.
 		Bind(head(max(len(newLocal)-r, 0))).
 		Bind(shuffled()).
@@ -158,25 +121,21 @@ func (n namespace) MergeAndStore(local, remote gossipSlice) error {
 
 	newLocal.incrHops()
 
-	if err := n.Store(local, newLocal); err != nil {
+	if err := gs.storeRecords(local, newLocal); err != nil {
 		return err
 	}
 
-	if err := n.ds.Sync(n.prefix); err == nil {
-		return n.e.Emit(EvtViewUpdated(newLocal))
-	}
-
-	return nil
+	return gs.store.Sync(ds.NewKey("/"))
 }
 
-func (n namespace) Store(old, new gossipSlice) error {
-	batch, err := n.ds.Batch()
+func (gs GossipStore) storeRecords(old, new gossipSlice) error {
+	batch, err := gs.store.Batch()
 	if err != nil {
 		return err
 	}
 
 	for _, g := range old.diff(new) { // elems in 'old', but not in 'new'.
-		if err = batch.Delete(n.keyfor(g)); err != nil {
+		if err = batch.Delete(g.Key()); err != nil {
 			return err
 		}
 	}
@@ -190,16 +149,12 @@ func (n namespace) Store(old, new gossipSlice) error {
 			return err
 		}
 
-		if err = batch.Put(n.keyfor(g), b); err != nil {
+		if err = batch.Put(g.Key(), b); err != nil {
 			return err
 		}
 	}
 
 	return batch.Commit()
-}
-
-func (n namespace) keyfor(g *GossipRecord) ds.Key {
-	return n.prefix.ChildString(g.PeerID.String())
 }
 
 func randomOrder() query.OrderByFunction {
@@ -308,6 +263,25 @@ func decay(d float64, maxDecay int) func(gossipSlice) gossipSlice {
 			maxDecay--
 		}
 		return gs
+	}
+}
+
+func appendLocal(m Mint) func(gossipSlice) gossipSlice {
+	return func(gs gossipSlice) gossipSlice {
+		var (
+			g   GossipRecord
+			err error
+		)
+
+		if g.g, err = newGossip(capnp.SingleSegment(nil)); err != nil {
+			panic(err)
+		}
+
+		if g.PeerRecord, err = m.Mint(&g); err != nil {
+			panic(err)
+		}
+
+		return append(gs, &g)
 	}
 }
 

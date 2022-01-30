@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"capnproto.org/go/capnp/v3"
+	ds "github.com/ipfs/go-datastore"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/wetware/casm/internal/api/pex"
@@ -12,8 +13,7 @@ import (
 
 type GossipRecord struct {
 	g pex.Gossip
-	peer.PeerRecord
-	*record.Envelope
+	*peer.PeerRecord
 }
 
 func NewGossipRecord(env *record.Envelope) (*GossipRecord, error) {
@@ -27,12 +27,7 @@ func NewGossipRecord(env *record.Envelope) (*GossipRecord, error) {
 		return nil, errors.New("not a peer record")
 	}
 
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		return nil, err
-	}
-
-	g, err := pex.NewRootGossip(seg)
+	g, err := newGossip(capnp.SingleSegment(nil))
 	if err != nil {
 		return nil, err
 	}
@@ -46,8 +41,7 @@ func NewGossipRecord(env *record.Envelope) (*GossipRecord, error) {
 
 	return &GossipRecord{
 		g:          g,
-		PeerRecord: *rec,
-		Envelope:   env,
+		PeerRecord: rec,
 	}, err
 }
 
@@ -57,6 +51,10 @@ func (g *GossipRecord) Loggable() map[string]interface{} {
 		"hop":     g.Hop(),
 		"seq":     g.Seq,
 	}
+}
+
+func (g *GossipRecord) Key() ds.Key {
+	return ds.NewKey(g.PeerID.String())
 }
 
 func (g *GossipRecord) Hop() uint64 { return g.g.Hop() }
@@ -92,4 +90,13 @@ func (g *GossipRecord) ReadMessage(m *capnp.Message) (err error) {
 		Cause: fmt.Errorf("%w: peer id does not match public key for record",
 			record.ErrInvalidSignature),
 	}
+}
+
+func newGossip(a capnp.Arena) (g pex.Gossip, err error) {
+	var s *capnp.Segment
+	if _, s, err = capnp.NewMessage(a); err != nil {
+		g, err = pex.NewRootGossip(s)
+	}
+
+	return
 }
