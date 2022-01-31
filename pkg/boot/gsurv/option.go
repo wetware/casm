@@ -6,9 +6,11 @@ import (
 	"github.com/libp2p/go-libp2p-core/discovery"
 )
 
+type DialFunc func(net.Addr) (net.PacketConn, error)
+type ListenFunc func(net.Addr) (net.PacketConn, error)
+
 // Config supplies options to the dependency-injection framework.
 type Config struct {
-	Addr   *net.UDPAddr
 	Dial   DialFunc
 	Listen ListenFunc
 }
@@ -21,20 +23,14 @@ func (c *Config) Apply(opt []Option) {
 
 type Option func(c *Config)
 
-func WithAddr(addr *net.UDPAddr) Option {
-	if addr == nil {
-		addr, _ = net.ResolveUDPAddr("udp4", multicastAddr)
-	}
-
-	return func(c *Config) {
-		c.Addr = addr
-	}
-}
-
 func WithDial(dial DialFunc) Option {
 	if dial == nil {
-		dial = func(laddr, raddr *net.UDPAddr) (*net.UDPConn, error) {
-			return net.DialUDP("udp4", laddr, raddr)
+		dial = func(addr net.Addr) (net.PacketConn, error) {
+			udpAddr, err := net.ResolveUDPAddr(addr.Network(), addr.String())
+			if err != nil {
+				return nil, err
+			}
+			return net.ListenUDP(addr.Network(), udpAddr)
 		}
 	}
 
@@ -45,8 +41,12 @@ func WithDial(dial DialFunc) Option {
 
 func WithListen(listen ListenFunc) Option {
 	if listen == nil {
-		listen = func(laddr *net.UDPAddr) (*net.UDPConn, error) {
-			return net.ListenMulticastUDP("udp4", nil, laddr)
+		listen = func(addr net.Addr) (net.PacketConn, error) {
+			udpAddr, err := net.ResolveUDPAddr(addr.Network(), addr.String())
+			if err != nil {
+				return nil, err
+			}
+			return net.ListenMulticastUDP(addr.Network(), nil, udpAddr)
 		}
 	}
 
@@ -57,7 +57,6 @@ func WithListen(listen ListenFunc) Option {
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
-		WithAddr(nil),
 		WithDial(nil),
 		WithListen(nil),
 	}, opt...)

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	capnp "capnproto.org/go/capnp/v3"
@@ -15,80 +17,104 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
-	cpMudp "github.com/wetware/casm/internal/api/mudp"
+	cpGSurv "github.com/wetware/casm/internal/api/gsurv"
 )
 
 const (
-	multicastAddr = "224.0.1.241:3037"
-
 	discLimit = 10
 	discTTL   = time.Minute
 	discDist  = uint8(255)
 
-	timeout = 5 * time.Second
+	timeout         = 5 * time.Second
+	maxDatagramSize = 8192
 )
 
-type Mudp struct {
+type GSurv struct {
 	h             host.Host
-	mc            *multicaster
 	mustFind      map[string]chan peer.AddrInfo
 	mustAdvertise map[string]chan time.Duration
 	mu            sync.Mutex
+
+	c   comm
+	err atomic.Value
 }
 
-func NewMudp(h host.Host, opt ...Option) (mudp *Mudp, err error) {
+func NewGSurv(h host.Host, addr net.Addr, opt ...Option) (gsurv *GSurv, err error) {
 	config := Config{}
 	config.Apply(opt)
 
-	mc, err := NewMulticaster(config.Addr, config.Dial, config.Listen)
+	lconn, err := config.Listen(addr)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	mudp = &Mudp{h: h, mc: mc, mustFind: make(map[string]chan peer.AddrInfo),
-		mustAdvertise: make(map[string]chan time.Duration)}
-	ready := make(chan bool)
-	go mc.Listen(ready, mudp.multicastHandler)
-	<-ready
+	dconn, err := config.Dial(addr)
+	if err != nil {
+		lconn.Close()
+		return nil, err
+	}
 
-	return mudp, nil
+	c := comm{addr: addr, lconn: lconn, dconn: dconn, cherr: make(chan error)}
+
+	gsurv = &GSurv{h: h, mustFind: make(map[string]chan peer.AddrInfo),
+		mustAdvertise: make(map[string]chan time.Duration), c: c}
+
+	go c.Listen(gsurv.multicastHandler)
+
+	go func() {
+		for {
+			err := <-c.cherr
+			if err != nil {
+				gsurv.err.Store(err)
+			} else {
+				gsurv.err.Store(fmt.Errorf("closed"))
+			}
+			lconn.Close()
+			dconn.Close()
+			return
+		}
+	}()
+
+	return gsurv, nil
 }
 
-func (mudp *Mudp) Close() {
-	mudp.mc.Close()
+func (gsurv *GSurv) Close() {
+	gsurv.c.Close()
+	for gsurv.err.Load() == nil {
+	}
 }
 
-func (mudp *Mudp) multicastHandler(n int, src net.Addr, buffer []byte) {
+func (gsurv *GSurv) multicastHandler(n int, src net.Addr, buffer []byte) {
 	msg, err := capnp.UnmarshalPacked(buffer[:n])
 	if err != nil {
 		return
 	}
 
-	root, err := cpMudp.ReadRootMudpPacket(msg)
+	root, err := cpGSurv.ReadRootGSurvPacket(msg)
 	if err != nil {
 		return
 	}
 
 	switch root.Which() {
-	case cpMudp.MudpPacket_Which_request:
+	case cpGSurv.GSurvPacket_Which_request:
 		request, err := root.Request()
 		if err != nil {
 			return
 		}
-		mudp.handleMudpRequest(request)
-	case cpMudp.MudpPacket_Which_response:
+		gsurv.handleMudpRequest(request)
+	case cpGSurv.GSurvPacket_Which_response:
 		response, err := root.Response()
 		if err != nil {
 			return
 		}
-		mudp.handleMudpResponse(response)
+		gsurv.handleMudpResponse(response)
 	default:
 	}
 }
 
-func (mudp *Mudp) handleMudpRequest(request cpMudp.MudpRequest) {
-	mudp.mu.Lock()
-	defer mudp.mu.Unlock()
+func (gsurv *GSurv) handleMudpRequest(request cpGSurv.GSurvRequest) {
+	gsurv.mu.Lock()
+	defer gsurv.mu.Unlock()
 
 	// validate requester
 	envelope, err := request.Src()
@@ -100,7 +126,7 @@ func (mudp *Mudp) handleMudpRequest(request cpMudp.MudpRequest) {
 	if _, err = record.ConsumeTypedEnvelope(envelope, &rec); err != nil {
 		return
 	}
-	if rec.PeerID == mudp.h.ID() {
+	if rec.PeerID == gsurv.h.ID() {
 		return // request comes from itself
 	}
 
@@ -109,7 +135,7 @@ func (mudp *Mudp) handleMudpRequest(request cpMudp.MudpRequest) {
 		return
 	}
 
-	if dist([]byte(mudp.h.ID()), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
+	if dist([]byte(gsurv.h.ID()), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
 		return
 	}
 
@@ -118,23 +144,23 @@ func (mudp *Mudp) handleMudpRequest(request cpMudp.MudpRequest) {
 		return
 	}
 
-	if _, ok := mudp.mustAdvertise[ns]; !ok {
+	if _, ok := gsurv.mustAdvertise[ns]; !ok {
 		return
 	}
 
-	response, err := mudp.buildResponse(ns)
+	response, err := gsurv.buildResponse(ns)
 	if err == nil {
-		go mudp.mc.Multicast(response)
+		go gsurv.c.Send(response)
 	}
 }
 
-func (mudp *Mudp) buildResponse(ns string) ([]byte, error) {
+func (gsurv *GSurv) buildResponse(ns string) ([]byte, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(err)
 	}
 
-	root, err := cpMudp.NewRootMudpPacket(seg)
+	root, err := cpGSurv.NewRootGSurvPacket(seg)
 	if err != nil {
 		panic(err)
 	}
@@ -145,8 +171,8 @@ func (mudp *Mudp) buildResponse(ns string) ([]byte, error) {
 
 	response.SetNamespace(ns)
 
-	if cab, ok := peerstore.GetCertifiedAddrBook(mudp.h.Peerstore()); ok {
-		env := cab.GetPeerRecord(mudp.h.ID())
+	if cab, ok := peerstore.GetCertifiedAddrBook(gsurv.h.Peerstore()); ok {
+		env := cab.GetPeerRecord(gsurv.h.ID())
 		rec, err := env.Marshal()
 		if err != nil {
 			return nil, err
@@ -156,7 +182,7 @@ func (mudp *Mudp) buildResponse(ns string) ([]byte, error) {
 	return root.Message().MarshalPacked()
 }
 
-func (mudp *Mudp) handleMudpResponse(response cpMudp.MudpResponse) {
+func (gsurv *GSurv) handleMudpResponse(response cpGSurv.GSurvResponse) {
 	var (
 		finder chan peer.AddrInfo
 		rec    peer.PeerRecord
@@ -164,15 +190,15 @@ func (mudp *Mudp) handleMudpResponse(response cpMudp.MudpResponse) {
 		ok     bool
 	)
 
-	mudp.mu.Lock()
-	defer mudp.mu.Unlock()
+	gsurv.mu.Lock()
+	defer gsurv.mu.Unlock()
 
 	ns, err := response.Namespace()
 	if err != nil {
 		return
 	}
 
-	if finder, ok = mudp.mustFind[ns]; !ok {
+	if finder, ok = gsurv.mustFind[ns]; !ok {
 		return
 	}
 
@@ -191,26 +217,26 @@ func (mudp *Mudp) handleMudpResponse(response cpMudp.MudpResponse) {
 	}
 }
 
-func (mudp *Mudp) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	mudp.mu.Lock()
-	defer mudp.mu.Unlock()
+func (gsurv *GSurv) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+	gsurv.mu.Lock()
+	defer gsurv.mu.Unlock()
 
-	opts, err := mudp.options(ns, opt)
+	opts, err := gsurv.options(ns, opt)
 	if err != nil {
 		return 0, err
 	}
 
-	if ttlChan, ok := mudp.mustAdvertise[ns]; ok {
+	if ttlChan, ok := gsurv.mustAdvertise[ns]; ok {
 		ttlChan <- opts.Ttl
 	} else {
 		resetTtl := make(chan time.Duration)
-		mudp.mustAdvertise[ns] = resetTtl
-		go mudp.trackAdvertise(ns, resetTtl, opts.Ttl)
+		gsurv.mustAdvertise[ns] = resetTtl
+		go gsurv.trackAdvertise(ns, resetTtl, opts.Ttl)
 	}
 	return opts.Ttl, nil
 }
 
-func (mudp *Mudp) options(ns string, opt []discovery.Option) (opts *discovery.Options, err error) {
+func (gsurv *GSurv) options(ns string, opt []discovery.Option) (opts *discovery.Options, err error) {
 	opts = &discovery.Options{}
 	if err = opts.Apply(opt...); err == nil && opts.Ttl == 0 {
 		opts.Ttl = discTTL
@@ -219,22 +245,22 @@ func (mudp *Mudp) options(ns string, opt []discovery.Option) (opts *discovery.Op
 	return
 }
 
-func (mudp *Mudp) trackAdvertise(ns string, resetTtl chan time.Duration, ttl time.Duration) {
+func (gsurv *GSurv) trackAdvertise(ns string, resetTtl chan time.Duration, ttl time.Duration) {
 	timer := time.NewTimer(ttl)
 	defer timer.Stop()
 	for {
 		select {
 		case <-timer.C:
-			mudp.mu.Lock()
+			gsurv.mu.Lock()
 
 			select { // check again TTL after acquiring lock
 			case ttl := <-resetTtl:
 				timer.Reset(ttl)
-				mudp.mu.Unlock()
+				gsurv.mu.Unlock()
 			default:
 				close(resetTtl)
-				delete(mudp.mustAdvertise, ns)
-				mudp.mu.Unlock()
+				delete(gsurv.mustAdvertise, ns)
+				gsurv.mu.Unlock()
 				return
 			}
 		case ttl := <-resetTtl:
@@ -243,9 +269,9 @@ func (mudp *Mudp) trackAdvertise(ns string, resetTtl chan time.Duration, ttl tim
 	}
 }
 
-func (mudp *Mudp) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	mudp.mu.Lock()
-	defer mudp.mu.Unlock()
+func (gsurv *GSurv) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	gsurv.mu.Lock()
+	defer gsurv.mu.Unlock()
 
 	var (
 		opts *discovery.Options
@@ -253,7 +279,7 @@ func (mudp *Mudp) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		err  error
 	)
 
-	opts, err = mudp.options(ns, opt)
+	opts, err = gsurv.options(ns, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -267,42 +293,42 @@ func (mudp *Mudp) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		dist = discDist
 	}
 
-	request, err := mudp.buildRequest(ns, dist)
+	request, err := gsurv.buildRequest(ns, dist)
 	if err != nil {
 		return nil, err
 	}
 
 	finder := make(chan peer.AddrInfo, opts.Limit)
-	mudp.mustFind[ns] = finder
+	gsurv.mustFind[ns] = finder
 
-	go mudp.mc.Multicast(request)
-	go mudp.closeFindPeers(ns, opts.Ttl)
+	go gsurv.c.Send(request)
+	go gsurv.closeFindPeers(ns, opts.Ttl)
 
 	return finder, nil
 }
 
-func (mudp *Mudp) closeFindPeers(ns string, ttl time.Duration) {
+func (gsurv *GSurv) closeFindPeers(ns string, ttl time.Duration) {
 	timer := time.NewTimer(ttl)
 	defer timer.Stop()
 
 	<-timer.C
 
-	mudp.mu.Lock()
-	defer mudp.mu.Unlock()
+	gsurv.mu.Lock()
+	defer gsurv.mu.Unlock()
 
-	if finder, ok := mudp.mustFind[ns]; ok {
+	if finder, ok := gsurv.mustFind[ns]; ok {
 		close(finder)
-		delete(mudp.mustFind, ns)
+		delete(gsurv.mustFind, ns)
 	}
 }
 
-func (mudp *Mudp) buildRequest(ns string, dist uint8) ([]byte, error) {
+func (gsurv *GSurv) buildRequest(ns string, dist uint8) ([]byte, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(err)
 	}
 
-	root, err := cpMudp.NewRootMudpPacket(seg)
+	root, err := cpGSurv.NewRootGSurvPacket(seg)
 	if err != nil {
 		panic(err)
 	}
@@ -313,8 +339,8 @@ func (mudp *Mudp) buildRequest(ns string, dist uint8) ([]byte, error) {
 
 	request.SetNamespace(ns)
 	request.SetDistance(dist)
-	if cab, ok := peerstore.GetCertifiedAddrBook(mudp.h.Peerstore()); ok {
-		env := cab.GetPeerRecord(mudp.h.ID())
+	if cab, ok := peerstore.GetCertifiedAddrBook(gsurv.h.Peerstore()); ok {
+		env := cab.GetPeerRecord(gsurv.h.ID())
 		rec, err := env.Marshal()
 		if err != nil {
 			return nil, err

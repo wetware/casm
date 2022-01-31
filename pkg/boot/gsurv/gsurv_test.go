@@ -2,6 +2,7 @@ package mudp
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
@@ -14,22 +15,11 @@ import (
 )
 
 const (
-	testNs       = "casm/mudp"
-	advertiseTTL = time.Minute
-	findPeersTTL = 10 * time.Millisecond
+	testNs        = "casm/dsurv"
+	advertiseTTL  = time.Minute
+	findPeersTTL  = 10 * time.Millisecond
+	multicastAddr = "224.0.1.241:3037"
 )
-
-type MockDisc struct {
-	h host.Host
-}
-
-func (md *MockDisc) FindPeers(ctx context.Context, ns string, opts ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	finder := make(chan peer.AddrInfo, 1)
-	finder <- peer.AddrInfo{ID: md.h.ID(), Addrs: md.h.Addrs()}
-	close(finder)
-	return finder, nil
-
-}
 
 func TestDiscover(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -43,11 +33,13 @@ func TestDiscover(t *testing.T) {
 	waitReady(h1)
 	waitReady(h2)
 
-	a1, err := NewMudp(h1)
+	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
+
+	a1, err := NewGSurv(h1, addr)
 	require.NoError(t, err)
 	defer a1.Close()
 
-	a2, err := NewMudp(h2)
+	a2, err := NewGSurv(h2, addr)
 	require.NoError(t, err)
 	defer a2.Close()
 
@@ -80,11 +72,13 @@ func TestDiscoverNone(t *testing.T) {
 	waitReady(h1)
 	waitReady(h2)
 
-	a1, err := NewMudp(h1)
+	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
+
+	a1, err := NewGSurv(h1, addr)
 	require.NoError(t, err)
 	defer a1.Close()
 
-	a2, err := NewMudp(h2)
+	a2, err := NewGSurv(h2, addr)
 	require.NoError(t, err)
 	defer a2.Close()
 
