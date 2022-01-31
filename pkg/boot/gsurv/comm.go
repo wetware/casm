@@ -1,4 +1,4 @@
-package mudp
+package gsurv
 
 import (
 	"net"
