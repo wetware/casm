@@ -79,8 +79,10 @@ func NewGSurv(h host.Host, addr net.Addr, opt ...Option) (gsurv *GSurv, err erro
 }
 
 func (gsurv *GSurv) Close() {
-	gsurv.c.Close()
-	for gsurv.err.Load() == nil {
+	if err := gsurv.err.Load(); err == nil {
+		gsurv.c.Close()
+		for gsurv.err.Load() == nil {
+		}
 	}
 }
 

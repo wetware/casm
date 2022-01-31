@@ -113,7 +113,6 @@ func TestClose(t *testing.T) {
 	require.NoError(t, err)
 
 	a1.Close()
-	println("Closed")
 
 	_, err = a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
 	require.Error(t, err, "closed")
