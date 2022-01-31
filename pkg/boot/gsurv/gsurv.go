@@ -218,6 +218,10 @@ func (gsurv *GSurv) handleMudpResponse(response cpGSurv.GSurvResponse) {
 }
 
 func (gsurv *GSurv) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+	if err := gsurv.err.Load(); err != nil {
+		return 0, err.(error)
+	}
+
 	gsurv.mu.Lock()
 	defer gsurv.mu.Unlock()
 
@@ -270,6 +274,10 @@ func (gsurv *GSurv) trackAdvertise(ns string, resetTtl chan time.Duration, ttl t
 }
 
 func (gsurv *GSurv) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	if err := gsurv.err.Load(); err != nil {
+		return nil, err.(error)
+	}
+
 	gsurv.mu.Lock()
 	defer gsurv.mu.Unlock()
 
@@ -302,24 +310,9 @@ func (gsurv *GSurv) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 	gsurv.mustFind[ns] = finder
 
 	go gsurv.c.Send(request)
-	go gsurv.closeFindPeers(ns, opts.Ttl)
+	go gsurv.trackFindPeers(ns, opts.Ttl)
 
 	return finder, nil
-}
-
-func (gsurv *GSurv) closeFindPeers(ns string, ttl time.Duration) {
-	timer := time.NewTimer(ttl)
-	defer timer.Stop()
-
-	<-timer.C
-
-	gsurv.mu.Lock()
-	defer gsurv.mu.Unlock()
-
-	if finder, ok := gsurv.mustFind[ns]; ok {
-		close(finder)
-		delete(gsurv.mustFind, ns)
-	}
 }
 
 func (gsurv *GSurv) buildRequest(ns string, dist uint8) ([]byte, error) {
@@ -350,6 +343,21 @@ func (gsurv *GSurv) buildRequest(ns string, dist uint8) ([]byte, error) {
 		return nil, errors.New("unable to get certified address book from libp2p host")
 	}
 	return root.Message().MarshalPacked()
+}
+
+func (gsurv *GSurv) trackFindPeers(ns string, ttl time.Duration) {
+	timer := time.NewTimer(ttl)
+	defer timer.Stop()
+
+	<-timer.C
+
+	gsurv.mu.Lock()
+	defer gsurv.mu.Unlock()
+
+	if finder, ok := gsurv.mustFind[ns]; ok {
+		close(finder)
+		delete(gsurv.mustFind, ns)
+	}
 }
 
 func dist(id1, id2 []byte) uint32 {

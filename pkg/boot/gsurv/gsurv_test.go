@@ -95,6 +95,30 @@ func TestDiscoverNone(t *testing.T) {
 	require.Len(t, infos, 0)
 }
 
+func TestClose(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sim := mx.New(ctx)
+	h1 := sim.MustHost(ctx)
+	defer h1.Close()
+	waitReady(h1)
+
+	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
+
+	a1, err := NewGSurv(h1, addr)
+	require.NoError(t, err)
+
+	_, err = a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+	require.NoError(t, err)
+
+	a1.Close()
+	println("Closed")
+
+	_, err = a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+	require.Error(t, err, "closed")
+}
+
 func waitReady(h host.Host) {
 	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
 	if err != nil {

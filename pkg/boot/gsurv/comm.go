@@ -50,5 +50,8 @@ func (c *comm) Send(b []byte) {
 }
 
 func (c *comm) Close() {
-	c.cherr <- nil
+	select {
+	case c.cherr <- nil:
+	default:
+	}
 }
