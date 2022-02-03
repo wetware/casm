@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	testNs        = "casm/dsurv"
+	testNs        = "casm/survey"
 	advertiseTTL  = time.Minute
 	findPeersTTL  = 10 * time.Millisecond
 	multicastAddr = "224.0.1.241:3037"

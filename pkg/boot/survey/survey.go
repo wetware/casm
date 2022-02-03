@@ -103,18 +103,18 @@ func (surv *Survey) multicastHandler(n int, src net.Addr, buffer []byte) {
 		if err != nil {
 			return
 		}
-		surv.handleMudpRequest(request)
+		surv.handleRequest(request)
 	case cpSurvey.SurveyPacket_Which_response:
 		response, err := root.Response()
 		if err != nil {
 			return
 		}
-		surv.handleMudpResponse(response)
+		surv.handleResponse(response)
 	default:
 	}
 }
 
-func (surv *Survey) handleMudpRequest(request cpSurvey.SurveyRequest) {
+func (surv *Survey) handleRequest(request cpSurvey.SurveyRequest) {
 	surv.mu.Lock()
 	defer surv.mu.Unlock()
 
@@ -179,7 +179,7 @@ func (surv *Survey) buildResponse(ns string) ([]byte, error) {
 	return root.Message().MarshalPacked()
 }
 
-func (surv *Survey) handleMudpResponse(response cpSurvey.SurveyResponse) {
+func (surv *Survey) handleResponse(response cpSurvey.SurveyResponse) {
 	var (
 		finder chan peer.AddrInfo
 		rec    peer.PeerRecord
