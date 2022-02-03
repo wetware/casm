@@ -1,4 +1,4 @@
-package gsurv
+package survey
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
-	cpGSurv "github.com/wetware/casm/internal/api/gsurv"
+	cpSurvey "github.com/wetware/casm/internal/api/survey"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 	maxDatagramSize = 8192
 )
 
-type GSurv struct {
+type Survey struct {
 	h             host.Host
 	mustFind      map[string]chan peer.AddrInfo
 	mustAdvertise map[string]chan time.Duration
@@ -39,7 +39,7 @@ type GSurv struct {
 	err atomic.Value
 }
 
-func NewGSurv(h host.Host, addr net.Addr, opt ...Option) (gsurv *GSurv, err error) {
+func NewSurvey(h host.Host, addr net.Addr, opt ...Option) (surv *Survey, err error) {
 	config := Config{}
 	config.Apply(opt)
 
@@ -56,18 +56,18 @@ func NewGSurv(h host.Host, addr net.Addr, opt ...Option) (gsurv *GSurv, err erro
 
 	c := comm{addr: addr, lconn: lconn, dconn: dconn, cherr: make(chan error)}
 
-	gsurv = &GSurv{h: h, mustFind: make(map[string]chan peer.AddrInfo),
+	surv = &Survey{h: h, mustFind: make(map[string]chan peer.AddrInfo),
 		mustAdvertise: make(map[string]chan time.Duration), c: c}
 
-	go c.Listen(gsurv.multicastHandler)
+	go c.Listen(surv.multicastHandler)
 
 	go func() {
 		for {
 			err := <-c.cherr
 			if err != nil {
-				gsurv.err.Store(err)
+				surv.err.Store(err)
 			} else {
-				gsurv.err.Store(fmt.Errorf("closed"))
+				surv.err.Store(fmt.Errorf("closed"))
 			}
 			lconn.Close()
 			dconn.Close()
@@ -75,48 +75,48 @@ func NewGSurv(h host.Host, addr net.Addr, opt ...Option) (gsurv *GSurv, err erro
 		}
 	}()
 
-	return gsurv, nil
+	return surv, nil
 }
 
-func (gsurv *GSurv) Close() {
-	if err := gsurv.err.Load(); err == nil {
-		gsurv.c.Close()
-		for gsurv.err.Load() == nil {
+func (surv *Survey) Close() {
+	if err := surv.err.Load(); err == nil {
+		surv.c.Close()
+		for surv.err.Load() == nil {
 		}
 	}
 }
 
-func (gsurv *GSurv) multicastHandler(n int, src net.Addr, buffer []byte) {
+func (surv *Survey) multicastHandler(n int, src net.Addr, buffer []byte) {
 	msg, err := capnp.UnmarshalPacked(buffer[:n])
 	if err != nil {
 		return
 	}
 
-	root, err := cpGSurv.ReadRootGSurvPacket(msg)
+	root, err := cpSurvey.ReadRootSurveyPacket(msg)
 	if err != nil {
 		return
 	}
 
 	switch root.Which() {
-	case cpGSurv.GSurvPacket_Which_request:
+	case cpSurvey.SurveyPacket_Which_request:
 		request, err := root.Request()
 		if err != nil {
 			return
 		}
-		gsurv.handleMudpRequest(request)
-	case cpGSurv.GSurvPacket_Which_response:
+		surv.handleMudpRequest(request)
+	case cpSurvey.SurveyPacket_Which_response:
 		response, err := root.Response()
 		if err != nil {
 			return
 		}
-		gsurv.handleMudpResponse(response)
+		surv.handleMudpResponse(response)
 	default:
 	}
 }
 
-func (gsurv *GSurv) handleMudpRequest(request cpGSurv.GSurvRequest) {
-	gsurv.mu.Lock()
-	defer gsurv.mu.Unlock()
+func (surv *Survey) handleMudpRequest(request cpSurvey.SurveyRequest) {
+	surv.mu.Lock()
+	defer surv.mu.Unlock()
 
 	// validate requester
 	envelope, err := request.Src()
@@ -128,16 +128,11 @@ func (gsurv *GSurv) handleMudpRequest(request cpGSurv.GSurvRequest) {
 	if _, err = record.ConsumeTypedEnvelope(envelope, &rec); err != nil {
 		return
 	}
-	if rec.PeerID == gsurv.h.ID() {
+	if rec.PeerID == surv.h.ID() {
 		return // request comes from itself
 	}
 
-	// check distance
-	if err != nil {
-		return
-	}
-
-	if dist([]byte(gsurv.h.ID()), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
+	if dist([]byte(surv.h.ID()), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
 		return
 	}
 
@@ -146,23 +141,23 @@ func (gsurv *GSurv) handleMudpRequest(request cpGSurv.GSurvRequest) {
 		return
 	}
 
-	if _, ok := gsurv.mustAdvertise[ns]; !ok {
+	if _, ok := surv.mustAdvertise[ns]; !ok {
 		return
 	}
 
-	response, err := gsurv.buildResponse(ns)
+	response, err := surv.buildResponse(ns)
 	if err == nil {
-		go gsurv.c.Send(response)
+		go surv.c.Send(response)
 	}
 }
 
-func (gsurv *GSurv) buildResponse(ns string) ([]byte, error) {
+func (surv *Survey) buildResponse(ns string) ([]byte, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(err)
 	}
 
-	root, err := cpGSurv.NewRootGSurvPacket(seg)
+	root, err := cpSurvey.NewRootSurveyPacket(seg)
 	if err != nil {
 		panic(err)
 	}
@@ -173,8 +168,8 @@ func (gsurv *GSurv) buildResponse(ns string) ([]byte, error) {
 
 	response.SetNamespace(ns)
 
-	if cab, ok := peerstore.GetCertifiedAddrBook(gsurv.h.Peerstore()); ok {
-		env := cab.GetPeerRecord(gsurv.h.ID())
+	if cab, ok := peerstore.GetCertifiedAddrBook(surv.h.Peerstore()); ok {
+		env := cab.GetPeerRecord(surv.h.ID())
 		rec, err := env.Marshal()
 		if err != nil {
 			return nil, err
@@ -184,7 +179,7 @@ func (gsurv *GSurv) buildResponse(ns string) ([]byte, error) {
 	return root.Message().MarshalPacked()
 }
 
-func (gsurv *GSurv) handleMudpResponse(response cpGSurv.GSurvResponse) {
+func (surv *Survey) handleMudpResponse(response cpSurvey.SurveyResponse) {
 	var (
 		finder chan peer.AddrInfo
 		rec    peer.PeerRecord
@@ -192,15 +187,15 @@ func (gsurv *GSurv) handleMudpResponse(response cpGSurv.GSurvResponse) {
 		ok     bool
 	)
 
-	gsurv.mu.Lock()
-	defer gsurv.mu.Unlock()
+	surv.mu.Lock()
+	defer surv.mu.Unlock()
 
 	ns, err := response.Namespace()
 	if err != nil {
 		return
 	}
 
-	if finder, ok = gsurv.mustFind[ns]; !ok {
+	if finder, ok = surv.mustFind[ns]; !ok {
 		return
 	}
 
@@ -219,30 +214,30 @@ func (gsurv *GSurv) handleMudpResponse(response cpGSurv.GSurvResponse) {
 	}
 }
 
-func (gsurv *GSurv) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	if err := gsurv.err.Load(); err != nil {
+func (surv *Survey) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+	if err := surv.err.Load(); err != nil {
 		return 0, err.(error)
 	}
 
-	gsurv.mu.Lock()
-	defer gsurv.mu.Unlock()
+	surv.mu.Lock()
+	defer surv.mu.Unlock()
 
-	opts, err := gsurv.options(ns, opt)
+	opts, err := surv.options(ns, opt)
 	if err != nil {
 		return 0, err
 	}
 
-	if ttlChan, ok := gsurv.mustAdvertise[ns]; ok {
+	if ttlChan, ok := surv.mustAdvertise[ns]; ok {
 		ttlChan <- opts.Ttl
 	} else {
 		resetTtl := make(chan time.Duration)
-		gsurv.mustAdvertise[ns] = resetTtl
-		go gsurv.trackAdvertise(ns, resetTtl, opts.Ttl)
+		surv.mustAdvertise[ns] = resetTtl
+		go surv.trackAdvertise(ns, resetTtl, opts.Ttl)
 	}
 	return opts.Ttl, nil
 }
 
-func (gsurv *GSurv) options(ns string, opt []discovery.Option) (opts *discovery.Options, err error) {
+func (surv *Survey) options(ns string, opt []discovery.Option) (opts *discovery.Options, err error) {
 	opts = &discovery.Options{}
 	if err = opts.Apply(opt...); err == nil && opts.Ttl == 0 {
 		opts.Ttl = discTTL
@@ -251,22 +246,22 @@ func (gsurv *GSurv) options(ns string, opt []discovery.Option) (opts *discovery.
 	return
 }
 
-func (gsurv *GSurv) trackAdvertise(ns string, resetTtl chan time.Duration, ttl time.Duration) {
+func (surv *Survey) trackAdvertise(ns string, resetTtl chan time.Duration, ttl time.Duration) {
 	timer := time.NewTimer(ttl)
 	defer timer.Stop()
 	for {
 		select {
 		case <-timer.C:
-			gsurv.mu.Lock()
+			surv.mu.Lock()
 
 			select { // check again TTL after acquiring lock
 			case ttl := <-resetTtl:
 				timer.Reset(ttl)
-				gsurv.mu.Unlock()
+				surv.mu.Unlock()
 			default:
 				close(resetTtl)
-				delete(gsurv.mustAdvertise, ns)
-				gsurv.mu.Unlock()
+				delete(surv.mustAdvertise, ns)
+				surv.mu.Unlock()
 				return
 			}
 		case ttl := <-resetTtl:
@@ -275,13 +270,13 @@ func (gsurv *GSurv) trackAdvertise(ns string, resetTtl chan time.Duration, ttl t
 	}
 }
 
-func (gsurv *GSurv) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	if err := gsurv.err.Load(); err != nil {
+func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	if err := surv.err.Load(); err != nil {
 		return nil, err.(error)
 	}
 
-	gsurv.mu.Lock()
-	defer gsurv.mu.Unlock()
+	surv.mu.Lock()
+	defer surv.mu.Unlock()
 
 	var (
 		opts *discovery.Options
@@ -289,7 +284,7 @@ func (gsurv *GSurv) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 		err  error
 	)
 
-	opts, err = gsurv.options(ns, opt)
+	opts, err = surv.options(ns, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -303,27 +298,27 @@ func (gsurv *GSurv) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 		dist = discDist
 	}
 
-	request, err := gsurv.buildRequest(ns, dist)
+	request, err := surv.buildRequest(ns, dist)
 	if err != nil {
 		return nil, err
 	}
 
 	finder := make(chan peer.AddrInfo, opts.Limit)
-	gsurv.mustFind[ns] = finder
+	surv.mustFind[ns] = finder
 
-	go gsurv.c.Send(request)
-	go gsurv.trackFindPeers(ns, opts.Ttl)
+	go surv.c.Send(request)
+	go surv.trackFindPeers(ns, opts.Ttl)
 
 	return finder, nil
 }
 
-func (gsurv *GSurv) buildRequest(ns string, dist uint8) ([]byte, error) {
+func (surv *Survey) buildRequest(ns string, dist uint8) ([]byte, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(err)
 	}
 
-	root, err := cpGSurv.NewRootGSurvPacket(seg)
+	root, err := cpSurvey.NewRootSurveyPacket(seg)
 	if err != nil {
 		panic(err)
 	}
@@ -334,8 +329,8 @@ func (gsurv *GSurv) buildRequest(ns string, dist uint8) ([]byte, error) {
 
 	request.SetNamespace(ns)
 	request.SetDistance(dist)
-	if cab, ok := peerstore.GetCertifiedAddrBook(gsurv.h.Peerstore()); ok {
-		env := cab.GetPeerRecord(gsurv.h.ID())
+	if cab, ok := peerstore.GetCertifiedAddrBook(surv.h.Peerstore()); ok {
+		env := cab.GetPeerRecord(surv.h.ID())
 		rec, err := env.Marshal()
 		if err != nil {
 			return nil, err
@@ -347,18 +342,18 @@ func (gsurv *GSurv) buildRequest(ns string, dist uint8) ([]byte, error) {
 	return root.Message().MarshalPacked()
 }
 
-func (gsurv *GSurv) trackFindPeers(ns string, ttl time.Duration) {
+func (surv *Survey) trackFindPeers(ns string, ttl time.Duration) {
 	timer := time.NewTimer(ttl)
 	defer timer.Stop()
 
 	<-timer.C
 
-	gsurv.mu.Lock()
-	defer gsurv.mu.Unlock()
+	surv.mu.Lock()
+	defer surv.mu.Unlock()
 
-	if finder, ok := gsurv.mustFind[ns]; ok {
+	if finder, ok := surv.mustFind[ns]; ok {
 		close(finder)
-		delete(gsurv.mustFind, ns)
+		delete(surv.mustFind, ns)
 	}
 }
 

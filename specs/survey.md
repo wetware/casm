@@ -1,6 +1,6 @@
-# GSurv (Gradual Surveyer)
+# Survey
 
-Gradual Surveyer is a service for discovering peers from a namespace by surveying incrementally longer distance nodes
+Survey is a service for discovering peers from a namespace by surveying incrementally longer distance nodes
 
 | Lifecycle Stage | Maturity       | Status | Latest Revision |
 |-----------------|----------------|--------|-----------------|
@@ -18,7 +18,7 @@ and spec status.
 
 ## Table of Contents
 
-- [GSurv (Gradual Surveyer)](#gsurv-gradual-surveyer)
+- [Survey](#survey)
   - [Table of Contents](#table-of-contents)
   - [Motivation](#motivation)
   - [Protocol Specification](#protocol-specification)
@@ -31,7 +31,7 @@ Currently, Libp2p offers a protocol that provides service discovery in the local
 The alternative protocol should avoid all the receivers to respond at once. Instead, an incremental (gradual) approach is desired, where based on a logical distance to the requester, the receivers decide to respond or not. In every message, the requester specifies the maximum distance at which a node that responds should be. If not enough responses are received, then, the distance is increased and a new request is multicasted. The distance is increased until enough responses are collected.
 
 ## Protocol Specification
-GSurv is a protocol for discovering peers from a namespace. It makes use of multicasting for sending discovery surveys to other peers.
+Survey is a protocol for discovering peers from a namespace. It makes use of multicasting for sending discovery surveys to other peers.
 
 ### Conventions
 
@@ -44,13 +44,13 @@ GSurv is a protocol for discovering peers from a namespace. It makes use of mult
 - **Namespace**: a logical grouping of nodes based on a string identifier called *namespace*.
 
 ### Protocol description
-GSurv is a simpe request-multiresponse protocol, that gradually surveys farther peers. The protocol is divided into three steps:
+Survey is a simpe request-multiresponse protocol, that gradually surveys farther peers. The protocol is divided into three steps:
 
 1. Node A wants to find peers in namespace N. Then, it multicasts a message as a request for information, to the nodes in the local network. The expected information is simply a list of peers that are known to be in namespace N.
 2. Node B receives A's request, and checks whether it is within the namespace N. If it is, it multicasts a message containing its peer information. If it is not part of namespace N, it simply ignores the message.
 3. Node A receives B's response and joins the namespace N through B.
 
-These steps are a high-level representation of the protocol and they ignore the _logic distance_, which is the key concept for making GSurv scalable.
+These steps are a high-level representation of the protocol and they ignore the _logic distance_, which is the key concept for making Survey scalable.
 
 In steps 1 and 2, the concept of _distance_ is used for incrementally discovering peers in namesapce N. In step 1, Node A includes a field that represents a _logic distance_, which is the maximum logical distance that responder nodes must be. Therefore, in step 2, when Node B receives the request, it first checks whether it is within the logical distance. Node B only responds to the request if it is within the distance. This way, if Node A does not receive (enough) responses, it increases the logical distance and multicasts again the request. Node A repeats step 1 increasing the logical distance until receives (enough) responses.
 
@@ -80,7 +80,7 @@ Maximum distance = 5
 ```
 
 ### API
-GSurv provides a `discovery.Discovery` Libp2p interface.
+Survey provides a `discovery.Discovery` Libp2p interface.
 
 ```go
 type Discovery interface {
@@ -90,9 +90,9 @@ type Discovery interface {
 ```
 
 ### Wire format
-GSurv encodes request and response messages using Capnproto. Capnproto si similar to Protocol Buffers but faster. Check [https://capnproto.org/](https://capnproto.org/) for understanding Capnproto encoding.
+Survey encodes request and response messages using Capnproto. Capnproto si similar to Protocol Buffers but faster. Check [https://capnproto.org/](https://capnproto.org/) for understanding Capnproto encoding.
 
-The GSurv request Capnproto format is the following:
+The Survey request Capnproto format is the following:
 
 ```
 +--------------+------------------+------------------------+
@@ -102,12 +102,12 @@ The GSurv request Capnproto format is the following:
 
 _src_ is a signed `peer.PeerRecord` that specifies who was the requester. The PeerRecord MUST be signed, this way the receiver can validate the identity of the requester. _distance_ specifies the maximum logical distance at which the responder MUST be. Lastly, the _namespace_ is the namespace from which peers wants to be found.
 
-The GSurv response Capnproto format is the following:
+The Survey response Capnproto format is the following:
 
 ```
-+-------------------+-------------------------+
++-------------------+------------------+
 | namespace (UTF-8) | envelope (bytes) |
-+-------------------+-------------------------+
++-------------------+------------------+
 ```
 
 The _namespace_ is the namespace from which peers wants to be found. _envelope_ is a signed `peer.PeerRecord`s that is from the specified namespace.

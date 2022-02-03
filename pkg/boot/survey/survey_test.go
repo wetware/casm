@@ -1,4 +1,4 @@
-package gsurv
+package survey
 
 import (
 	"context"
@@ -35,11 +35,11 @@ func TestDiscover(t *testing.T) {
 
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
-	a1, err := NewGSurv(h1, addr)
+	a1, err := NewSurvey(h1, addr)
 	require.NoError(t, err)
 	defer a1.Close()
 
-	a2, err := NewGSurv(h2, addr)
+	a2, err := NewSurvey(h2, addr)
 	require.NoError(t, err)
 	defer a2.Close()
 
@@ -74,11 +74,11 @@ func TestDiscoverNone(t *testing.T) {
 
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
-	a1, err := NewGSurv(h1, addr)
+	a1, err := NewSurvey(h1, addr)
 	require.NoError(t, err)
 	defer a1.Close()
 
-	a2, err := NewGSurv(h2, addr)
+	a2, err := NewSurvey(h2, addr)
 	require.NoError(t, err)
 	defer a2.Close()
 
@@ -106,7 +106,7 @@ func TestClose(t *testing.T) {
 
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
-	a1, err := NewGSurv(h1, addr)
+	a1, err := NewSurvey(h1, addr)
 	require.NoError(t, err)
 
 	_, err = a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))

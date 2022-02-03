@@ -1,4 +1,4 @@
-package gsurv
+package survey
 
 import (
 	"net"
