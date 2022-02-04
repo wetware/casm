@@ -83,6 +83,7 @@ func (c *comm) StartSend(ctx context.Context, conn net.PacketConn) {
 			}
 
 		case <-ctx.Done():
+			return
 		}
 	}
 
