@@ -247,7 +247,7 @@ func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 		return nil // request comes from itself
 	}
 
-	if dist([]byte(s.rec.PeerID), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
+	if s.ignore(rec.PeerID, request.Distance()) {
 		return nil // ignore
 	}
 
@@ -265,6 +265,10 @@ func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 	}
 
 	return s.c.Send(ctx, p.Message())
+}
+
+func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
+	return dist(s.rec.PeerID, id)>>uint32(d) != 0
 }
 
 func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
@@ -435,22 +439,7 @@ func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
 	return p.Message(), err
 }
 
-// func (s *Survey) trackFindPeers(ns string, ttl time.Duration) {
-// 	timer := time.NewTimer(ttl)
-// 	defer timer.Stop()
-
-// 	<-timer.C
-
-// 	s.mu.Lock()
-// 	defer s.mu.Unlock()
-
-// 	if finder, ok := s.mustFind[ns]; ok {
-// 		close(finder)
-// 		delete(s.mustFind, ns)
-// 	}
-// }
-
-func dist(id1, id2 []byte) uint32 {
+func dist(id1, id2 peer.ID) uint32 {
 	xored := make([]byte, 4)
 	for i := 0; i < 4; i++ {
 		xored[i] = id1[len(id1)-i-1] ^ id2[len(id2)-i-1]
