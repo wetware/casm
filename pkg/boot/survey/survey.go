@@ -23,7 +23,6 @@ import (
 const (
 	discLimit = 10
 	discTTL   = time.Minute
-	discDist  = uint8(255)
 
 	timeout         = 5 * time.Second
 	maxDatagramSize = 8192
@@ -268,7 +267,7 @@ func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 }
 
 func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
-	return dist(s.rec.PeerID, id)>>uint32(d) != 0
+	return xor(s.rec.PeerID, id)>>uint32(d) != 0
 }
 
 func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
@@ -339,17 +338,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, err
 	}
 
-	var (
-		ok   bool
-		dist uint8
-		err  error
-	)
-
-	if dist, ok = opts.Other["distance"].(uint8); !ok {
-		dist = discDist
-	}
-
-	m, err := s.buildRequest(ns, dist)
+	m, err := s.buildRequest(ns, distance(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +428,7 @@ func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
 	return p.Message(), err
 }
 
-func dist(id1, id2 peer.ID) uint32 {
+func xor(id1, id2 peer.ID) uint32 {
 	xored := make([]byte, 4)
 	for i := 0; i < 4; i++ {
 		xored[i] = id1[len(id1)-i-1] ^ id2[len(id2)-i-1]

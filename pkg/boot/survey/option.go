@@ -35,11 +35,23 @@ func withDefaults(opt []Option) []Option {
 	discovery.Discovery options ...
 */
 
+type (
+	keyDistance struct{}
+)
+
+func distance(o discovery.Options) uint8 {
+	if d, ok := o.Other[keyDistance{}].(uint8); ok {
+		return d
+	}
+
+	return 255
+}
+
 // option for specifying distance when calling FindPeers
 func WithDistance(dist uint8) discovery.Option {
 	return func(opts *discovery.Options) error {
 		opts.Other = make(map[interface{}]interface{})
-		opts.Other["distance"] = dist
+		opts.Other[keyDistance{}] = dist
 		return nil
 	}
 }
