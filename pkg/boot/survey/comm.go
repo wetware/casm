@@ -10,6 +10,7 @@ import (
 	"github.com/lthibault/log"
 )
 
+// comm handles network communication
 type comm struct {
 	log log.Logger
 
