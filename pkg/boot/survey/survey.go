@@ -6,18 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/cstockton/go-conv"
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
-	cpSurvey "github.com/wetware/casm/internal/api/survey"
+	ctxutil "github.com/lthibault/util/ctx"
+	"github.com/wetware/casm/internal/api/survey"
 )
 
 const (
@@ -30,16 +31,21 @@ const (
 )
 
 type Survey struct {
-	h             host.Host
+	ctx    context.Context
+	cancel context.CancelFunc
+	advert chan<- advert
+
+	e   *record.Envelope
+	rec *peer.PeerRecord
+
 	mustFind      map[string]chan peer.AddrInfo
-	mustAdvertise map[string]chan time.Duration
-	mu            sync.Mutex
+	mustAdvertise map[string]time.Time
 
 	c   comm
 	err atomic.Value
 }
 
-func New(h host.Host, addr net.Addr, opt ...Option) (surv *Survey, err error) {
+func New(h host.Host, addr net.Addr, opt ...Option) (*Survey, error) {
 	config := Config{}
 	config.Apply(opt)
 
@@ -54,240 +60,245 @@ func New(h host.Host, addr net.Addr, opt ...Option) (surv *Survey, err error) {
 		return nil, err
 	}
 
-	c := comm{addr: addr, lconn: lconn, dconn: dconn, cherr: make(chan error)}
+	var (
+		cherr = make(chan error)
+		recv  = make(chan *capnp.Message, 8)
+		send  = make(chan *capnp.Message, 8)
+	)
 
-	surv = &Survey{h: h, mustFind: make(map[string]chan peer.AddrInfo),
-		mustAdvertise: make(map[string]chan time.Duration), c: c}
+	c := comm{
+		cherr: cherr,
+		recv:  recv,
+		send:  send,
 
-	go c.Listen(surv.multicastHandler)
+		addr:  addr,
+		dconn: dconn,
+	}
+
+	var (
+		advert = make(chan advert)
+
+		cq          = h.Network().Process().Closing()
+		ctx, cancel = context.WithCancel(ctxutil.C(cq))
+	)
+
+	surv := &Survey{
+		ctx:           ctx,
+		cancel:        cancel,
+		c:             c,
+		advert:        advert,
+		mustFind:      make(map[string]chan peer.AddrInfo),
+		mustAdvertise: make(map[string]time.Time),
+	}
+
+	go c.StartRecv(ctx, lconn)
+	go c.StartSend(ctx, dconn)
+
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		lconn.Close()
+		dconn.Close()
+		return nil, err
+	}
 
 	go func() {
+		defer cancel()
+
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		var t time.Time
+
 		for {
-			err := <-c.cherr
-			if err != nil {
+			select {
+			case ev := <-sub.Out():
+				surv.e = ev.(event.EvtLocalAddressesUpdated).SignedPeerRecord
+				r, _ := surv.e.Record()
+				surv.rec = r.(*peer.PeerRecord)
+
+			case m := <-recv:
+				if err := surv.handleMessage(ctx, m); err != nil {
+					// TODO:  log
+				}
+
+			case t = <-ticker.C:
+				for ns, deadline := range surv.mustAdvertise {
+					if t.After(deadline) {
+						delete(surv.mustAdvertise, ns)
+					}
+				}
+
+			case ad := <-advert:
+				surv.mustAdvertise[ad.NS] = t.Add(ad.TTL)
+
+			case err := <-cherr:
+				if err == nil {
+					err = errors.New("closed")
+				}
+
 				surv.err.Store(err)
-			} else {
-				surv.err.Store(fmt.Errorf("closed"))
+				return
+
+			case <-ctx.Done():
+				surv.err.Store(errors.New("host closed"))
 			}
-			lconn.Close()
-			dconn.Close()
-			return
 		}
 	}()
 
 	return surv, nil
 }
 
-func (surv *Survey) Close() {
-	if err := surv.err.Load(); err == nil {
-		surv.c.Close()
-		for surv.err.Load() == nil {
-		}
-	}
+func (surv *Survey) Close() error {
+	defer surv.cancel()
+	err, _ := surv.err.Load().(error)
+	return err
 }
 
-func (surv *Survey) multicastHandler(n int, src net.Addr, buffer []byte) {
-	msg, err := capnp.UnmarshalPacked(buffer[:n])
+func (surv *Survey) handleMessage(ctx context.Context, m *capnp.Message) error {
+	p, err := survey.ReadRootSurveyPacket(m)
 	if err != nil {
-		return
+		return err
 	}
 
-	root, err := cpSurvey.ReadRootSurveyPacket(msg)
-	if err != nil {
-		return
+	switch p.Which() {
+	case survey.SurveyPacket_Which_request:
+		return surv.handleRequest(ctx, p)
+
+	case survey.SurveyPacket_Which_response:
+		return surv.handleResponse(ctx, p)
 	}
 
-	switch root.Which() {
-	case cpSurvey.SurveyPacket_Which_request:
-		request, err := root.Request()
-		if err != nil {
-			return
-		}
-		surv.handleRequest(request)
-	case cpSurvey.SurveyPacket_Which_response:
-		response, err := root.Response()
-		if err != nil {
-			return
-		}
-		surv.handleResponse(response)
-	default:
-	}
+	return fmt.Errorf("unrecognized packet type '%d'", p.Which())
 }
 
-func (surv *Survey) handleRequest(request cpSurvey.SurveyRequest) {
-	surv.mu.Lock()
-	defer surv.mu.Unlock()
+func (surv *Survey) handleRequest(ctx context.Context, p survey.SurveyPacket) error {
+	request, err := p.Request()
+	if err != nil {
+		return err
+	}
 
 	// validate requester
 	envelope, err := request.Src()
 	if err != nil {
-		return
+		return err
 	}
 
 	var rec peer.PeerRecord
 	if _, err = record.ConsumeTypedEnvelope(envelope, &rec); err != nil {
-		return
-	}
-	if rec.PeerID == surv.h.ID() {
-		return // request comes from itself
+		return err
 	}
 
-	if dist([]byte(surv.h.ID()), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
-		return
+	if rec.PeerID == surv.rec.PeerID {
+		return nil // request comes from itself
+	}
+
+	if dist([]byte(surv.rec.PeerID), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
+		return nil // ignore
 	}
 
 	ns, err := request.Namespace()
 	if err != nil {
-		return
+		return err
 	}
 
 	if _, ok := surv.mustAdvertise[ns]; !ok {
-		return
+		return nil // namespace not advertised
 	}
 
-	response, err := surv.buildResponse(ns)
-	if err == nil {
-		go surv.c.Send(response)
+	if err = surv.setResponse(ns, p); err != nil {
+		return err
 	}
+
+	return surv.c.Send(ctx, p.Message())
 }
 
-func (surv *Survey) buildResponse(ns string) ([]byte, error) {
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+func (surv *Survey) setResponse(ns string, p survey.SurveyPacket) error {
+	response, err := p.NewResponse()
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	root, err := cpSurvey.NewRootSurveyPacket(seg)
-	if err != nil {
-		panic(err)
-	}
-	response, err := root.NewResponse()
-	if err != nil {
-		return nil, err
+	if err = response.SetNamespace(ns); err != nil {
+		return err
 	}
 
-	response.SetNamespace(ns)
-
-	if cab, ok := peerstore.GetCertifiedAddrBook(surv.h.Peerstore()); ok {
-		env := cab.GetPeerRecord(surv.h.ID())
-		rec, err := env.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		response.SetEnvelope(rec)
+	b, err := surv.e.Marshal()
+	if err != nil {
+		return err
 	}
-	return root.Message().MarshalPacked()
+
+	return response.SetEnvelope(b)
 }
 
-func (surv *Survey) handleResponse(response cpSurvey.SurveyResponse) {
+func (surv *Survey) handleResponse(ctx context.Context, p survey.SurveyPacket) error {
+	response, err := p.Response()
+	if err != nil {
+		return err
+	}
+
 	var (
 		finder chan peer.AddrInfo
 		rec    peer.PeerRecord
-		err    error
 		ok     bool
 	)
 
-	surv.mu.Lock()
-	defer surv.mu.Unlock()
-
 	ns, err := response.Namespace()
 	if err != nil {
-		return
+		return err
 	}
 
 	if finder, ok = surv.mustFind[ns]; !ok {
-		return
+		return nil
 	}
 
 	envelope, err := response.Envelope()
 	if err != nil {
-		return
+		return err
 	}
 
 	if _, err = record.ConsumeTypedEnvelope(envelope, &rec); err != nil {
-		return
+		return err
 	}
+
 	select {
 	case finder <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
-	default:
-		return
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
 func (surv *Survey) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	if err := surv.err.Load(); err != nil {
-		return 0, err.(error)
-	}
-
-	surv.mu.Lock()
-	defer surv.mu.Unlock()
-
-	opts, err := surv.options(ns, opt)
-	if err != nil {
+	var opts = discovery.Options{Ttl: discTTL}
+	if err := opts.Apply(opt...); err != nil {
 		return 0, err
 	}
 
-	if ttlChan, ok := surv.mustAdvertise[ns]; ok {
-		ttlChan <- opts.Ttl
-	} else {
-		resetTtl := make(chan time.Duration)
-		surv.mustAdvertise[ns] = resetTtl
-		go surv.trackAdvertise(ns, resetTtl, opts.Ttl)
-	}
-	return opts.Ttl, nil
-}
+	select {
+	case surv.advert <- advert{
+		NS:  ns,
+		TTL: opts.Ttl,
+	}:
+		return opts.Ttl, nil
 
-func (surv *Survey) options(ns string, opt []discovery.Option) (opts *discovery.Options, err error) {
-	opts = &discovery.Options{}
-	if err = opts.Apply(opt...); err == nil && opts.Ttl == 0 {
-		opts.Ttl = discTTL
-	}
+	case <-ctx.Done():
+		return 0, ctx.Err()
 
-	return
-}
-
-func (surv *Survey) trackAdvertise(ns string, resetTtl chan time.Duration, ttl time.Duration) {
-	timer := time.NewTimer(ttl)
-	defer timer.Stop()
-	for {
-		select {
-		case <-timer.C:
-			surv.mu.Lock()
-
-			select { // check again TTL after acquiring lock
-			case ttl := <-resetTtl:
-				timer.Reset(ttl)
-				surv.mu.Unlock()
-			default:
-				close(resetTtl)
-				delete(surv.mustAdvertise, ns)
-				surv.mu.Unlock()
-				return
-			}
-		case ttl := <-resetTtl:
-			timer.Reset(ttl)
-		}
+	case <-surv.ctx.Done():
+		return 0, surv.ctx.Err()
 	}
 }
 
 func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	if err := surv.err.Load(); err != nil {
-		return nil, err.(error)
+	var opts discovery.Options
+	if err := opts.Apply(opt...); err != nil {
+		return nil, err
 	}
 
-	surv.mu.Lock()
-	defer surv.mu.Unlock()
-
 	var (
-		opts *discovery.Options
 		dist uint8
 		err  error
 	)
-
-	opts, err = surv.options(ns, opt)
-	if err != nil {
-		return nil, err
-	}
 
 	if b, ok := opts.Other["distance"]; ok {
 		dist, err = conv.Uint8(b)
@@ -298,7 +309,7 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 		dist = discDist
 	}
 
-	request, err := surv.buildRequest(ns, dist)
+	m, err := surv.buildRequest(ns, dist)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +317,10 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 	finder := make(chan peer.AddrInfo, opts.Limit)
 	surv.mustFind[ns] = finder
 
-	go surv.c.Send(request)
+	if err = surv.c.Send(ctx, m); err != nil {
+		return nil, err
+	}
+
 	go surv.trackFindPeers(ns, opts.Ttl)
 
 	return finder, nil
@@ -318,7 +332,7 @@ func (surv *Survey) buildRequest(ns string, dist uint8) ([]byte, error) {
 		panic(err)
 	}
 
-	root, err := cpSurvey.NewRootSurveyPacket(seg)
+	root, err := survey.NewRootSurveyPacket(seg)
 	if err != nil {
 		panic(err)
 	}
@@ -364,4 +378,9 @@ func dist(id1, id2 []byte) uint32 {
 	}
 
 	return binary.BigEndian.Uint32(xored)
+}
+
+type advert struct {
+	NS  string
+	TTL time.Duration
 }

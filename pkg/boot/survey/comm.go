@@ -1,57 +1,89 @@
 package survey
 
 import (
+	"context"
 	"net"
+
+	"capnproto.org/go/capnp/v3"
 )
 
 type comm struct {
-	addr         net.Addr
-	lconn, dconn net.PacketConn
-	cherr        chan error
+	cherr chan<- error
+	recv  chan<- *capnp.Message
+	send  <-chan *capnp.Message
+
+	addr  net.Addr
+	dconn net.PacketConn
 }
 
-func (c *comm) Listen(handle func(int, net.Addr, []byte)) {
-	var (
-		n    int
-		addr net.Addr
-		err  error
-		b    []byte
-	)
+func (c *comm) Send(ctx context.Context, m *capnp.Message) (err error) {
+	select {
+	case c.recv <- m:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+
+	return
+}
+
+func (c *comm) StartRecv(ctx context.Context, conn net.PacketConn) {
+	defer conn.Close()
+	var buf [maxDatagramSize]byte
 
 	for {
-		b = make([]byte, maxDatagramSize)
-		n, addr, err = c.lconn.ReadFrom(b)
+		n, _, err := conn.ReadFrom(buf[:])
 		if err != nil {
-			if e, ok := err.(net.Error); ok && !e.Temporary() {
-				select {
-				case c.cherr <- err:
-				default:
-				}
-				return
+			if e, ok := err.(net.Error); ok && e.Temporary() {
+				continue // TODO:  exponential backoff + logging
 			}
-		} else {
-			handle(n, addr, b)
-		}
 
-	}
-}
-
-func (c *comm) Send(b []byte) {
-	_, err := c.dconn.WriteTo(b, c.addr)
-	if err != nil {
-		if e, ok := err.(net.Error); ok && !e.Temporary() {
 			select {
 			case c.cherr <- err:
 			default:
 			}
+
+			return
+		}
+
+		m, err := capnp.UnmarshalPacked(buf[:n])
+		if err != nil {
+			continue // TODO:  log
+		}
+
+		select {
+		case c.recv <- m:
+		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func (c *comm) Close() {
-	select {
-	case c.cherr <- nil:
-	default:
+func (c *comm) StartSend(ctx context.Context, conn net.PacketConn) {
+	defer conn.Close()
+
+	for {
+		select {
+		case m := <-c.send:
+			b, err := m.MarshalPacked()
+			if err != nil {
+				panic(err)
+			}
+
+			if _, err = conn.WriteTo(b, c.addr); err != nil {
+				if e, ok := err.(net.Error); ok && e.Temporary() {
+					continue // TODO:  exponential backoff + logging
+				}
+
+				select {
+				case c.cherr <- err:
+				default:
+				}
+
+				return
+			}
+
+		case <-ctx.Done():
+		}
 	}
+
 }
