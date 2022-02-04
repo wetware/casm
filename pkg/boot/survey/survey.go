@@ -21,10 +21,7 @@ import (
 )
 
 const (
-	discLimit = 10
-	discTTL   = time.Minute
-
-	timeout         = 5 * time.Second
+	defaultTTL      = time.Minute
 	maxDatagramSize = 8192
 )
 
@@ -312,7 +309,7 @@ func (s *Surveyor) handleResponse(ctx context.Context, p survey.Packet) error {
 }
 
 func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	var opts = discovery.Options{Ttl: discTTL}
+	var opts = discovery.Options{Ttl: defaultTTL}
 	if err := opts.Apply(opt...); err != nil {
 		return 0, err
 	}
