@@ -404,12 +404,12 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	p, err := survey.NewRootPacket(seg)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	request, err := p.NewRequest()
@@ -417,7 +417,10 @@ func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
 		return nil, err
 	}
 
-	p.SetNamespace(ns)
+	if err = p.SetNamespace(ns); err != nil {
+		return nil, err
+	}
+
 	request.SetDistance(dist)
 
 	rec, err := s.e.Marshal()
