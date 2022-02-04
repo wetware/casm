@@ -4,20 +4,16 @@ $Go.package("survey");
 $Go.import("github.com/wetware/casm/internal/api/survey");
 
 
-struct SurveyRequest {
-    src @0 :Data;
-    distance @1 :UInt8;
-    namespace @2 :Text;
-}
-
-struct SurveyResponse {
+struct Packet {
     namespace @0 :Text;
-    envelope @1 :Data;
-}
 
-struct SurveyPacket {
     union {
-        request @0 :SurveyRequest;
-        response @1 :SurveyResponse;
+        request @1 :Request;
+        response @2 :Data;  # marshaled envelope
     }  
+
+    struct Request {
+        src @0 :Data;
+        distance @1 :UInt8;
+    }
 }

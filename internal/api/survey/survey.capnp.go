@@ -3,357 +3,253 @@
 package survey
 
 import (
-	strconv "strconv"
-
 	capnp "capnproto.org/go/capnp/v3"
 	text "capnproto.org/go/capnp/v3/encoding/text"
 	schemas "capnproto.org/go/capnp/v3/schemas"
+	strconv "strconv"
 )
 
-type SurveyRequest struct{ capnp.Struct }
-
-// SurveyRequest_TypeID is the unique identifier for the type SurveyRequest.
-const SurveyRequest_TypeID = 0xf0d8bcfa3bb39552
-
-func NewSurveyRequest(s *capnp.Segment) (SurveyRequest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
-	return SurveyRequest{st}, err
-}
-
-func NewRootSurveyRequest(s *capnp.Segment) (SurveyRequest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
-	return SurveyRequest{st}, err
-}
-
-func ReadRootSurveyRequest(msg *capnp.Message) (SurveyRequest, error) {
-	root, err := msg.Root()
-	return SurveyRequest{root.Struct()}, err
-}
-
-func (s SurveyRequest) String() string {
-	str, _ := text.Marshal(0xf0d8bcfa3bb39552, s.Struct)
-	return str
-}
-
-func (s SurveyRequest) Src() ([]byte, error) {
-	p, err := s.Struct.Ptr(0)
-	return []byte(p.Data()), err
-}
-
-func (s SurveyRequest) HasSrc() bool {
-	return s.Struct.HasPtr(0)
-}
-
-func (s SurveyRequest) SetSrc(v []byte) error {
-	return s.Struct.SetData(0, v)
-}
-
-func (s SurveyRequest) Distance() uint8 {
-	return s.Struct.Uint8(0)
-}
-
-func (s SurveyRequest) SetDistance(v uint8) {
-	s.Struct.SetUint8(0, v)
-}
-
-func (s SurveyRequest) Namespace() (string, error) {
-	p, err := s.Struct.Ptr(1)
-	return p.Text(), err
-}
-
-func (s SurveyRequest) HasNamespace() bool {
-	return s.Struct.HasPtr(1)
-}
-
-func (s SurveyRequest) NamespaceBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(1)
-	return p.TextBytes(), err
-}
-
-func (s SurveyRequest) SetNamespace(v string) error {
-	return s.Struct.SetText(1, v)
-}
-
-// SurveyRequest_List is a list of SurveyRequest.
-type SurveyRequest_List struct{ capnp.List }
-
-// NewSurveyRequest creates a new list of SurveyRequest.
-func NewSurveyRequest_List(s *capnp.Segment, sz int32) (SurveyRequest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
-	return SurveyRequest_List{l}, err
-}
-
-func (s SurveyRequest_List) At(i int) SurveyRequest { return SurveyRequest{s.List.Struct(i)} }
-
-func (s SurveyRequest_List) Set(i int, v SurveyRequest) error { return s.List.SetStruct(i, v.Struct) }
-
-func (s SurveyRequest_List) String() string {
-	str, _ := text.MarshalList(0xf0d8bcfa3bb39552, s.List)
-	return str
-}
-
-// SurveyRequest_Future is a wrapper for a SurveyRequest promised by a client call.
-type SurveyRequest_Future struct{ *capnp.Future }
-
-func (p SurveyRequest_Future) Struct() (SurveyRequest, error) {
-	s, err := p.Future.Struct()
-	return SurveyRequest{s}, err
-}
-
-type SurveyResponse struct{ capnp.Struct }
-
-// SurveyResponse_TypeID is the unique identifier for the type SurveyResponse.
-const SurveyResponse_TypeID = 0xab0d70fa40685466
-
-func NewSurveyResponse(s *capnp.Segment) (SurveyResponse, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return SurveyResponse{st}, err
-}
-
-func NewRootSurveyResponse(s *capnp.Segment) (SurveyResponse, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return SurveyResponse{st}, err
-}
-
-func ReadRootSurveyResponse(msg *capnp.Message) (SurveyResponse, error) {
-	root, err := msg.Root()
-	return SurveyResponse{root.Struct()}, err
-}
-
-func (s SurveyResponse) String() string {
-	str, _ := text.Marshal(0xab0d70fa40685466, s.Struct)
-	return str
-}
-
-func (s SurveyResponse) Namespace() (string, error) {
-	p, err := s.Struct.Ptr(0)
-	return p.Text(), err
-}
-
-func (s SurveyResponse) HasNamespace() bool {
-	return s.Struct.HasPtr(0)
-}
-
-func (s SurveyResponse) NamespaceBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(0)
-	return p.TextBytes(), err
-}
-
-func (s SurveyResponse) SetNamespace(v string) error {
-	return s.Struct.SetText(0, v)
-}
-
-func (s SurveyResponse) Envelope() ([]byte, error) {
-	p, err := s.Struct.Ptr(1)
-	return []byte(p.Data()), err
-}
-
-func (s SurveyResponse) HasEnvelope() bool {
-	return s.Struct.HasPtr(1)
-}
-
-func (s SurveyResponse) SetEnvelope(v []byte) error {
-	return s.Struct.SetData(1, v)
-}
-
-// SurveyResponse_List is a list of SurveyResponse.
-type SurveyResponse_List struct{ capnp.List }
-
-// NewSurveyResponse creates a new list of SurveyResponse.
-func NewSurveyResponse_List(s *capnp.Segment, sz int32) (SurveyResponse_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
-	return SurveyResponse_List{l}, err
-}
-
-func (s SurveyResponse_List) At(i int) SurveyResponse { return SurveyResponse{s.List.Struct(i)} }
-
-func (s SurveyResponse_List) Set(i int, v SurveyResponse) error { return s.List.SetStruct(i, v.Struct) }
-
-func (s SurveyResponse_List) String() string {
-	str, _ := text.MarshalList(0xab0d70fa40685466, s.List)
-	return str
-}
-
-// SurveyResponse_Future is a wrapper for a SurveyResponse promised by a client call.
-type SurveyResponse_Future struct{ *capnp.Future }
-
-func (p SurveyResponse_Future) Struct() (SurveyResponse, error) {
-	s, err := p.Future.Struct()
-	return SurveyResponse{s}, err
-}
-
-type SurveyPacket struct{ capnp.Struct }
-type SurveyPacket_Which uint16
+type Packet struct{ capnp.Struct }
+type Packet_Which uint16
 
 const (
-	SurveyPacket_Which_request  SurveyPacket_Which = 0
-	SurveyPacket_Which_response SurveyPacket_Which = 1
+	Packet_Which_request  Packet_Which = 0
+	Packet_Which_response Packet_Which = 1
 )
 
-func (w SurveyPacket_Which) String() string {
+func (w Packet_Which) String() string {
 	const s = "requestresponse"
 	switch w {
-	case SurveyPacket_Which_request:
+	case Packet_Which_request:
 		return s[0:7]
-	case SurveyPacket_Which_response:
+	case Packet_Which_response:
 		return s[7:15]
 
 	}
-	return "SurveyPacket_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
+	return "Packet_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
 }
 
-// SurveyPacket_TypeID is the unique identifier for the type SurveyPacket.
-const SurveyPacket_TypeID = 0xbb55570bc0a87435
+// Packet_TypeID is the unique identifier for the type Packet.
+const Packet_TypeID = 0xa5f0e7e131b13496
 
-func NewSurveyPacket(s *capnp.Segment) (SurveyPacket, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return SurveyPacket{st}, err
+func NewPacket(s *capnp.Segment) (Packet, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	return Packet{st}, err
 }
 
-func NewRootSurveyPacket(s *capnp.Segment) (SurveyPacket, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return SurveyPacket{st}, err
+func NewRootPacket(s *capnp.Segment) (Packet, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	return Packet{st}, err
 }
 
-func ReadRootSurveyPacket(msg *capnp.Message) (SurveyPacket, error) {
+func ReadRootPacket(msg *capnp.Message) (Packet, error) {
 	root, err := msg.Root()
-	return SurveyPacket{root.Struct()}, err
+	return Packet{root.Struct()}, err
 }
 
-func (s SurveyPacket) String() string {
-	str, _ := text.Marshal(0xbb55570bc0a87435, s.Struct)
+func (s Packet) String() string {
+	str, _ := text.Marshal(0xa5f0e7e131b13496, s.Struct)
 	return str
 }
 
-func (s SurveyPacket) Which() SurveyPacket_Which {
-	return SurveyPacket_Which(s.Struct.Uint16(0))
+func (s Packet) Which() Packet_Which {
+	return Packet_Which(s.Struct.Uint16(0))
 }
-func (s SurveyPacket) Request() (SurveyRequest, error) {
+func (s Packet) Namespace() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s Packet) HasNamespace() bool {
+	return s.Struct.HasPtr(0)
+}
+
+func (s Packet) NamespaceBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Packet) SetNamespace(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s Packet) Request() (Packet_Request, error) {
 	if s.Struct.Uint16(0) != 0 {
 		panic("Which() != request")
 	}
-	p, err := s.Struct.Ptr(0)
-	return SurveyRequest{Struct: p.Struct()}, err
+	p, err := s.Struct.Ptr(1)
+	return Packet_Request{Struct: p.Struct()}, err
 }
 
-func (s SurveyPacket) HasRequest() bool {
+func (s Packet) HasRequest() bool {
 	if s.Struct.Uint16(0) != 0 {
 		return false
 	}
-	return s.Struct.HasPtr(0)
+	return s.Struct.HasPtr(1)
 }
 
-func (s SurveyPacket) SetRequest(v SurveyRequest) error {
+func (s Packet) SetRequest(v Packet_Request) error {
 	s.Struct.SetUint16(0, 0)
-	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+	return s.Struct.SetPtr(1, v.Struct.ToPtr())
 }
 
 // NewRequest sets the request field to a newly
-// allocated SurveyRequest struct, preferring placement in s's segment.
-func (s SurveyPacket) NewRequest() (SurveyRequest, error) {
+// allocated Packet_Request struct, preferring placement in s's segment.
+func (s Packet) NewRequest() (Packet_Request, error) {
 	s.Struct.SetUint16(0, 0)
-	ss, err := NewSurveyRequest(s.Struct.Segment())
+	ss, err := NewPacket_Request(s.Struct.Segment())
 	if err != nil {
-		return SurveyRequest{}, err
+		return Packet_Request{}, err
 	}
-	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
+	err = s.Struct.SetPtr(1, ss.Struct.ToPtr())
 	return ss, err
 }
 
-func (s SurveyPacket) Response() (SurveyResponse, error) {
+func (s Packet) Response() ([]byte, error) {
 	if s.Struct.Uint16(0) != 1 {
 		panic("Which() != response")
 	}
-	p, err := s.Struct.Ptr(0)
-	return SurveyResponse{Struct: p.Struct()}, err
+	p, err := s.Struct.Ptr(1)
+	return []byte(p.Data()), err
 }
 
-func (s SurveyPacket) HasResponse() bool {
+func (s Packet) HasResponse() bool {
 	if s.Struct.Uint16(0) != 1 {
 		return false
 	}
-	return s.Struct.HasPtr(0)
+	return s.Struct.HasPtr(1)
 }
 
-func (s SurveyPacket) SetResponse(v SurveyResponse) error {
+func (s Packet) SetResponse(v []byte) error {
 	s.Struct.SetUint16(0, 1)
-	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+	return s.Struct.SetData(1, v)
 }
 
-// NewResponse sets the response field to a newly
-// allocated SurveyResponse struct, preferring placement in s's segment.
-func (s SurveyPacket) NewResponse() (SurveyResponse, error) {
-	s.Struct.SetUint16(0, 1)
-	ss, err := NewSurveyResponse(s.Struct.Segment())
-	if err != nil {
-		return SurveyResponse{}, err
-	}
-	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
-	return ss, err
+// Packet_List is a list of Packet.
+type Packet_List struct{ capnp.List }
+
+// NewPacket creates a new list of Packet.
+func NewPacket_List(s *capnp.Segment, sz int32) (Packet_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
+	return Packet_List{l}, err
 }
 
-// SurveyPacket_List is a list of SurveyPacket.
-type SurveyPacket_List struct{ capnp.List }
+func (s Packet_List) At(i int) Packet { return Packet{s.List.Struct(i)} }
 
-// NewSurveyPacket creates a new list of SurveyPacket.
-func NewSurveyPacket_List(s *capnp.Segment, sz int32) (SurveyPacket_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
-	return SurveyPacket_List{l}, err
-}
+func (s Packet_List) Set(i int, v Packet) error { return s.List.SetStruct(i, v.Struct) }
 
-func (s SurveyPacket_List) At(i int) SurveyPacket { return SurveyPacket{s.List.Struct(i)} }
-
-func (s SurveyPacket_List) Set(i int, v SurveyPacket) error { return s.List.SetStruct(i, v.Struct) }
-
-func (s SurveyPacket_List) String() string {
-	str, _ := text.MarshalList(0xbb55570bc0a87435, s.List)
+func (s Packet_List) String() string {
+	str, _ := text.MarshalList(0xa5f0e7e131b13496, s.List)
 	return str
 }
 
-// SurveyPacket_Future is a wrapper for a SurveyPacket promised by a client call.
-type SurveyPacket_Future struct{ *capnp.Future }
+// Packet_Future is a wrapper for a Packet promised by a client call.
+type Packet_Future struct{ *capnp.Future }
 
-func (p SurveyPacket_Future) Struct() (SurveyPacket, error) {
+func (p Packet_Future) Struct() (Packet, error) {
 	s, err := p.Future.Struct()
-	return SurveyPacket{s}, err
+	return Packet{s}, err
 }
 
-func (p SurveyPacket_Future) Request() SurveyRequest_Future {
-	return SurveyRequest_Future{Future: p.Future.Field(0, nil)}
+func (p Packet_Future) Request() Packet_Request_Future {
+	return Packet_Request_Future{Future: p.Future.Field(1, nil)}
 }
 
-func (p SurveyPacket_Future) Response() SurveyResponse_Future {
-	return SurveyResponse_Future{Future: p.Future.Field(0, nil)}
+type Packet_Request struct{ capnp.Struct }
+
+// Packet_Request_TypeID is the unique identifier for the type Packet_Request.
+const Packet_Request_TypeID = 0xfc96eef0cc93ef50
+
+func NewPacket_Request(s *capnp.Segment) (Packet_Request, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return Packet_Request{st}, err
 }
 
-const schema_ef83879a531f9bf3 = "x\xdat\x90\xbf\xab\xd3P\x1c\xc5\xcf\xf9\xde\xd7F0" +
-	"\x81\x84\xbcQy \x0a>\xf0\xe9+*\x88\x0a\x16\xa1" +
-	"\xa0\xe2\xd0\x9bV\\\\B\xbcbQ\xd3\x98\xa4\x95N" +
-	"\x0e\x0e\xe2\xe8\xd0E\xff\x01\xc1\xc1\xc1Q\x07\xff\x057" +
-	"\xff\x0b\x7fM\x16\xf4J\xd2_R|\xeb\xbd\x87\xef\xe7" +
-	"\x9c\x8f\xff\xb9-\xad\xc6P\x00}\xa4\xd1\xb4\xf7\xfa\xf7" +
-	"\xdb\xb3\xcc{\x8b \xa0\xfd\xf9z\xa7\xf7\xea\xf9\xb3\xaf" +
-	"h\x88\x03\x9c=Ja\xb8K\x07\x08O\xf0\x09h\xcf" +
-	"\x97o>\x1d\xbe}\xeb\x03t\xc0\x7f\xd2\x1d:\x02\x84" +
-	"/\xf8#\x9c\xd6\xe9\x97u:\x9a\xbe\xbf4\xfb\xf8\xe5" +
-	"\xdbF\xba\xbe\x1d~\xe7,\xfc]\x87\x7f\xf1\x1d\xf6l" +
-	"\x9c\x0d\xce\x14\xa3|\xac\xcc\xe4t\x12giv\xb17" +
-	"\xca\xc7f\x12\x99\"\x1b\xa6\x85A\x97\xd4\x87\xd4\x16\xb0" +
-	"E \xd8\x8d\x00}RQ\x9f\x13\x06\xe46\xab\xc7\xd6" +
-	"\x0d@\xef+\xea\xcbB\x9b\xc6\x8fL\x91\xc5\x09h\xe8" +
-	"B\xe8\x82\xd6\xa4c\xf3p\x98\x19\x00\xf4 \xf4\xc0\x15" +
-	"X6\xc0\xdd\x9d8y`\xca\x05\xd6\xb5v\xce\xbd\x0a" +
-	"\xe8\xe3\x8az_\xe8\xf1\x8f\x9d\x83\xf7*\xf0)E}" +
-	"A\xf847\x8fG\xa6(\xe9\xaf\x05\x80\xf4A\x9b/" +
-	"\xb7\x00\xf4\xd7\xe6\x17\xbf\x07\x15\x89\xae\xcc\x0fVM\xdc" +
-	"\x95\x80\xce1@\xb7\x15\xf5M\xe1r\xff\xf5\xaa\xc65" +
-	"E\xdd\x17\x06\xc2m\x0a\x10\xe8\xcaTWQ\xdf\x11:" +
-	"E\x9e\xac\x86\xdf\x1d\x14e\x9c&u\x9b&\x84M\xfc" +
-	"W\xda\xdf\x00\x00\x00\xff\xff\xf1\x01\x8e%"
+func NewRootPacket_Request(s *capnp.Segment) (Packet_Request, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return Packet_Request{st}, err
+}
+
+func ReadRootPacket_Request(msg *capnp.Message) (Packet_Request, error) {
+	root, err := msg.Root()
+	return Packet_Request{root.Struct()}, err
+}
+
+func (s Packet_Request) String() string {
+	str, _ := text.Marshal(0xfc96eef0cc93ef50, s.Struct)
+	return str
+}
+
+func (s Packet_Request) Src() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return []byte(p.Data()), err
+}
+
+func (s Packet_Request) HasSrc() bool {
+	return s.Struct.HasPtr(0)
+}
+
+func (s Packet_Request) SetSrc(v []byte) error {
+	return s.Struct.SetData(0, v)
+}
+
+func (s Packet_Request) Distance() uint8 {
+	return s.Struct.Uint8(0)
+}
+
+func (s Packet_Request) SetDistance(v uint8) {
+	s.Struct.SetUint8(0, v)
+}
+
+// Packet_Request_List is a list of Packet_Request.
+type Packet_Request_List struct{ capnp.List }
+
+// NewPacket_Request creates a new list of Packet_Request.
+func NewPacket_Request_List(s *capnp.Segment, sz int32) (Packet_Request_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
+	return Packet_Request_List{l}, err
+}
+
+func (s Packet_Request_List) At(i int) Packet_Request { return Packet_Request{s.List.Struct(i)} }
+
+func (s Packet_Request_List) Set(i int, v Packet_Request) error { return s.List.SetStruct(i, v.Struct) }
+
+func (s Packet_Request_List) String() string {
+	str, _ := text.MarshalList(0xfc96eef0cc93ef50, s.List)
+	return str
+}
+
+// Packet_Request_Future is a wrapper for a Packet_Request promised by a client call.
+type Packet_Request_Future struct{ *capnp.Future }
+
+func (p Packet_Request_Future) Struct() (Packet_Request, error) {
+	s, err := p.Future.Struct()
+	return Packet_Request{s}, err
+}
+
+const schema_ef83879a531f9bf3 = "x\xdaL\xce\xb1J#Q\x18\x05\xe0s\xee$\x99-" +
+	"\x12\xc8\x90@\xb6\x09\x0b\xcb6\x0b\x9b\xb0\x81-\x16+" +
+	"\x09\x06D\x10\xe6\x8f\x966\xc3x\x0b\x09\x8e\xe3\xdc\x89" +
+	"b\x95\xc2\xc2\x07\x10Rhe\xc0\xc2B\xc4\xf7\xf0%" +
+	"\xb4\xb13\x11+A\xbc2Q\x13\xbb\x9f\x03\xff9_" +
+	"y\xb4\xa8Z\xf9\x9a\x02\xe4{\xbe`\x87\xff\xae[\xb7" +
+	"\xf7\x93sH\x89\xb4O\xa7?\xd6N\x8e\x0e\xc7\xe8(" +
+	"W\x01\xde\xe3\xc8{\xae\x01\x15\xf2\x0a\xb4\xfe\xf8\xf8f" +
+	"\xf20|\x81T\xc9\xf9g\x9e.P9\xe3]\xe5r" +
+	"z]p\x1f\x0dk\xfa\xc9\x9e>h\x86\x0c\xe2(^" +
+	"\xf0\x83\xd0\xed\xe9Tr\xfcR\xe3\xb1=\xe8\xea\xdd\xbe" +
+	"6\xa9\x14\x9d\x1c\x90#\xe0u\xba\x80,9\x14_\xb1" +
+	"NkYe\x16\xaf\xb6\x01Yv(\xeb\x8au\xf5\x9a" +
+	"\xc5\x99PV\x00\xf1\x1d\xca\x86\xa2\x8d\x82mm\xe2 " +
+	"\x045\x8bP,\x82\x83\xe4}\x80\xe5\xf9.\xc82h" +
+	"\x13m\xe2\x9d\xc8h\x00,A\xb1\x04\xce\xd4\xeaS\xdd" +
+	"\xd3i33\xba\xda\xa4>)\xdff\xce\xdf?\x01\xf9" +
+	"\xe5P\xfe*\xf2\x03\xd9\xc84\x7f\x1c\xca\x7fE\xd7$" +
+	"\xe1\xacws\xcb\xa4A\x14N\xb7\x0aP,\x80o\x01" +
+	"\x00\x00\xff\xff\x87\xc1jL"
 
 func init() {
 	schemas.Register(schema_ef83879a531f9bf3,
-		0xab0d70fa40685466,
-		0xbb55570bc0a87435,
-		0xf0d8bcfa3bb39552)
+		0xa5f0e7e131b13496,
+		0xfc96eef0cc93ef50)
 }
