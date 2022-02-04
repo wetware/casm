@@ -8,32 +8,22 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	ds "github.com/ipfs/go-datastore"
-	"github.com/ipfs/go-datastore/namespace"
+	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/query"
 	"github.com/libp2p/go-libp2p-core/peer"
 )
 
 func init() { rand.Seed(time.Now().UnixNano()) }
 
-// Gossip contains parameters for the PeX gossip algorithm.
-type Gossip struct {
-	C int     // maximum View size
-	S int     // swapping amount
-	P int     // protection amount
-	D float64 // retention decay probability
-}
-
 type GossipStore struct {
 	ns    string
 	store ds.Batching
-	g     Gossip
 }
 
-func NewGossipStore(ns string, store ds.Batching, g Gossip) GossipStore {
+func NewGossipStore(store ds.Batching, ns string) GossipStore {
 	return GossipStore{
 		ns:    ns,
-		store: namespace.Wrap(store, ds.NewKey(ns)),
-		g:     g,
+		store: nsds.Wrap(store, ds.NewKey(ns)),
 	}
 }
 
@@ -77,58 +67,7 @@ func (gs GossipStore) LoadRecords() (gossipSlice, error) {
 	return recs, nil
 }
 
-func (gs GossipStore) mtu() int64 { return int64(gs.g.C * mtu) }
-
-func (gs GossipStore) tail() func(gossipSlice) gossipSlice {
-	return tail(gs.g.P)
-}
-
-func (gs GossipStore) head() func(gossipSlice) gossipSlice {
-	return head((gs.g.C / 2) - 1)
-}
-
-func (gs GossipStore) MergeAndStore(self peer.ID, local, remote gossipSlice) error {
-	if err := remote.Validate(); err != nil {
-		return err
-	}
-
-	// Remove duplicates and combine local and remote records
-	newLocal := local.
-		Bind(merged(remote)).
-		Bind(isNot(self))
-
-	// Apply swapping
-	s := min(gs.g.S, max(len(newLocal)-gs.g.C, 0))
-	newLocal = newLocal.
-		Bind(tail(len(newLocal) - s)).
-		Bind(sorted())
-
-	// Apply retention
-	r := min(min(gs.g.P, gs.g.C), len(newLocal))
-	maxDecay := min(r, max(len(newLocal)-gs.g.C, 0))
-	oldest := newLocal.Bind(tail(r)).Bind(decay(gs.g.D, maxDecay))
-
-	//Apply random eviction
-	c := gs.g.C - len(oldest)
-	newLocal = newLocal.
-		Bind(head(max(len(newLocal)-r, 0))).
-		Bind(shuffled()).
-		Bind(head(c))
-
-	// Merge with oldest nodes
-	newLocal = newLocal.
-		Bind(merged(oldest))
-
-	newLocal.incrHops()
-
-	if err := gs.storeRecords(local, newLocal); err != nil {
-		return err
-	}
-
-	return gs.store.Sync(ds.NewKey("/"))
-}
-
-func (gs GossipStore) storeRecords(old, new gossipSlice) error {
+func (gs GossipStore) StoreRecords(old, new gossipSlice) error {
 	batch, err := gs.store.Batch()
 	if err != nil {
 		return err
@@ -154,7 +93,11 @@ func (gs GossipStore) storeRecords(old, new gossipSlice) error {
 		}
 	}
 
-	return batch.Commit()
+	if err = batch.Commit(); err != nil {
+		err = gs.store.Sync(ds.NewKey("/"))
+	}
+
+	return err
 }
 
 func randomOrder() query.OrderByFunction {

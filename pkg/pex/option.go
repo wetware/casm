@@ -82,9 +82,9 @@ func WithTick(newTick func(ns string) time.Duration) Option {
 //
 // Users SHOULD ensure all nodes in a given cluster have
 // the same gossiping parameters.
-func WithGossip(newGossip func(ns string) Gossip) Option {
-	deafaultNewGossip := func(ns string) Gossip {
-		return Gossip{30, 10, 5, 0.005}
+func WithGossip(newGossip func(ns string) GossipParam) Option {
+	deafaultNewGossip := func(ns string) GossipParam {
+		return GossipParam{30, 10, 5, 0.005}
 	}
 
 	if newGossip == nil {

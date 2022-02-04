@@ -2,13 +2,17 @@ package pex
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"io"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 
 	"github.com/lthibault/log"
@@ -21,6 +25,24 @@ const (
 	mtu     = 2048             // maximum transmission unit => max capnp message size
 	timeout = time.Second * 15 // Push-pull timeout
 )
+
+// GossipParam contains parameters for the PeX gossip algorithm.
+type GossipParam struct {
+	C int     // maximum View size
+	S int     // swapping amount
+	P int     // protection amount
+	D float64 // retention decay probability
+}
+
+func (g GossipParam) mtu() int64 { return int64(g.C * mtu) }
+
+func (g GossipParam) tail() func(gossipSlice) gossipSlice {
+	return tail(g.P)
+}
+
+func (g GossipParam) head() func(gossipSlice) gossipSlice {
+	return head((g.C / 2) - 1)
+}
 
 type StreamHandler interface {
 	SetStreamHandlerMatch(protocol.ID, func(string) bool, network.StreamHandler)
@@ -45,13 +67,93 @@ type StreamHandler interface {
 // these have been carefully selected to work in a broad range of applications
 // and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
+	mu  sync.RWMutex
+	log log.Logger
+	gs  map[string]*gossiper
+}
+
+func New(ctx context.Context, opt ...Option) (*PeerExchange, error) {
+	var px = PeerExchange{
+		gs: make(map[string]*gossiper),
+	}
+
+	for _, option := range withDefaults(opt) {
+		option(&px)
+	}
+
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case t := <-ticker.C:
+				px.expire(t)
+
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return &px, nil
+}
+
+func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+	var opts discovery.Options
+	if err := opts.Apply(opt...); err != nil {
+		return 0, err
+	}
+
+	px.mu.Lock()
+	defer px.mu.Unlock()
+
+	g, ok := px.gs[ns]
+	if !ok {
+		g = newGossiper( /* ... */ )
+		px.gs[ns] = g
+	}
+
+	g.TTL = time.Now().Add(opts.Ttl)
+	return opts.Ttl, nil
+}
+
+func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	var opts discovery.Options
+	if err := opts.Apply(opt...); err != nil {
+		return nil, err
+	}
+
+	px.mu.RLock()
+	defer px.mu.RUnlock()
+
+	if g, ok := px.gs[ns]; ok {
+		return g.StreamPeers(ctx)
+	}
+
+	return nil, errors.New("not found")
+}
+
+func (px *PeerExchange) expire(t time.Time) {
+	px.mu.Lock()
+	defer px.mu.Unlock()
+
+	for ns, g := range px.gs {
+		if t.After(g.TTL) {
+			delete(px.gs, ns)
+		}
+	}
+}
+
+type gossiper struct {
+	TTL   time.Time
+	param GossipParam
 	store GossipStore
 	mint  Mint
 }
 
-// New peer exchange.
-func New(ctx context.Context, m Mint, gs GossipStore, opt ...Option) (*PeerExchange, error) {
-	var px = PeerExchange{
+func newGossiper(m Mint, gs GossipStore, opt ...Option) (*gossiper, error) {
+	var px = gossiper{
 		store: gs,
 		mint:  m,
 	}
@@ -62,13 +164,13 @@ func New(ctx context.Context, m Mint, gs GossipStore, opt ...Option) (*PeerExcha
 	return &px, nil
 }
 
-func (px *PeerExchange) String() string { return px.store.String() }
+func (px *gossiper) String() string { return px.store.String() }
 
-func (px *PeerExchange) Loggable() map[string]interface{} {
+func (px *gossiper) Loggable() map[string]interface{} {
 	return px.store.Loggable()
 }
 
-func (px *PeerExchange) RegisterRPC(log log.Logger, h StreamHandler) {
+func (px *gossiper) RegisterRPC(log log.Logger, h StreamHandler) {
 	var (
 		match       = casm.NewMatcher(px.String())
 		matchPacked = match.Then(protoutil.Exactly("packed"))
@@ -85,12 +187,12 @@ func (px *PeerExchange) RegisterRPC(log log.Logger, h StreamHandler) {
 		px.newHandler(log, rpc.NewPackedStreamTransport))
 }
 
-func (px *PeerExchange) UnregisterRPC(h StreamHandler) {
+func (px *gossiper) UnregisterRPC(h StreamHandler) {
 	h.RemoveStreamHandler(casm.Subprotocol(px.String()))
 	h.RemoveStreamHandler(casm.Subprotocol(px.String(), "packed"))
 }
 
-func (px *PeerExchange) newHandler(log log.Logger, f transportFactory) network.StreamHandler {
+func (px *gossiper) newHandler(log log.Logger, f transportFactory) network.StreamHandler {
 	return func(s network.Stream) {
 		slog := log.
 			With(streamFields(s)).
@@ -110,7 +212,7 @@ func (px *PeerExchange) newHandler(log log.Logger, f transportFactory) network.S
 	}
 }
 
-func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
+func (px *gossiper) pushpull(ctx context.Context, s network.Stream) error {
 	var (
 		j      syncutil.Join
 		t, _   = ctx.Deadline()
@@ -127,7 +229,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	}
 
 	recs = recs.Bind(sorted())
-	oldest := recs.Bind(px.store.tail())
+	oldest := recs.Bind(px.param.tail())
 
 	local := append(
 		recs.
@@ -141,7 +243,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 
 		buffer := local.
 			Bind(isNot(s.Conn().RemotePeer())).
-			Bind(px.store.head()).
+			Bind(px.param.head()).
 			Bind(appendLocal(px.mint))
 
 		enc := capnp.NewPackedEncoder(s)
@@ -158,7 +260,7 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	j.Go(func() error {
 		defer s.CloseRead()
 
-		r := io.LimitReader(s, px.store.mtu())
+		r := io.LimitReader(s, px.param.mtu())
 
 		dec := capnp.NewPackedDecoder(r)
 		dec.MaxMessageSize = mtu
@@ -183,13 +285,47 @@ func (px *PeerExchange) pushpull(ctx context.Context, s network.Stream) error {
 	})
 
 	if err = j.Wait(); err == nil {
-		err = px.store.MergeAndStore(
-			px.mint.Load().Record.PeerID,
-			local,
-			remote)
+		err = px.MergeAndStore(local, remote)
 	}
 
 	return err
+}
+
+func (px *gossiper) MergeAndStore(local, remote gossipSlice) error {
+	if err := remote.Validate(); err != nil {
+		return err
+	}
+
+	// Remove duplicates and combine local and remote records
+	newLocal := local.
+		Bind(merged(remote)).
+		Bind(isNot(px.mint.Load().Record.PeerID))
+
+	// Apply swapping
+	s := min(px.param.S, max(len(newLocal)-px.param.C, 0))
+	newLocal = newLocal.
+		Bind(tail(len(newLocal) - s)).
+		Bind(sorted())
+
+	// Apply retention
+	r := min(min(px.param.P, px.param.C), len(newLocal))
+	maxDecay := min(r, max(len(newLocal)-px.param.C, 0))
+	oldest := newLocal.Bind(tail(r)).Bind(decay(px.param.D, maxDecay))
+
+	//Apply random eviction
+	c := px.param.C - len(oldest)
+	newLocal = newLocal.
+		Bind(head(max(len(newLocal)-r, 0))).
+		Bind(shuffled()).
+		Bind(head(c))
+
+	// Merge with oldest nodes
+	newLocal = newLocal.
+		Bind(merged(oldest))
+
+	newLocal.incrHops()
+
+	return px.store.StoreRecords(local, newLocal)
 }
 
 type transportFactory func(io.ReadWriteCloser) rpc.Transport
