@@ -65,8 +65,9 @@ type Surveyor struct {
 
 	advert         chan<- advert
 	disc, discDone chan<- disc
+	req            chan<- req
 
-	e   *record.Envelope
+	raw []byte // marshaled envelope
 	rec *peer.PeerRecord
 
 	mustFind      map[string]map[disc]struct{}
@@ -85,6 +86,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		cherr    = make(chan error)
 		recv     = make(chan *capnp.Message, 8)
 		send     = make(chan *capnp.Message, 8)
+		req      = make(chan req)
 		advert   = make(chan advert)
 		discover = make(chan disc)
 		discDone = make(chan disc)
@@ -93,6 +95,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	s := &Surveyor{
 		ctx:           ctx,
 		cancel:        cancel,
+		req:           req,
 		advert:        advert,
 		disc:          discover,
 		discDone:      discDone,
@@ -148,8 +151,9 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		for {
 			select {
 			case ev := <-sub.Out():
-				s.e = ev.(event.EvtLocalAddressesUpdated).SignedPeerRecord
-				r, _ := s.e.Record()
+				e := ev.(event.EvtLocalAddressesUpdated).SignedPeerRecord
+				s.raw, _ = e.Marshal()
+				r, _ := e.Record()
 				s.rec = r.(*peer.PeerRecord)
 
 			case m := <-recv:
@@ -181,6 +185,10 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 					delete(nsm, d)
 				}
 				close(d.Ch)
+
+			case r := <-req:
+				request, _ := r.Pkt.Request()
+				r.Err <- request.SetSrc(s.raw)
 
 			case err := <-cherr:
 				if err == nil {
@@ -267,17 +275,12 @@ func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
 	return xor(s.rec.PeerID, id)>>uint32(d) != 0
 }
 
-func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
-	if err := p.SetNamespace(ns); err != nil {
-		return err
+func (s *Surveyor) setResponse(ns string, p survey.Packet) (err error) {
+	if err = p.SetNamespace(ns); err == nil {
+		err = p.SetResponse(s.raw)
 	}
 
-	b, err := s.e.Marshal()
-	if err != nil {
-		return err
-	}
-
-	return p.SetResponse(b)
+	return
 }
 
 func (s *Surveyor) handleResponse(ctx context.Context, p survey.Packet) error {
@@ -335,7 +338,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, err
 	}
 
-	m, err := s.buildRequest(ns, distance(opts))
+	p, err := s.buildRequest(ns, distance(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -395,37 +398,53 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, errors.New("closed")
 	}
 
-	return out, s.c.Send(ctx, m)
+	return out, s.emitRequest(ctx, p)
 }
 
-func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+func (s *Surveyor) emitRequest(ctx context.Context, p survey.Packet) error {
+	cherr := make(chan error, 1) // TODO:  pool
+
+	select {
+	case s.req <- req{
+		Pkt: p,
+		Err: cherr,
+	}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.ctx.Done():
+		return errors.New("closed")
+	}
+
+	select {
+	case err := <-cherr:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.ctx.Done():
+		return errors.New("closed")
+	}
+}
+
+func (s *Surveyor) buildRequest(ns string, dist uint8) (p survey.Packet, err error) {
+	var seg *capnp.Segment
+	_, seg, err = capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
-		return nil, err
+		return
 	}
 
-	p, err := survey.NewRootPacket(seg)
+	p, err = survey.NewRootPacket(seg)
 	if err != nil {
-		return nil, err
+		return
 	}
 
-	request, err := p.NewRequest()
-	if err != nil {
-		return nil, err
-	}
-
-	if err = p.SetNamespace(ns); err != nil {
-		return nil, err
-	}
-
-	request.SetDistance(dist)
-
-	rec, err := s.e.Marshal()
+	var r survey.Packet_Request
+	r, err = p.NewRequest()
 	if err == nil {
-		err = request.SetSrc(rec)
+		r.SetDistance(dist)
+		err = p.SetNamespace(ns)
 	}
 
-	return p.Message(), err
+	return
 }
 
 func xor(id1, id2 peer.ID) uint32 {
@@ -445,4 +464,9 @@ type advert struct {
 type disc struct {
 	NS string
 	Ch chan<- *peer.PeerRecord
+}
+
+type req struct {
+	Pkt survey.Packet
+	Err chan<- error
 }
