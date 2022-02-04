@@ -69,7 +69,7 @@ These steps are a high-level representation of the protocol and they ignore the 
 In steps 1 and 2, the concept of _distance_ is used for incrementally discovering peers in namesapce N. In step 1, Node A includes a field that represents a logical distance threshold, D.  The expectation is that peers will respond only if their logical distance with A is less than D. Meanwhile, Node A waits for a configurable amount of time before incrementing D and re-issuing a request.  It repeats this process until a suitable bootstrap node is discovered.  In order to avoid bursts of multicast traffic, requesters MUST NOT issue additional requests after discovering at least one suitable peer.  They should instead employ alternative sampling methods (e.g. [PeX](./pex.md)) to discover subsequent peers. Requesters MAY consume multiple responses, however.  Likewise, implementations MAY choose to breifly listen for ambient responses before issuing requests of their own.
 
 ### Logical distance
-As explained in [Protocol description](#protocol-description), the logical distance is used for incrementally surveying more nodes. But how is the logical distance calculated?
+As explained in [Protocol Description](#protocol-description), the logical distance is used for incrementally surveying more nodes. But how is the logical distance calculated?
 
 The logical distance is between node A and B is calculated by XORing the last 4 bytes of their `peer.ID`s. The maximum logical distance is specified as a `uint8`. After XORing `peer.ID`s, the result is logically right-shiftted by the maximum logical distance. If the final result is 0, node B is within the maximum logical distance of A, otherwise it is outside.
 
@@ -98,8 +98,8 @@ Survey provides a `discovery.Discovery` Libp2p interface.
 
 ```go
 type Discovery interface {
-	FindPeers(ctx context.Context, ns string, opts ...Option) (<-chan peer.AddrInfo, error)
-  Advertise(ctx context.Context, ns string, opts ...Option) (time.Duration, error)
+    FindPeers(ctx context.Context, ns string, opts ...Option) (<-chan peer.AddrInfo, error)
+    Advertise(ctx context.Context, ns string, opts ...Option) (time.Duration, error)
 }
 ```
 
