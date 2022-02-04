@@ -39,7 +39,7 @@ type Survey struct {
 	err atomic.Value
 }
 
-func NewSurvey(h host.Host, addr net.Addr, opt ...Option) (surv *Survey, err error) {
+func New(h host.Host, addr net.Addr, opt ...Option) (surv *Survey, err error) {
 	config := Config{}
 	config.Apply(opt)
 

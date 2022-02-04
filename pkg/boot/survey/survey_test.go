@@ -1,4 +1,4 @@
-package survey
+package survey_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/stretchr/testify/require"
+	"github.com/wetware/casm/pkg/boot/survey"
 	mx "github.com/wetware/matrix/pkg"
 )
 
@@ -35,11 +36,11 @@ func TestDiscover(t *testing.T) {
 
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
-	a1, err := NewSurvey(h1, addr)
+	a1, err := survey.New(h1, addr)
 	require.NoError(t, err)
 	defer a1.Close()
 
-	a2, err := NewSurvey(h2, addr)
+	a2, err := survey.New(h2, addr)
 	require.NoError(t, err)
 	defer a2.Close()
 
@@ -48,7 +49,7 @@ func TestDiscover(t *testing.T) {
 
 	infos := make([]peer.AddrInfo, 0)
 	for i := uint8(1); i < uint8(255) && len(infos) == 0; i += 5 {
-		finder, err := a1.FindPeers(ctx, testNs, discovery.TTL(findPeersTTL), WithDistance(i))
+		finder, err := a1.FindPeers(ctx, testNs, discovery.TTL(findPeersTTL), survey.WithDistance(i))
 		require.NoError(t, err)
 
 		for info := range finder {
@@ -74,17 +75,17 @@ func TestDiscoverNone(t *testing.T) {
 
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
-	a1, err := NewSurvey(h1, addr)
+	a1, err := survey.New(h1, addr)
 	require.NoError(t, err)
 	defer a1.Close()
 
-	a2, err := NewSurvey(h2, addr)
+	a2, err := survey.New(h2, addr)
 	require.NoError(t, err)
 	defer a2.Close()
 
 	infos := make([]peer.AddrInfo, 0)
 	for i := uint8(1); i < uint8(255) && len(infos) == 0; i += 5 {
-		finder, err := a1.FindPeers(ctx, testNs, discovery.TTL(findPeersTTL), WithDistance(i))
+		finder, err := a1.FindPeers(ctx, testNs, discovery.TTL(findPeersTTL), survey.WithDistance(i))
 		require.NoError(t, err)
 
 		for info := range finder {
@@ -106,7 +107,7 @@ func TestClose(t *testing.T) {
 
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
-	a1, err := NewSurvey(h1, addr)
+	a1, err := survey.New(h1, addr)
 	require.NoError(t, err)
 
 	_, err = a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
