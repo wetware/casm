@@ -15,7 +15,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
 	ctxutil "github.com/lthibault/util/ctx"
 	"github.com/wetware/casm/internal/api/survey"
@@ -314,6 +313,8 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 		return nil, err
 	}
 
+	// XXX:  YOU ARE HERE
+
 	finder := make(chan peer.AddrInfo, opts.Limit)
 	surv.mustFind[ns] = finder
 
@@ -326,34 +327,30 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 	return finder, nil
 }
 
-func (surv *Survey) buildRequest(ns string, dist uint8) ([]byte, error) {
+func (surv *Survey) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(err)
 	}
 
-	root, err := survey.NewRootSurveyPacket(seg)
+	p, err := survey.NewRootSurveyPacket(seg)
 	if err != nil {
 		panic(err)
 	}
-	request, err := root.NewRequest()
+
+	request, err := p.NewRequest()
 	if err != nil {
 		return nil, err
 	}
 
 	request.SetNamespace(ns)
 	request.SetDistance(dist)
-	if cab, ok := peerstore.GetCertifiedAddrBook(surv.h.Peerstore()); ok {
-		env := cab.GetPeerRecord(surv.h.ID())
-		rec, err := env.Marshal()
-		if err != nil {
-			return nil, err
-		}
-		request.SetSrc(rec)
-	} else {
-		return nil, errors.New("unable to get certified address book from libp2p host")
+
+	if rec, err := surv.e.Marshal(); err == nil {
+		err = request.SetSrc(rec)
 	}
-	return root.Message().MarshalPacked()
+
+	return p.Message(), err
 }
 
 func (surv *Survey) trackFindPeers(ns string, ttl time.Duration) {
