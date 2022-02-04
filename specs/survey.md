@@ -136,7 +136,7 @@ None (...so far!)
 
 ## Alternate Designs
 
-- TODO:  Create a `boot.Record` type to separate the bootstraping domain from ordinary peer-discovery.  Consider including the namespace in the record.
+- Consider `boot.Record` type to separate the bootstraping domain from ordinary peer-discovery.  See [#25](https://github.com/wetware/casm/issues/25)
 
 ## Core Team
 
