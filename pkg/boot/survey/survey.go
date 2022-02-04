@@ -62,7 +62,7 @@ type Transport struct {
 	ListenFunc
 }
 
-type Survey struct {
+type Surveyor struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	log    log.Logger
@@ -81,7 +81,7 @@ type Survey struct {
 	err atomic.Value
 }
 
-func New(h host.Host, addr net.Addr, opt ...Option) (*Survey, error) {
+func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	var (
 		cq          = h.Network().Process().Closing()
 		ctx, cancel = context.WithCancel(ctxutil.C(cq))
@@ -94,7 +94,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Survey, error) {
 		discDone = make(chan disc)
 	)
 
-	s := &Survey{
+	s := &Surveyor{
 		ctx:           ctx,
 		cancel:        cancel,
 		advert:        advert,
@@ -203,13 +203,13 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Survey, error) {
 	return s, nil
 }
 
-func (s *Survey) Close() error {
+func (s *Surveyor) Close() error {
 	defer s.cancel()
 	err, _ := s.err.Load().(error)
 	return err
 }
 
-func (s *Survey) handleMessage(ctx context.Context, m *capnp.Message) error {
+func (s *Surveyor) handleMessage(ctx context.Context, m *capnp.Message) error {
 	p, err := survey.ReadRootPacket(m)
 	if err != nil {
 		return err
@@ -226,7 +226,7 @@ func (s *Survey) handleMessage(ctx context.Context, m *capnp.Message) error {
 	return fmt.Errorf("unrecognized packet type '%d'", p.Which())
 }
 
-func (s *Survey) handleRequest(ctx context.Context, p survey.Packet) error {
+func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 	request, err := p.Request()
 	if err != nil {
 		return err
@@ -267,7 +267,7 @@ func (s *Survey) handleRequest(ctx context.Context, p survey.Packet) error {
 	return s.c.Send(ctx, p.Message())
 }
 
-func (s *Survey) setResponse(ns string, p survey.Packet) error {
+func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
 	if err := p.SetNamespace(ns); err != nil {
 		return err
 	}
@@ -280,7 +280,7 @@ func (s *Survey) setResponse(ns string, p survey.Packet) error {
 	return p.SetResponse(b)
 }
 
-func (s *Survey) handleResponse(ctx context.Context, p survey.Packet) error {
+func (s *Surveyor) handleResponse(ctx context.Context, p survey.Packet) error {
 	ns, err := p.Namespace()
 	if err != nil {
 		return err
@@ -308,7 +308,7 @@ func (s *Survey) handleResponse(ctx context.Context, p survey.Packet) error {
 	return nil
 }
 
-func (s *Survey) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
 	var opts = discovery.Options{Ttl: discTTL}
 	if err := opts.Apply(opt...); err != nil {
 		return 0, err
@@ -329,7 +329,7 @@ func (s *Survey) Advertise(ctx context.Context, ns string, opt ...discovery.Opti
 	}
 }
 
-func (s *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
@@ -408,7 +408,7 @@ func (s *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 	return out, s.c.Send(ctx, m)
 }
 
-func (s *Survey) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
+func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(err)

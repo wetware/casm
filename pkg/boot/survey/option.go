@@ -6,20 +6,20 @@ import (
 	"github.com/libp2p/go-libp2p-core/discovery"
 )
 
-type Option func(*Survey)
+type Option func(*Surveyor)
 
 func WithLogger(l log.Logger) Option {
 	if l == nil {
 		l = log.New()
 	}
 
-	return func(s *Survey) {
+	return func(s *Surveyor) {
 		s.log = l
 	}
 }
 
 func WithTransport(t Transport) Option {
-	return func(s *Survey) {
+	return func(s *Surveyor) {
 		s.t = t
 	}
 }
