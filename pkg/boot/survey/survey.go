@@ -203,13 +203,13 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Survey, error) {
 	return s, nil
 }
 
-func (surv *Survey) Close() error {
-	defer surv.cancel()
-	err, _ := surv.err.Load().(error)
+func (s *Survey) Close() error {
+	defer s.cancel()
+	err, _ := s.err.Load().(error)
 	return err
 }
 
-func (surv *Survey) handleMessage(ctx context.Context, m *capnp.Message) error {
+func (s *Survey) handleMessage(ctx context.Context, m *capnp.Message) error {
 	p, err := survey.ReadRootPacket(m)
 	if err != nil {
 		return err
@@ -217,16 +217,16 @@ func (surv *Survey) handleMessage(ctx context.Context, m *capnp.Message) error {
 
 	switch p.Which() {
 	case survey.Packet_Which_request:
-		return surv.handleRequest(ctx, p)
+		return s.handleRequest(ctx, p)
 
 	case survey.Packet_Which_response:
-		return surv.handleResponse(ctx, p)
+		return s.handleResponse(ctx, p)
 	}
 
 	return fmt.Errorf("unrecognized packet type '%d'", p.Which())
 }
 
-func (surv *Survey) handleRequest(ctx context.Context, p survey.Packet) error {
+func (s *Survey) handleRequest(ctx context.Context, p survey.Packet) error {
 	request, err := p.Request()
 	if err != nil {
 		return err
@@ -243,11 +243,11 @@ func (surv *Survey) handleRequest(ctx context.Context, p survey.Packet) error {
 		return err
 	}
 
-	if rec.PeerID == surv.rec.PeerID {
+	if rec.PeerID == s.rec.PeerID {
 		return nil // request comes from itself
 	}
 
-	if dist([]byte(surv.rec.PeerID), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
+	if dist([]byte(s.rec.PeerID), []byte(rec.PeerID))>>uint32(request.Distance()) != 0 {
 		return nil // ignore
 	}
 
@@ -256,23 +256,23 @@ func (surv *Survey) handleRequest(ctx context.Context, p survey.Packet) error {
 		return err
 	}
 
-	if _, ok := surv.mustAdvertise[ns]; !ok {
+	if _, ok := s.mustAdvertise[ns]; !ok {
 		return nil // namespace not advertised
 	}
 
-	if err = surv.setResponse(ns, p); err != nil {
+	if err = s.setResponse(ns, p); err != nil {
 		return err
 	}
 
-	return surv.c.Send(ctx, p.Message())
+	return s.c.Send(ctx, p.Message())
 }
 
-func (surv *Survey) setResponse(ns string, p survey.Packet) error {
+func (s *Survey) setResponse(ns string, p survey.Packet) error {
 	if err := p.SetNamespace(ns); err != nil {
 		return err
 	}
 
-	b, err := surv.e.Marshal()
+	b, err := s.e.Marshal()
 	if err != nil {
 		return err
 	}
@@ -280,7 +280,7 @@ func (surv *Survey) setResponse(ns string, p survey.Packet) error {
 	return p.SetResponse(b)
 }
 
-func (surv *Survey) handleResponse(ctx context.Context, p survey.Packet) error {
+func (s *Survey) handleResponse(ctx context.Context, p survey.Packet) error {
 	ns, err := p.Namespace()
 	if err != nil {
 		return err
@@ -296,7 +296,7 @@ func (surv *Survey) handleResponse(ctx context.Context, p survey.Packet) error {
 		return err
 	}
 
-	if finders, ok := surv.mustFind[ns]; ok {
+	if finders, ok := s.mustFind[ns]; ok {
 		for f := range finders {
 			select {
 			case f.Ch <- &rec:
@@ -308,14 +308,14 @@ func (surv *Survey) handleResponse(ctx context.Context, p survey.Packet) error {
 	return nil
 }
 
-func (surv *Survey) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+func (s *Survey) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
 	var opts = discovery.Options{Ttl: discTTL}
 	if err := opts.Apply(opt...); err != nil {
 		return 0, err
 	}
 
 	select {
-	case surv.advert <- advert{
+	case s.advert <- advert{
 		NS:  ns,
 		TTL: opts.Ttl,
 	}:
@@ -324,12 +324,12 @@ func (surv *Survey) Advertise(ctx context.Context, ns string, opt ...discovery.O
 	case <-ctx.Done():
 		return 0, ctx.Err()
 
-	case <-surv.ctx.Done():
-		return 0, surv.ctx.Err()
+	case <-s.ctx.Done():
+		return 0, s.ctx.Err()
 	}
 }
 
-func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+func (s *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
@@ -345,7 +345,7 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 		dist = discDist
 	}
 
-	m, err := surv.buildRequest(ns, dist)
+	m, err := s.buildRequest(ns, dist)
 	if err != nil {
 		return nil, err
 	}
@@ -356,8 +356,8 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 	go func() {
 		defer func() {
 			select {
-			case <-surv.ctx.Done():
-			case surv.discDone <- disc{
+			case <-s.ctx.Done():
+			case s.discDone <- disc{
 				NS: ns,
 				Ch: finder,
 			}:
@@ -374,7 +374,7 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 
 				select {
 				case <-ctx.Done():
-				case <-surv.ctx.Done():
+				case <-s.ctx.Done():
 				case out <- peer.AddrInfo{
 					ID:    rec.PeerID,
 					Addrs: rec.Addrs,
@@ -386,14 +386,14 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 
 			case <-ctx.Done():
 				return
-			case <-surv.ctx.Done():
+			case <-s.ctx.Done():
 				return
 			}
 		}
 	}()
 
 	select {
-	case surv.disc <- disc{
+	case s.disc <- disc{
 		NS: ns,
 		Ch: finder,
 	}:
@@ -401,14 +401,14 @@ func (surv *Survey) FindPeers(ctx context.Context, ns string, opt ...discovery.O
 	case <-ctx.Done():
 		return nil, ctx.Err()
 
-	case <-surv.ctx.Done():
+	case <-s.ctx.Done():
 		return nil, errors.New("closed")
 	}
 
-	return out, surv.c.Send(ctx, m)
+	return out, s.c.Send(ctx, m)
 }
 
-func (surv *Survey) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
+func (s *Survey) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(err)
@@ -427,7 +427,7 @@ func (surv *Survey) buildRequest(ns string, dist uint8) (*capnp.Message, error) 
 	p.SetNamespace(ns)
 	request.SetDistance(dist)
 
-	rec, err := surv.e.Marshal()
+	rec, err := s.e.Marshal()
 	if err == nil {
 		err = request.SetSrc(rec)
 	}
@@ -435,18 +435,18 @@ func (surv *Survey) buildRequest(ns string, dist uint8) (*capnp.Message, error) 
 	return p.Message(), err
 }
 
-// func (surv *Survey) trackFindPeers(ns string, ttl time.Duration) {
+// func (s *Survey) trackFindPeers(ns string, ttl time.Duration) {
 // 	timer := time.NewTimer(ttl)
 // 	defer timer.Stop()
 
 // 	<-timer.C
 
-// 	surv.mu.Lock()
-// 	defer surv.mu.Unlock()
+// 	s.mu.Lock()
+// 	defer s.mu.Unlock()
 
-// 	if finder, ok := surv.mustFind[ns]; ok {
+// 	if finder, ok := s.mustFind[ns]; ok {
 // 		close(finder)
-// 		delete(surv.mustFind, ns)
+// 		delete(s.mustFind, ns)
 // 	}
 // }
 
