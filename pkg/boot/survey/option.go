@@ -1,72 +1,57 @@
 package survey
 
 import (
-	"net"
+	"github.com/lthibault/log"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
 )
 
-type DialFunc func(net.Addr) (net.PacketConn, error)
-type ListenFunc func(net.Addr) (net.PacketConn, error)
+type Option func(*Surveyor)
 
-// Config supplies options to the dependency-injection framework.
-type Config struct {
-	Dial   DialFunc
-	Listen ListenFunc
-}
+func WithLogger(l log.Logger) Option {
+	if l == nil {
+		l = log.New()
+	}
 
-func (c *Config) Apply(opt []Option) {
-	for _, option := range withDefaults(opt) {
-		option(c)
+	return func(s *Surveyor) {
+		s.log = l
 	}
 }
 
-type Option func(c *Config)
-
-func WithDial(dial DialFunc) Option {
-	if dial == nil {
-		dial = func(addr net.Addr) (net.PacketConn, error) {
-			udpAddr, err := net.ResolveUDPAddr(addr.Network(), addr.String())
-			if err != nil {
-				return nil, err
-			}
-			return net.ListenUDP(addr.Network(), udpAddr)
-		}
-	}
-
-	return func(c *Config) {
-		c.Dial = dial
-	}
-}
-
-func WithListen(listen ListenFunc) Option {
-	if listen == nil {
-		listen = func(addr net.Addr) (net.PacketConn, error) {
-			udpAddr, err := net.ResolveUDPAddr(addr.Network(), addr.String())
-			if err != nil {
-				return nil, err
-			}
-			return net.ListenMulticastUDP(addr.Network(), nil, udpAddr)
-		}
-	}
-
-	return func(c *Config) {
-		c.Listen = listen
+func WithTransport(t Transport) Option {
+	return func(s *Surveyor) {
+		s.t = t
 	}
 }
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
-		WithDial(nil),
-		WithListen(nil),
+		WithLogger(nil),
+		WithTransport(Transport{}),
 	}, opt...)
+}
+
+/*
+	discovery.Discovery options ...
+*/
+
+type (
+	keyDistance struct{}
+)
+
+func distance(o discovery.Options) uint8 {
+	if d, ok := o.Other[keyDistance{}].(uint8); ok {
+		return d
+	}
+
+	return 255
 }
 
 // option for specifying distance when calling FindPeers
 func WithDistance(dist uint8) discovery.Option {
 	return func(opts *discovery.Options) error {
 		opts.Other = make(map[interface{}]interface{})
-		opts.Other["distance"] = dist
+		opts.Other[keyDistance{}] = dist
 		return nil
 	}
 }
