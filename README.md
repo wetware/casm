@@ -3,6 +3,7 @@ Universal middleware for decentralized computing
 
 [![GoDoc](https://godoc.org/github.com/wetware/casm?status.svg)](https://godoc.org/github.com/wetware/casm)
 [![Go](https://github.com/wetware/casm/actions/workflows/go.yml/badge.svg)](https://github.com/wetware/casm/actions/workflows/go.yml)
+[![Matrix](https://img.shields.io/matrix/wetware:matrix.org?color=lightpink&label=Get%20Help&logo=matrix&style=flat-square)](https://matrix.to/#/#wetware:matrix.org)
 
 ## What is CASM?
 
