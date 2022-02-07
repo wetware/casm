@@ -135,9 +135,25 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		return nil, err
 	}
 
+	// sync - wait until local record is set
+	select {
+	case v := <-sub.Out():
+		s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	// Update local record aysnchronously
+	go func() {
+		for v := range sub.Out() {
+			s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
+		}
+	}()
+
 	go func() {
 		defer lconn.Close()
 		defer dconn.Close()
+		defer sub.Close()
 		defer cancel()
 
 		ticker := time.NewTicker(time.Second)
@@ -147,13 +163,6 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 
 		for {
 			select {
-			case ev := <-sub.Out():
-				e := ev.(event.EvtLocalAddressesUpdated).SignedPeerRecord
-				r, _ := e.Record()
-				rec := r.(*peer.PeerRecord)
-				s.e.Store(e)
-				s.rec.Store(rec)
-
 			case m := <-recv:
 				if err := s.handleMessage(ctx, m); err != nil {
 					s.log.WithError(err).Debug("dropped message")
@@ -205,6 +214,13 @@ func (s *Surveyor) Close() error {
 	defer s.cancel()
 	err, _ := s.err.Load().(error)
 	return err
+}
+
+func (s *Surveyor) setLocalRecord(ev event.EvtLocalAddressesUpdated) {
+	r, _ := ev.SignedPeerRecord.Record()
+	rec := r.(*peer.PeerRecord)
+	s.e.Store(ev.SignedPeerRecord)
+	s.rec.Store(rec)
 }
 
 func (s *Surveyor) handleMessage(ctx context.Context, m *capnp.Message) error {
@@ -357,9 +373,6 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 			}
 		}()
 
-		timer := time.NewTimer(opts.Ttl)
-		defer timer.Stop()
-
 		for {
 			select {
 			case rec, ok := <-finder:
@@ -379,8 +392,6 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 					}
 				}
 
-			case <-timer.C:
-				return
 			case <-ctx.Done():
 				return
 			case <-s.ctx.Done():
