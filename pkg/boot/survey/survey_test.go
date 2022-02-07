@@ -15,9 +15,8 @@ import (
 )
 
 const (
-	testNs        = "casm/survey"
-	advertiseTTL  = time.Minute
-	multicastAddr = "224.0.1.241:3037"
+	testNs       = "casm/survey"
+	advertiseTTL = time.Minute
 )
 
 func TestTransport(t *testing.T) {
@@ -25,6 +24,8 @@ func TestTransport(t *testing.T) {
 
 	var tpt survey.Transport
 
+	// Change port in order to avoid conflicts between parallel tests.
+	const multicastAddr = "228.8.8.8:8823"
 	addr, err := net.ResolveUDPAddr("udp4", multicastAddr)
 	require.NoError(t, err)
 
@@ -67,6 +68,8 @@ func TestDiscover(t *testing.T) {
 	h2 := sim.MustHost(ctx)
 	defer h2.Close()
 
+	// Change port in order to avoid conflicts between parallel tests.
+	const multicastAddr = "228.8.8.8:8824"
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
 	a1, err := survey.New(h1, addr)
@@ -97,6 +100,8 @@ func TestClose(t *testing.T) {
 	h1 := sim.MustHost(ctx)
 	defer h1.Close()
 
+	// Change port in order to avoid conflicts between parallel tests.
+	const multicastAddr = "228.8.8.8:8825"
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
 	a1, err := survey.New(h1, addr)
