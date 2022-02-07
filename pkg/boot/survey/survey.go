@@ -66,8 +66,8 @@ type Surveyor struct {
 	advert         chan<- advert
 	disc, discDone chan<- disc
 
-	e   *record.Envelope
-	rec *peer.PeerRecord
+	e   atomic.Value
+	rec atomic.Value
 
 	mustFind      map[string]map[disc]struct{}
 	mustAdvertise map[string]time.Time
@@ -148,9 +148,11 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		for {
 			select {
 			case ev := <-sub.Out():
-				s.e = ev.(event.EvtLocalAddressesUpdated).SignedPeerRecord
-				r, _ := s.e.Record()
-				s.rec = r.(*peer.PeerRecord)
+				e := ev.(event.EvtLocalAddressesUpdated).SignedPeerRecord
+				r, _ := e.Record()
+				rec := r.(*peer.PeerRecord)
+				s.e.Store(e)
+				s.rec.Store(rec)
 
 			case m := <-recv:
 				if err := s.handleMessage(ctx, m); err != nil {
@@ -239,7 +241,7 @@ func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 		return err
 	}
 
-	if rec.PeerID == s.rec.PeerID {
+	if rec.PeerID == s.rec.Load().(*peer.PeerRecord).PeerID {
 		return nil // request comes from itself
 	}
 
@@ -264,7 +266,7 @@ func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 }
 
 func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
-	return xor(s.rec.PeerID, id)>>uint32(d) != 0
+	return xor(s.rec.Load().(*peer.PeerRecord).PeerID, id)>>uint32(d) != 0
 }
 
 func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
@@ -272,7 +274,7 @@ func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
 		return err
 	}
 
-	b, err := s.e.Marshal()
+	b, err := s.e.Load().(*record.Envelope).Marshal()
 	if err != nil {
 		return err
 	}
@@ -355,6 +357,9 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 			}
 		}()
 
+		timer := time.NewTimer(opts.Ttl)
+		defer timer.Stop()
+
 		for {
 			select {
 			case rec, ok := <-finder:
@@ -374,6 +379,8 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 					}
 				}
 
+			case <-timer.C:
+				return
 			case <-ctx.Done():
 				return
 			case <-s.ctx.Done():
@@ -420,7 +427,7 @@ func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
 
 	request.SetDistance(dist)
 
-	rec, err := s.e.Marshal()
+	rec, err := s.e.Load().(*record.Envelope).Marshal()
 	if err == nil {
 		err = request.SetSrc(rec)
 	}
