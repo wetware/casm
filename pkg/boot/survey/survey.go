@@ -373,9 +373,6 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 			}
 		}()
 
-		timer := time.NewTimer(opts.Ttl)
-		defer timer.Stop()
-
 		for {
 			select {
 			case rec, ok := <-finder:
@@ -395,8 +392,6 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 					}
 				}
 
-			case <-timer.C:
-				return
 			case <-ctx.Done():
 				return
 			case <-s.ctx.Done():
