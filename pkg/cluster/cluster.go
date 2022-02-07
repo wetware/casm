@@ -31,10 +31,10 @@ type View interface {
 }
 
 type Node struct {
-	name string
-	rt   RoutingTable
-	a    announcer
-	s    service.Set
+	ns string
+	rt RoutingTable
+	a  announcer
+	s  service.Set
 }
 
 // New cluster model.  It is safe to cancel 'ctx' after 'New' returns.
@@ -48,15 +48,22 @@ func New(ctx context.Context, ps PubSub, opt ...Option) (*Node, error) {
 	return n, n.s.Start()
 }
 
-func (m *Node) Close() error         { return m.s.Close() }
-func (m *Node) Topic() *pubsub.Topic { return m.a.t }
-func (m *Node) View() View           { return m.rt }
+func (n *Node) Close() error         { return n.s.Close() }
+func (n *Node) String() string       { return n.ns }
+func (n *Node) Topic() *pubsub.Topic { return n.a.t }
+func (n *Node) View() View           { return n.rt }
 
-func (m *Node) Bootstrap(ctx context.Context) (err error) {
-	return m.a.announce(ctx)
+func (n *Node) Bootstrap(ctx context.Context) (err error) {
+	return n.a.announce(ctx)
 }
 
-func (m *Node) newTopic(ps PubSub) service.Service {
+func (n *Node) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"ns": n.ns,
+	}
+}
+
+func (n *Node) newTopic(ps PubSub) service.Service {
 	var (
 		cancel pubsub.RelayCancelFunc
 	)
@@ -65,25 +72,25 @@ func (m *Node) newTopic(ps PubSub) service.Service {
 		// Update routing table via topic validator
 		service.Hook{
 			OnStart: func() (err error) {
-				return ps.RegisterTopicValidator(m.name,
-					pulse.NewValidator(m.rt))
+				return ps.RegisterTopicValidator(n.ns,
+					pulse.NewValidator(n.rt))
 			},
 			OnClose: func() error {
-				return ps.UnregisterTopicValidator(m.name)
+				return ps.UnregisterTopicValidator(n.ns)
 			},
 		},
 
 		// Join and relay the topic
 		service.Hook{
 			OnStart: func() (err error) {
-				if m.a.t, err = ps.Join(m.name); err == nil {
-					cancel, err = m.a.t.Relay()
+				if n.a.t, err = ps.Join(n.ns); err == nil {
+					cancel, err = n.a.t.Relay()
 				}
 				return
 			},
 			OnClose: func() error {
 				cancel()
-				return m.a.t.Close()
+				return n.a.t.Close()
 			},
 		},
 	}

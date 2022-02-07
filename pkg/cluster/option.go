@@ -17,7 +17,7 @@ func WithNamespace(ns string) Option {
 	}
 
 	return func(m *Node) {
-		m.name = ns
+		m.ns = ns
 	}
 }
 
