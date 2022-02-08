@@ -16,7 +16,7 @@ type comm struct {
 
 	cherr chan<- error
 	recv  chan<- *capnp.Message
-	send  <-chan *capnp.Message
+	send  chan *capnp.Message
 
 	addr  net.Addr
 	dconn net.PacketConn
@@ -24,7 +24,8 @@ type comm struct {
 
 func (c comm) Send(ctx context.Context, m *capnp.Message) (err error) {
 	select {
-	case c.recv <- m:
+	case c.send <- m:
+
 	case <-ctx.Done():
 		err = ctx.Err()
 	}

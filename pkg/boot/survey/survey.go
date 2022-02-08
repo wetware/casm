@@ -67,8 +67,8 @@ type Surveyor struct {
 	disc, discDone chan<- disc
 	req            chan<- req
 
-	raw []byte // marshaled envelope
-	rec *peer.PeerRecord
+	e   atomic.Value // marshaled envelope
+	rec atomic.Value
 
 	mustFind      map[string]map[disc]struct{}
 	mustAdvertise map[string]time.Time
@@ -152,9 +152,10 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 			select {
 			case ev := <-sub.Out():
 				e := ev.(event.EvtLocalAddressesUpdated).SignedPeerRecord
-				s.raw, _ = e.Marshal()
 				r, _ := e.Record()
-				s.rec = r.(*peer.PeerRecord)
+				rec := r.(*peer.PeerRecord)
+				s.e.Store(e)
+				s.rec.Store(rec)
 
 			case m := <-recv:
 				if err := s.handleMessage(ctx, m); err != nil {
@@ -188,7 +189,11 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 
 			case r := <-req:
 				request, _ := r.Pkt.Request()
-				r.Err <- request.SetSrc(s.raw)
+				src, err := s.e.Load().(*record.Envelope).Marshal()
+				if err != nil {
+					s.log.WithError(err).Debug("invalid local peer record")
+				}
+				r.Err <- request.SetSrc(src)
 
 			case err := <-cherr:
 				if err == nil {
@@ -247,7 +252,7 @@ func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 		return err
 	}
 
-	if rec.PeerID == s.rec.PeerID {
+	if rec.PeerID == s.rec.Load().(*peer.PeerRecord).PeerID {
 		return nil // request comes from itself
 	}
 
@@ -272,15 +277,20 @@ func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 }
 
 func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
-	return xor(s.rec.PeerID, id)>>uint32(d) != 0
+	return xor(s.rec.Load().(*peer.PeerRecord).PeerID, id)>>uint32(d) != 0
 }
 
-func (s *Surveyor) setResponse(ns string, p survey.Packet) (err error) {
-	if err = p.SetNamespace(ns); err == nil {
-		err = p.SetResponse(s.raw)
+func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
+	if err := p.SetNamespace(ns); err != nil {
+		return err
 	}
 
-	return
+	b, err := s.e.Load().(*record.Envelope).Marshal()
+	if err != nil {
+		return err
+	}
+
+	return p.SetResponse(b)
 }
 
 func (s *Surveyor) handleResponse(ctx context.Context, p survey.Packet) error {
