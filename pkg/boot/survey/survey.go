@@ -65,9 +65,8 @@ type Surveyor struct {
 
 	advert         chan<- advert
 	disc, discDone chan<- disc
-	req            chan<- req
 
-	e   atomic.Value // marshaled envelope
+	e   atomic.Value
 	rec atomic.Value
 
 	mustFind      map[string]map[disc]struct{}
@@ -86,7 +85,6 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		cherr    = make(chan error)
 		recv     = make(chan *capnp.Message, 8)
 		send     = make(chan *capnp.Message, 8)
-		req      = make(chan req)
 		advert   = make(chan advert)
 		discover = make(chan disc)
 		discDone = make(chan disc)
@@ -95,7 +93,6 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	s := &Surveyor{
 		ctx:           ctx,
 		cancel:        cancel,
-		req:           req,
 		advert:        advert,
 		disc:          discover,
 		discDone:      discDone,
@@ -137,6 +134,14 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		dconn.Close()
 		return nil, err
 	}
+
+	// Setup local peer
+	ev := <-sub.Out()
+	e := ev.(event.EvtLocalAddressesUpdated).SignedPeerRecord
+	r, _ := e.Record()
+	rec := r.(*peer.PeerRecord)
+	s.e.Store(e)
+	s.rec.Store(rec)
 
 	go func() {
 		defer lconn.Close()
@@ -186,14 +191,6 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 					delete(nsm, d)
 				}
 				close(d.Ch)
-
-			case r := <-req:
-				request, _ := r.Pkt.Request()
-				src, err := s.e.Load().(*record.Envelope).Marshal()
-				if err != nil {
-					s.log.WithError(err).Debug("invalid local peer record")
-				}
-				r.Err <- request.SetSrc(src)
 
 			case err := <-cherr:
 				if err == nil {
@@ -348,7 +345,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, err
 	}
 
-	p, err := s.buildRequest(ns, distance(opts))
+	m, err := s.buildRequest(ns, distance(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -408,53 +405,37 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, errors.New("closed")
 	}
 
-	return out, s.emitRequest(ctx, p)
+	return out, s.c.Send(ctx, m)
 }
 
-func (s *Surveyor) emitRequest(ctx context.Context, p survey.Packet) error {
-	cherr := make(chan error, 1) // TODO:  pool
-
-	select {
-	case s.req <- req{
-		Pkt: p,
-		Err: cherr,
-	}:
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-s.ctx.Done():
-		return errors.New("closed")
-	}
-
-	select {
-	case err := <-cherr:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-s.ctx.Done():
-		return errors.New("closed")
-	}
-}
-
-func (s *Surveyor) buildRequest(ns string, dist uint8) (p survey.Packet, err error) {
-	var seg *capnp.Segment
-	_, seg, err = capnp.NewMessage(capnp.SingleSegment(nil))
+func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	p, err = survey.NewRootPacket(seg)
+	p, err := survey.NewRootPacket(seg)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	var r survey.Packet_Request
-	r, err = p.NewRequest()
+	request, err := p.NewRequest()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = p.SetNamespace(ns); err != nil {
+		return nil, err
+	}
+
+	request.SetDistance(dist)
+
+	rec, err := s.e.Load().(*record.Envelope).Marshal()
 	if err == nil {
-		r.SetDistance(dist)
-		err = p.SetNamespace(ns)
+		err = request.SetSrc(rec)
 	}
 
-	return
+	return p.Message(), err
 }
 
 func xor(id1, id2 peer.ID) uint32 {
@@ -474,9 +455,4 @@ type advert struct {
 type disc struct {
 	NS string
 	Ch chan<- *peer.PeerRecord
-}
-
-type req struct {
-	Pkt survey.Packet
-	Err chan<- error
 }

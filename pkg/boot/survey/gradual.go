@@ -7,7 +7,6 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/wetware/casm/internal/api/survey"
 )
 
 // GradualSurveyor queries a progressively larger subset of the
@@ -30,24 +29,22 @@ type GradualSurveyor struct {
 	// uniformly from the interval (w/2, w), where 'w' is the wait
 	// duration.
 	DisableJitter bool
-
 	*Surveyor
 }
 
 func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	p, err := g.buildRequest(ns, 0)
-	if err != nil {
-		return nil, err
-	}
+	ctxSurv, cancel := context.WithCancel(ctx)
 
-	found, err := g.Surveyor.FindPeers(ctx, ns, append(opt, WithDistance(0))...)
+	found, err := g.Surveyor.FindPeers(ctxSurv, ns, append(opt, WithDistance(uint8(0)))...)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
 	out := make(chan peer.AddrInfo, 1)
 	go func() {
 		defer close(out)
+		defer cancel()
 
 		b := backoff.Backoff{
 			Factor: g.factor(),
@@ -59,7 +56,11 @@ func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discov
 		for {
 			select {
 			case <-time.After(b.Duration()):
-				err := g.retry(ctx, p, uint8(b.Attempt()))
+				cancel()
+				ctxSurv, cancel = context.WithCancel(ctx)
+				defer cancel()
+
+				found, err = g.Surveyor.FindPeers(ctxSurv, ns, append(opt, WithDistance(uint8(b.Attempt())))...)
 				if err != nil {
 					g.log.WithError(err).Debug("retry failed")
 				}
@@ -71,15 +72,16 @@ func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discov
 			case <-ctx.Done():
 				return
 			}
-
 			break
 		}
 
-		for info := range found {
-			select {
-			case out <- info:
-			case <-ctx.Done():
-			}
+		select {
+		case info := <-found:
+			out <- info
+
+		case <-ctx.Done():
+			return
+
 		}
 	}()
 
@@ -105,13 +107,4 @@ func (g GradualSurveyor) max() time.Duration {
 		return time.Second * 90
 	}
 	return g.Max
-}
-
-func (g GradualSurveyor) retry(ctx context.Context, p survey.Packet, d uint8) error {
-	r, err := p.Request()
-	if err == nil {
-		r.SetDistance(d)
-		err = g.emitRequest(ctx, p)
-	}
-	return err
 }
