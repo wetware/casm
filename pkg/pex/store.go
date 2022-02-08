@@ -219,14 +219,14 @@ func decay(d float64, maxDecay int) func(View) View {
 	}
 }
 
-type recordLoader interface {
-	Load() *peer.PeerRecord
+type recordProvider interface {
+	Record() *peer.PeerRecord
 }
 
-func appendLocal(rec recordLoader) func(View) View {
+func appendLocal(rec recordProvider) func(View) View {
 	return func(v View) View {
 		var g = GossipRecord{
-			PeerRecord: *rec.Load(),
+			PeerRecord: *rec.Record(),
 		}
 
 		_, s, err := capnp.NewMessage(capnp.SingleSegment(nil))

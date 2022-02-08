@@ -15,18 +15,13 @@ import (
 )
 
 type gossiper struct {
-	ctx      context.Context
-	Cancel   context.CancelFunc
 	Deadline time.Time
 	param    GossipParam
 	gossipStore
 }
 
-func newGossiper(ctx context.Context, gs gossipStore, ps GossipParam) *gossiper {
-	ctx, cancel := context.WithCancel(ctx)
+func newGossiper(gs gossipStore, ps GossipParam) *gossiper {
 	return &gossiper{
-		ctx:         ctx,
-		Cancel:      cancel,
 		param:       ps,
 		gossipStore: gs,
 	}
@@ -160,7 +155,7 @@ func (g *gossiper) MergeAndStore(local, remote View) error {
 	// Remove duplicates and combine local and remote records
 	newLocal := local.
 		Bind(merged(remote)).
-		Bind(isNot(g.Load().PeerID))
+		Bind(isNot(g.Record().PeerID))
 
 	// Apply swapping
 	s := min(g.param.S, max(len(newLocal)-g.param.C, 0))

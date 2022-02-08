@@ -123,7 +123,6 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 			case t := <-ticker.C:
 				for ns, g := range px.gs {
 					if t.After(g.Deadline) {
-						g.Cancel()
 						g.UnregisterRPC(h)
 						delete(px.gs, ns)
 					}
@@ -132,7 +131,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 			case add := <-addq:
 				g, ok := px.gs[add.NS]
 				if !ok {
-					g = add.NewGossiper(ctx, px.store.New(add.NS))
+					g = add.NewGossiper(px.store.New(add.NS))
 					g.RegisterRPC(px.log, h)
 					px.gs[add.NS] = g
 				}
@@ -230,7 +229,7 @@ func (rec *atomicRecord) Consume(e event.EvtLocalAddressesUpdated) {
 	(*atomic.Value)(rec).Store(r)
 }
 
-func (rec *atomicRecord) Load() *peer.PeerRecord {
+func (rec *atomicRecord) Record() *peer.PeerRecord {
 	return (*atomic.Value)(rec).Load().(*peer.PeerRecord)
 }
 
@@ -239,8 +238,8 @@ type addGossiper struct {
 	Opt *discovery.Options
 }
 
-func (add addGossiper) NewGossiper(ctx context.Context, s gossipStore) *gossiper {
-	return newGossiper(ctx, s, gossipParams(add.Opt))
+func (add addGossiper) NewGossiper(s gossipStore) *gossiper {
+	return newGossiper(s, gossipParams(add.Opt))
 }
 
 type getGossiper struct {
