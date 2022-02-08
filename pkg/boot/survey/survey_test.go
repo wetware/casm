@@ -58,7 +58,7 @@ func TestTransport(t *testing.T) {
 
 func TestDiscover(t *testing.T) {
 	t.Parallel()
-  
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

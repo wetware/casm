@@ -14,6 +14,8 @@ import (
 )
 
 func TestDiscoverGradual(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -22,9 +24,8 @@ func TestDiscoverGradual(t *testing.T) {
 	defer h1.Close()
 	h2 := sim.MustHost(ctx)
 	defer h2.Close()
-	waitReady(h1)
-	waitReady(h2)
 
+	const multicastAddr = "228.8.8.8:8822"
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
 	a1, err := survey.New(h1, addr)
@@ -35,7 +36,7 @@ func TestDiscoverGradual(t *testing.T) {
 	require.NoError(t, err)
 	defer a2.Close()
 
-	gradual := survey.GradualSurveyor{Surveyor: a1, Min: findPeersTTL, Max: findPeersTTL}
+	gradual := survey.GradualSurveyor{Surveyor: a1, Min: 10 * time.Millisecond, Max: 10 * time.Millisecond}
 
 	a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
 	a2.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))

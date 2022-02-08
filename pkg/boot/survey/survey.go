@@ -162,7 +162,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		var t time.Time
 
 		for {
-      select {
+			select {
 			case m := <-recv:
 				if err := s.handleMessage(ctx, m); err != nil {
 					s.log.WithError(err).Debug("dropped message")
