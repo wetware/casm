@@ -33,11 +33,11 @@ type GossipParam struct {
 
 func (g GossipParam) mtu() int64 { return int64(g.C * mtu) }
 
-func (g GossipParam) tail() func(gossipSlice) gossipSlice {
+func (g GossipParam) tail() func(View) View {
 	return tail(g.P)
 }
 
-func (g GossipParam) head() func(gossipSlice) gossipSlice {
+func (g GossipParam) head() func(View) View {
 	return head((g.C / 2) - 1)
 }
 

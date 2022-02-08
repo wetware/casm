@@ -2,16 +2,20 @@ package pex_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"testing"
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/pex"
+	mx "github.com/wetware/matrix/pkg"
 )
 
 func TestNewGossipRecord(t *testing.T) {
@@ -67,105 +71,105 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	}
 }
 
-// func TestView_validation(t *testing.T) {
-// 	t.Parallel()
-// 	t.Helper()
+func TestView_validation(t *testing.T) {
+	t.Parallel()
+	t.Helper()
 
-// 	t.Run("Succeed", func(t *testing.T) {
-// 		t.Parallel()
+	t.Run("Succeed", func(t *testing.T) {
+		t.Parallel()
 
-// 		ctx, cancel := context.WithCancel(context.Background())
-// 		defer cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-// 		sim := mx.New(ctx)
+		sim := mx.New(ctx)
 
-// 		hs := sim.MustHostSet(ctx, 2)
-// 		gs := mustGossipSlice(hs)
+		hs := sim.MustHostSet(ctx, 2)
+		v := mustView(hs)
 
-// 		// records from peers other than the sender MUST have hop > 0 in
-// 		// order to pass validation.
-// 		incrHops(gs[:len(gs)-1])
+		// records from peers other than the sender MUST have hop > 0 in
+		// order to pass validation.
+		incrHops(v[:len(v)-1])
 
-// 		err := gs.Validate()
-// 		require.NoError(t, err)
-// 	})
+		err := v.Validate()
+		require.NoError(t, err)
+	})
 
-// 	t.Run("SenderOnly", func(t *testing.T) {
-// 		t.Parallel()
+	t.Run("SenderOnly", func(t *testing.T) {
+		t.Parallel()
 
-// 		ctx, cancel := context.WithCancel(context.Background())
-// 		defer cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-// 		sim := mx.New(ctx)
+		sim := mx.New(ctx)
 
-// 		hs := sim.MustHostSet(ctx, 1)
-// 		gs := mustGossipSlice(hs)
+		hs := sim.MustHostSet(ctx, 1)
+		v := mustView(hs)
 
-// 		/*
-// 		 * There is only one record (from the sender), so don't
-// 		 * increment hops.  This should pass.
-// 		 */
+		/*
+		 * There is only one record (from the sender), so don't
+		 * increment hops.  This should pass.
+		 */
 
-// 		err := gs.Validate()
-// 		require.NoError(t, err)
-// 	})
+		err := v.Validate()
+		require.NoError(t, err)
+	})
 
-// 	t.Run("Fail", func(t *testing.T) {
-// 		t.Helper()
-// 		t.Parallel()
+	t.Run("Fail", func(t *testing.T) {
+		t.Helper()
+		t.Parallel()
 
-// 		t.Run("empty", func(t *testing.T) {
-// 			t.Parallel()
+		t.Run("empty", func(t *testing.T) {
+			t.Parallel()
 
-// 			var gs gossipSlice
-// 			err := gs.Validate()
-// 			require.ErrorAs(t, err, &ValidationError{})
-// 			require.EqualError(t, err, "empty view")
-// 		})
+			var v pex.View
+			err := v.Validate()
+			require.ErrorAs(t, err, &pex.ValidationError{})
+			require.EqualError(t, err, "empty view")
+		})
 
-// 		t.Run("sender_invalid_hop_range", func(t *testing.T) {
-// 			t.Parallel()
+		t.Run("sender_invalid_hop_range", func(t *testing.T) {
+			t.Parallel()
 
-// 			ctx, cancel := context.WithCancel(context.Background())
-// 			defer cancel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-// 			sim := mx.New(ctx)
+			sim := mx.New(ctx)
 
-// 			hs := sim.MustHostSet(ctx, 2)
-// 			gs := mustGossipSlice(hs)
+			hs := sim.MustHostSet(ctx, 2)
+			v := mustView(hs)
 
-// 			/*
-// 			 * N.B.:  we increment hops for _all_ records, including the
-// 			 *        sender.  This should be caught in validation.
-// 			 */
-// 			incrHops(gs)
+			/*
+			 * N.B.:  we increment hops for _all_ records, including the
+			 *        sender.  This should be caught in validation.
+			 */
+			incrHops(v)
 
-// 			err := gs.Validate()
-// 			require.ErrorAs(t, err, &ValidationError{})
-// 			require.ErrorIs(t, err, ErrInvalidRange)
-// 		})
+			err := v.Validate()
+			require.ErrorAs(t, err, &pex.ValidationError{})
+			require.ErrorIs(t, err, pex.ErrInvalidRange)
+		})
 
-// 		t.Run("invalid_hop_range", func(t *testing.T) {
-// 			t.Parallel()
+		t.Run("invalid_hop_range", func(t *testing.T) {
+			t.Parallel()
 
-// 			ctx, cancel := context.WithCancel(context.Background())
-// 			defer cancel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-// 			sim := mx.New(ctx)
+			sim := mx.New(ctx)
 
-// 			hs := sim.MustHostSet(ctx, 2)
+			hs := sim.MustHostSet(ctx, 2)
 
-// 			/*
-// 			 * N.B.:  we don't increment the hops here; this should be
-// 			 *        caught in validation.
-// 			 */
+			/*
+			 * N.B.:  we don't increment the hops here; this should be
+			 *        caught in validation.
+			 */
 
-// 			err := mustGossipSlice(hs).Validate()
-// 			require.ErrorAs(t, err, &ValidationError{})
-// 			require.ErrorIs(t, err, ErrInvalidRange)
-// 		})
-// 	})
-// }
+			err := mustView(hs).Validate()
+			require.ErrorAs(t, err, &pex.ValidationError{})
+			require.ErrorIs(t, err, pex.ErrInvalidRange)
+		})
+	})
+}
 
 func newTestRecord() (*peer.PeerRecord, *record.Envelope) {
 	priv, pub, err := crypto.GenerateECDSAKeyPair(rand.Reader)
@@ -192,46 +196,28 @@ func newTestRecord() (*peer.PeerRecord, *record.Envelope) {
 	return rec, e
 }
 
-// func mustGossipSlice(hs []host.Host) gossipSlice {
-// 	gs := make([]*GossipRecord, len(hs))
-// 	mx.
-// 		Go(func(ctx context.Context, i int, h host.Host) error {
-// 			waitReady(h)
-// 			return nil
-// 		}).
-// 		Go(func(ctx context.Context, i int, h host.Host) error {
-// 			e, err := getSignedRecord(h)
-// 			if err == nil {
-// 				gs[i], err = NewGossipRecord(e)
-// 			}
+func mustView(hs []host.Host) pex.View {
+	v := make([]*pex.GossipRecord, len(hs))
+	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
+		v[i], err = pex.NewGossipRecord(waitReady(h))
+		return err
+	}).Must(context.Background(), hs)
+	return v
+}
 
-// 			return err
-// 		}).Must(context.Background(), hs)
-// 	return gs
-// }
+func incrHops(v []*pex.GossipRecord) {
+	for _, g := range v {
+		g.IncrHop()
+	}
+}
 
-// func incrHops(gs []*GossipRecord) {
-// 	for _, g := range gs {
-// 		g.IncrHop()
-// 	}
-// }
+func waitReady(h host.Host) *record.Envelope {
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		panic(err)
+	}
+	defer sub.Close()
 
-// func waitReady(h host.Host) {
-// 	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	defer sub.Close()
-
-// 	<-sub.Out()
-// }
-
-// func getSignedRecord(h host.Host) (*record.Envelope, error) {
-// 	waitReady(h)
-
-// 	if cab, ok := peerstore.GetCertifiedAddrBook(h.Peerstore()); ok {
-// 		return cab.GetPeerRecord(h.ID()), nil
-// 	}
-
-// 	return nil, errors.New("no certified addrbook")
-// }
+	v := <-sub.Out()
+	return v.(event.EvtLocalAddressesUpdated).SignedPeerRecord
+}

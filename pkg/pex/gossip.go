@@ -77,7 +77,7 @@ func (g *gossiper) pushpull(ctx context.Context, s network.Stream) error {
 	var (
 		j      syncutil.Join
 		t, _   = ctx.Deadline()
-		remote gossipSlice
+		remote View
 	)
 
 	if err := s.SetDeadline(t); err != nil {
@@ -152,7 +152,7 @@ func (g *gossiper) pushpull(ctx context.Context, s network.Stream) error {
 	return err
 }
 
-func (g *gossiper) MergeAndStore(local, remote gossipSlice) error {
+func (g *gossiper) MergeAndStore(local, remote View) error {
 	if err := remote.Validate(); err != nil {
 		return err
 	}
@@ -200,4 +200,17 @@ func streamFields(s network.Stream) log.F {
 		"proto":  s.Protocol(),
 		"stream": s.ID(),
 	}
+}
+func min(n1, n2 int) int {
+	if n1 <= n2 {
+		return n1
+	}
+	return n2
+}
+
+func max(n1, n2 int) int {
+	if n1 <= n2 {
+		return n2
+	}
+	return n1
 }

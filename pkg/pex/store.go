@@ -1,7 +1,6 @@
 package pex
 
 import (
-	"fmt"
 	"math/rand"
 	"sort"
 	"time"
@@ -11,6 +10,7 @@ import (
 	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/query"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/wetware/casm/internal/api/pex"
 )
 
 func init() { rand.Seed(time.Now().UnixNano()) }
@@ -45,7 +45,7 @@ func (gs gossipStore) Loggable() map[string]interface{} {
 	}
 }
 
-func (gs gossipStore) LoadRecords() (gossipSlice, error) {
+func (gs gossipStore) LoadRecords() (View, error) {
 	// return all entries under the local instance's key prefix
 	res, err := gs.store.Query(query.Query{
 		Prefix: "/",
@@ -60,7 +60,7 @@ func (gs gossipStore) LoadRecords() (gossipSlice, error) {
 		return nil, err
 	}
 
-	recs := make(gossipSlice, len(es))
+	recs := make(View, len(es))
 	for i, entry := range es {
 		recs[i] = new(GossipRecord) // TODO:  pool?
 
@@ -77,7 +77,7 @@ func (gs gossipStore) LoadRecords() (gossipSlice, error) {
 	return recs, nil
 }
 
-func (gs gossipStore) StoreRecords(old, new gossipSlice) error {
+func (gs gossipStore) StoreRecords(old, new View) error {
 	batch, err := gs.store.Batch()
 	if err != nil {
 		return err
@@ -127,10 +127,10 @@ func randomOrder() query.OrderByFunction {
 	}
 }
 
-func filter(f func(*GossipRecord) bool) func(gossipSlice) gossipSlice {
-	return func(gs gossipSlice) gossipSlice {
-		filtered := make(gossipSlice, 0, len(gs))
-		for _, g := range gs {
+func filter(f func(*GossipRecord) bool) func(View) View {
+	return func(v View) View {
+		filtered := make(View, 0, len(v))
+		for _, g := range v {
 			if f(g) {
 				filtered = append(filtered, g)
 			}
@@ -139,24 +139,24 @@ func filter(f func(*GossipRecord) bool) func(gossipSlice) gossipSlice {
 	}
 }
 
-func isNot(self peer.ID) func(gossipSlice) gossipSlice {
+func isNot(self peer.ID) func(View) View {
 	return filter(func(g *GossipRecord) bool {
 		return self != g.PeerID
 	})
 }
 
-func merged(tail gossipSlice) func(gossipSlice) gossipSlice {
-	return func(gs gossipSlice) gossipSlice {
+func merged(tail View) func(View) View {
+	return func(v View) View {
 		return append(
-			gs.Bind(dedupe(tail, true)),
-			tail.Bind(dedupe(gs, false))...)
+			v.Bind(dedupe(tail, true)),
+			tail.Bind(dedupe(v, false))...)
 	}
 }
 
-func dedupe(other gossipSlice, keepEqual bool) func(gossipSlice) gossipSlice {
-	return func(gs gossipSlice) gossipSlice {
-		return gs.Bind(filter(func(g *GossipRecord) bool {
-			have, found := other.find(g)
+func dedupe(other View, keepEqual bool) func(View) View {
+	return func(v View) View {
+		return v.Bind(filter(func(g *GossipRecord) bool {
+			have, found := other.find(g.PeerID)
 			if keepEqual {
 				return !found || g.Seq > have.Seq || g.Hop() < have.Hop() ||
 					(g.Seq == have.Seq && g.Hop() == have.Hop())
@@ -167,55 +167,55 @@ func dedupe(other gossipSlice, keepEqual bool) func(gossipSlice) gossipSlice {
 	}
 }
 
-func shuffled() func(gossipSlice) gossipSlice {
-	return func(gs gossipSlice) gossipSlice {
-		rand.Shuffle(len(gs), gs.Swap)
-		return gs
+func shuffled() func(View) View {
+	return func(v View) View {
+		rand.Shuffle(len(v), v.Swap)
+		return v
 	}
 }
 
-func sorted() func(gossipSlice) gossipSlice {
-	return func(gs gossipSlice) gossipSlice {
-		sort.Sort(gs)
-		return gs
+func sorted() func(View) View {
+	return func(v View) View {
+		sort.Sort(v)
+		return v
 	}
 }
 
-func head(n int) func(gossipSlice) gossipSlice {
+func head(n int) func(View) View {
 	if n < 0 {
 		panic("n must be greater than zero.")
 	}
 
-	return func(gs gossipSlice) gossipSlice {
-		if n < len(gs) {
-			gs = gs[:n]
+	return func(v View) View {
+		if n < len(v) {
+			v = v[:n]
 		}
 
-		return gs
+		return v
 	}
 }
 
-func tail(n int) func(gossipSlice) gossipSlice {
+func tail(n int) func(View) View {
 	if n < 0 {
 		panic("n must be greater than zero.")
 	}
 
-	return func(gs gossipSlice) gossipSlice {
-		if n < len(gs) {
-			gs = gs[len(gs)-n:]
+	return func(v View) View {
+		if n < len(v) {
+			v = v[len(v)-n:]
 		}
 
-		return gs
+		return v
 	}
 }
 
-func decay(d float64, maxDecay int) func(gossipSlice) gossipSlice {
-	return func(gs gossipSlice) gossipSlice {
-		for len(gs) > 0 && rand.Float64() < d && maxDecay > 0 {
-			gs = gs[:len(gs)-1]
+func decay(d float64, maxDecay int) func(View) View {
+	return func(v View) View {
+		for len(v) > 0 && rand.Float64() < d && maxDecay > 0 {
+			v = v[:len(v)-1]
 			maxDecay--
 		}
-		return gs
+		return v
 	}
 }
 
@@ -223,106 +223,22 @@ type recordLoader interface {
 	Load() *peer.PeerRecord
 }
 
-func appendLocal(rec recordLoader) func(gossipSlice) gossipSlice {
-	return func(gs gossipSlice) gossipSlice {
-		var (
-			g   GossipRecord
-			err error
-		)
+func appendLocal(rec recordLoader) func(View) View {
+	return func(v View) View {
+		var g = GossipRecord{
+			PeerRecord: *rec.Load(),
+		}
 
-		if g.g, err = newGossip(capnp.SingleSegment(nil)); err != nil {
+		_, s, err := capnp.NewMessage(capnp.SingleSegment(nil))
+		if err != nil {
 			panic(err)
 		}
 
-		g.PeerRecord = *rec.Load()
-
-		return append(gs, &g)
-	}
-}
-
-type gossipSlice []*GossipRecord
-
-func (gs gossipSlice) Len() int           { return len(gs) }
-func (gs gossipSlice) Less(i, j int) bool { return gs[i].Hop() < gs[j].Hop() }
-func (gs gossipSlice) Swap(i, j int)      { gs[i], gs[j] = gs[j], gs[i] }
-
-// Validate a View that was received during a gossip round.
-func (gs gossipSlice) Validate() error {
-	if len(gs) == 0 {
-		return ValidationError{Message: "empty view"}
-	}
-
-	// Non-senders should have a hop > 0
-	for _, g := range gs[:len(gs)-1] {
-		if g.Hop() == 0 {
-			return ValidationError{
-				Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
-				Cause:   fmt.Errorf("%w: expected hop > 0", ErrInvalidRange),
-			}
+		g.g, err = pex.NewRootGossip(s)
+		if err != nil {
+			panic(err)
 		}
+
+		return append(v, &g)
 	}
-
-	// Validate sender hop == 0
-	if g := gs.last(); g.Hop() != 0 {
-		return ValidationError{
-			Message: fmt.Sprintf("sender %s", g.PeerID.ShortString()),
-			Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
-		}
-	}
-
-	return nil
-}
-
-func (gs gossipSlice) Bind(f func(gossipSlice) gossipSlice) gossipSlice { return f(gs) }
-
-func (gs gossipSlice) find(g *GossipRecord) (have *GossipRecord, found bool) {
-	seek := g.PeerID
-	for _, have = range gs {
-		if found = seek == have.PeerID; found {
-			break
-		}
-	}
-
-	return
-}
-
-// n.b.:  panics if gs is empty.
-func (gs gossipSlice) last() *GossipRecord { return gs[len(gs)-1] }
-
-func (gs gossipSlice) incrHops() {
-	for _, g := range gs {
-		g.IncrHop()
-	}
-}
-
-func (gs gossipSlice) diff(other gossipSlice) (diff gossipSlice) {
-	for _, g := range gs {
-		if _, found := other.find(g); !found {
-			diff = append(diff, g)
-		}
-	}
-	return
-}
-
-// convert last 8 bytes of a peer.ID into a unit64.
-func lastUint64(s string) (u uint64) {
-	for i := 0; i < 8; i++ {
-		u = (u << 8) | uint64(s[len(s)-i-1])
-	}
-
-	return
-}
-
-func min(n1, n2 int) int {
-	if n1 <= n2 {
-		return n1
-	}
-	return n2
-}
-
-func max(n1, n2 int) int {
-	if n1 <= n2 {
-		return n2
-	}
-	return n1
 }

@@ -27,17 +27,20 @@ func NewGossipRecord(env *record.Envelope) (*GossipRecord, error) {
 		return nil, errors.New("not a peer record")
 	}
 
-	g, err := newGossip(capnp.SingleSegment(make([]byte, 0, 512)))
+	_, s, err := capnp.NewMessage(capnp.SingleSegment(make([]byte, 0, 512)))
+	if err != nil {
+		return nil, err
+	}
+
+	g, err := pex.NewRootGossip(s)
 	if err != nil {
 		return nil, err
 	}
 
 	b, err := env.Marshal()
-	if err != nil {
-		return nil, err
+	if err == nil {
+		err = g.SetEnvelope(b)
 	}
-
-	err = g.SetEnvelope(b)
 
 	return &GossipRecord{
 		g:          g,
@@ -94,10 +97,73 @@ func (g *GossipRecord) ReadMessage(m *capnp.Message) error {
 	}
 }
 
-func newGossip(a capnp.Arena) (g pex.Gossip, err error) {
-	var s *capnp.Segment
-	if _, s, err = capnp.NewMessage(a); err == nil {
-		g, err = pex.NewRootGossip(s)
+type View []*GossipRecord
+
+func (v View) Len() int           { return len(v) }
+func (v View) Less(i, j int) bool { return v[i].Hop() < v[j].Hop() }
+func (v View) Swap(i, j int)      { v[i], v[j] = v[j], v[i] }
+
+// Validate a View that was received during a gossip round.
+func (v View) Validate() error {
+	if len(v) == 0 {
+		return ValidationError{Message: "empty view"}
+	}
+
+	// Non-senders should have a hop > 0
+	for _, g := range v[:len(v)-1] {
+		if g.Hop() == 0 {
+			return ValidationError{
+				Message: fmt.Sprintf("peer %s", g.PeerID.ShortString()),
+				Cause:   fmt.Errorf("%w: expected hop > 0", ErrInvalidRange),
+			}
+		}
+	}
+
+	// Validate sender hop == 0
+	if g := v.last(); g.Hop() != 0 {
+		return ValidationError{
+			Message: fmt.Sprintf("sender %s", g.PeerID.ShortString()),
+			Cause:   fmt.Errorf("%w: nonzero hop for sender", ErrInvalidRange),
+		}
+	}
+
+	return nil
+}
+
+func (v View) Bind(f func(View) View) View { return f(v) }
+
+func (v View) find(id peer.ID) (have *GossipRecord, found bool) {
+	for _, have = range v {
+		if found = id == have.PeerID; found {
+			break
+		}
+	}
+
+	return
+}
+
+// n.b.:  panics if v is empty.
+func (v View) last() *GossipRecord { return v[len(v)-1] }
+
+func (v View) incrHops() {
+	for _, g := range v {
+		g.IncrHop()
+	}
+}
+
+func (v View) diff(other View) (diff View) {
+	for _, g := range v {
+		if _, found := other.find(g.PeerID); !found {
+			diff = append(diff, g)
+		}
+	}
+	return
+}
+
+// convert last 8 bytes of a peer.ID into a unit64.
+func lastUint64(s string) (u uint64) {
+	for i := 0; i < 8; i++ {
+		u = (u << 8) | uint64(s[len(s)-i-1])
 	}
 
 	return
