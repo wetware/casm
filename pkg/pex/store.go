@@ -15,27 +15,37 @@ import (
 
 func init() { rand.Seed(time.Now().UnixNano()) }
 
-type GossipStore struct {
-	ns    string
-	store ds.Batching
+// rootStore is a factory type that derives "child" datastores
+// that are scoped to a namespace.
+type rootStore struct {
+	ds.Batching
+	atomicRecord
 }
 
-func NewGossipStore(store ds.Batching, ns string) GossipStore {
-	return GossipStore{
-		ns:    ns,
-		store: nsds.Wrap(store, ds.NewKey(ns)),
+// New gossipStore, scoped to ns.
+func (rs *rootStore) New(ns string) gossipStore {
+	return gossipStore{
+		ns:           ns,
+		store:        nsds.Wrap(rs.Batching, ds.NewKey(ns)),
+		atomicRecord: &rs.atomicRecord,
 	}
 }
 
-func (gs GossipStore) String() string { return gs.ns }
+type gossipStore struct {
+	ns    string
+	store ds.Batching
+	*atomicRecord
+}
 
-func (gs GossipStore) Loggable() map[string]interface{} {
+func (gs gossipStore) String() string { return gs.ns }
+
+func (gs gossipStore) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"ns": gs.ns,
 	}
 }
 
-func (gs GossipStore) LoadRecords() (gossipSlice, error) {
+func (gs gossipStore) LoadRecords() (gossipSlice, error) {
 	// return all entries under the local instance's key prefix
 	res, err := gs.store.Query(query.Query{
 		Prefix: "/",
@@ -67,7 +77,7 @@ func (gs GossipStore) LoadRecords() (gossipSlice, error) {
 	return recs, nil
 }
 
-func (gs GossipStore) StoreRecords(old, new gossipSlice) error {
+func (gs gossipStore) StoreRecords(old, new gossipSlice) error {
 	batch, err := gs.store.Batch()
 	if err != nil {
 		return err
@@ -209,7 +219,11 @@ func decay(d float64, maxDecay int) func(gossipSlice) gossipSlice {
 	}
 }
 
-func appendLocal(m Mint) func(gossipSlice) gossipSlice {
+type recordLoader interface {
+	Load() *peer.PeerRecord
+}
+
+func appendLocal(rec recordLoader) func(gossipSlice) gossipSlice {
 	return func(gs gossipSlice) gossipSlice {
 		var (
 			g   GossipRecord
@@ -220,9 +234,7 @@ func appendLocal(m Mint) func(gossipSlice) gossipSlice {
 			panic(err)
 		}
 
-		if g.PeerRecord, err = m.Mint(&g); err != nil {
-			panic(err)
-		}
+		g.PeerRecord = rec.Load()
 
 		return append(gs, &g)
 	}

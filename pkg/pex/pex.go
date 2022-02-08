@@ -3,22 +3,19 @@ package pex
 import (
 	"context"
 	"errors"
-	"sync"
+	"sync/atomic"
 
-	"io"
 	"time"
 
-	"capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
+	"github.com/wetware/casm/pkg/boot"
 
 	"github.com/lthibault/log"
-	syncutil "github.com/lthibault/util/sync"
-	casm "github.com/wetware/casm/pkg"
-	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
 
 const (
@@ -67,28 +64,82 @@ type StreamHandler interface {
 // these have been carefully selected to work in a broad range of applications
 // and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
-	mu  sync.RWMutex
+	cq  <-chan struct{}
 	log log.Logger
+
+	add chan<- addGossiper
+	get chan<- getGossiper
 	gs  map[string]*gossiper
+
+	disc    discovery.Discovery
+	discOpt []discovery.Option
+	store   rootStore
 }
 
-func New(ctx context.Context, opt ...Option) (*PeerExchange, error) {
+func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error) {
+	var (
+		addq = make(chan addGossiper)
+		getq = make(chan getGossiper)
+	)
+
 	var px = PeerExchange{
-		gs: make(map[string]*gossiper),
+		cq:  ctx.Done(),
+		add: addq,
+		get: getq,
+		gs:  make(map[string]*gossiper),
 	}
 
 	for _, option := range withDefaults(opt) {
 		option(&px)
 	}
 
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		return nil, err
+	}
+
+	// Sync the local record
+	select {
+	case v := <-sub.Out():
+		px.store.Consume(v.(event.EvtLocalAddressesUpdated))
+
+	case <-ctx.Done():
+		defer sub.Close()
+		return nil, ctx.Err()
+	}
+
+	// Update
 	go func() {
+		defer sub.Close()
+
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
 		for {
 			select {
+			case v := <-sub.Out():
+				px.store.Consume(v.(event.EvtLocalAddressesUpdated))
+
 			case t := <-ticker.C:
-				px.expire(t)
+				for ns, g := range px.gs {
+					if t.After(g.Deadline) {
+						g.Cancel()
+						g.UnregisterRPC(h)
+						delete(px.gs, ns)
+					}
+				}
+
+			case add := <-addq:
+				g, ok := px.gs[add.NS]
+				if !ok {
+					g = add.NewGossiper(ctx, px.store.New(add.NS))
+					g.RegisterRPC(px.log, h)
+					px.gs[add.NS] = g
+				}
+				g.Deadline = time.Now().Add(add.Opt.Ttl)
+
+			case get := <-getq:
+				get.Res <- px.gs[get.NS]
 
 			case <-ctx.Done():
 				return
@@ -105,17 +156,21 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discove
 		return 0, err
 	}
 
-	px.mu.Lock()
-	defer px.mu.Unlock()
-
-	g, ok := px.gs[ns]
-	if !ok {
-		g = newGossiper( /* ... */ )
-		px.gs[ns] = g
+	ttl, err := px.disc.Advertise(ctx, ns, opt...)
+	if err != nil {
+		return 0, err
 	}
 
-	g.TTL = time.Now().Add(opts.Ttl)
-	return opts.Ttl, nil
+	select {
+	case px.add <- addGossiper{NS: ns, Opt: &opts}:
+		return ttl, nil
+
+	case <-ctx.Done():
+		return 0, ctx.Err()
+
+	case <-px.cq:
+		return 0, errors.New("closed")
+	}
 }
 
 func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
@@ -124,605 +179,71 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 		return nil, err
 	}
 
-	px.mu.RLock()
-	defer px.mu.RUnlock()
-
-	if g, ok := px.gs[ns]; ok {
-		return g.StreamPeers(ctx)
+	var ch = make(chan *gossiper, 1) // TODO: pool
+	select {
+	case px.get <- getGossiper{NS: ns, Res: ch}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-px.cq:
+		return nil, errors.New("closed")
 	}
 
-	return nil, errors.New("not found")
-}
-
-func (px *PeerExchange) expire(t time.Time) {
-	px.mu.Lock()
-	defer px.mu.Unlock()
-
-	for ns, g := range px.gs {
-		if t.After(g.TTL) {
-			delete(px.gs, ns)
+	var g *gossiper
+	select {
+	case g = <-ch:
+		if g == nil {
+			return nil, errors.New("not found")
 		}
-	}
-}
 
-type gossiper struct {
-	TTL   time.Time
-	param GossipParam
-	store GossipStore
-	mint  Mint
-}
-
-func newGossiper(m Mint, gs GossipStore, opt ...Option) (*gossiper, error) {
-	var px = gossiper{
-		store: gs,
-		mint:  m,
-	}
-	for _, option := range withDefaults(opt) {
-		option(&px)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-px.cq:
+		return nil, errors.New("closed")
 	}
 
-	return &px, nil
-}
-
-func (px *gossiper) String() string { return px.store.String() }
-
-func (px *gossiper) Loggable() map[string]interface{} {
-	return px.store.Loggable()
-}
-
-func (px *gossiper) RegisterRPC(log log.Logger, h StreamHandler) {
-	var (
-		match       = casm.NewMatcher(px.String())
-		matchPacked = match.Then(protoutil.Exactly("packed"))
-	)
-
-	h.SetStreamHandlerMatch(
-		casm.Subprotocol(px.String()),
-		match,
-		px.newHandler(log, rpc.NewStreamTransport))
-
-	h.SetStreamHandlerMatch(
-		casm.Subprotocol(px.String(), "packed"),
-		matchPacked,
-		px.newHandler(log, rpc.NewPackedStreamTransport))
-}
-
-func (px *gossiper) UnregisterRPC(h StreamHandler) {
-	h.RemoveStreamHandler(casm.Subprotocol(px.String()))
-	h.RemoveStreamHandler(casm.Subprotocol(px.String(), "packed"))
-}
-
-func (px *gossiper) newHandler(log log.Logger, f transportFactory) network.StreamHandler {
-	return func(s network.Stream) {
-		slog := log.
-			With(streamFields(s)).
-			With(px.mint).
-			With(px)
-		defer s.Close()
-
-		ctx, cancel := context.WithTimeout(context.TODO(), timeout)
-		defer cancel()
-
-		log.Debug("handler started")
-		defer func() { log.Debug("handler finished") }()
-
-		if err := px.pushpull(ctx, s); err != nil {
-			slog.WithError(err).Debug("peer exchange failed")
-		}
-	}
-}
-
-func (px *gossiper) pushpull(ctx context.Context, s network.Stream) error {
-	var (
-		j      syncutil.Join
-		t, _   = ctx.Deadline()
-		remote gossipSlice
-	)
-
-	if err := s.SetDeadline(t); err != nil {
-		return err
-	}
-
-	recs, err := px.store.LoadRecords()
+	gs, err := g.LoadRecords()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	recs = recs.Bind(sorted())
-	oldest := recs.Bind(px.param.tail())
-
-	local := append(
-		recs.
-			Bind(head(len(recs)-len(oldest))).
-			Bind(shuffled()),
-		oldest...)
-
-	// push
-	j.Go(func() error {
-		defer s.CloseWrite()
-
-		buffer := local.
-			Bind(isNot(s.Conn().RemotePeer())).
-			Bind(px.param.head()).
-			Bind(appendLocal(px.mint))
-
-		enc := capnp.NewPackedEncoder(s)
-		for _, g := range buffer {
-			if err = enc.Encode(g.Message()); err != nil {
-				break
-			}
-		}
-
-		return err
-	})
-
-	// pull
-	j.Go(func() error {
-		defer s.CloseRead()
-
-		r := io.LimitReader(s, px.param.mtu())
-
-		dec := capnp.NewPackedDecoder(r)
-		dec.MaxMessageSize = mtu
-
-		for {
-			msg, err := dec.Decode()
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				return err
-			}
-
-			g := new(GossipRecord) // TODO(performance):  pool?
-			if err = g.ReadMessage(msg); err != nil {
-				return err
-			}
-
-			remote = append(remote, g)
-		}
-		return nil
-	})
-
-	if err = j.Wait(); err == nil {
-		err = px.MergeAndStore(local, remote)
+	if len(gs) == 0 {
+		return px.disc.FindPeers(ctx, ns, px.discOpt...)
 	}
 
-	return err
+	sa := make(boot.StaticAddrs, len(gs))
+	for i, r := range gs {
+		sa[i].ID = r.PeerID
+		sa[i].Addrs = r.Addrs
+	}
+
+	return sa.FindPeers(ctx, "")
 }
 
-func (px *gossiper) MergeAndStore(local, remote gossipSlice) error {
-	if err := remote.Validate(); err != nil {
-		return err
+type atomicRecord atomic.Value
+
+func (rec *atomicRecord) Consume(e event.EvtLocalAddressesUpdated) {
+	r, err := e.SignedPeerRecord.Record()
+	if err != nil {
+		panic(err)
 	}
 
-	// Remove duplicates and combine local and remote records
-	newLocal := local.
-		Bind(merged(remote)).
-		Bind(isNot(px.mint.Load().Record.PeerID))
-
-	// Apply swapping
-	s := min(px.param.S, max(len(newLocal)-px.param.C, 0))
-	newLocal = newLocal.
-		Bind(tail(len(newLocal) - s)).
-		Bind(sorted())
-
-	// Apply retention
-	r := min(min(px.param.P, px.param.C), len(newLocal))
-	maxDecay := min(r, max(len(newLocal)-px.param.C, 0))
-	oldest := newLocal.Bind(tail(r)).Bind(decay(px.param.D, maxDecay))
-
-	//Apply random eviction
-	c := px.param.C - len(oldest)
-	newLocal = newLocal.
-		Bind(head(max(len(newLocal)-r, 0))).
-		Bind(shuffled()).
-		Bind(head(c))
-
-	// Merge with oldest nodes
-	newLocal = newLocal.
-		Bind(merged(oldest))
-
-	newLocal.incrHops()
-
-	return px.store.StoreRecords(local, newLocal)
+	(*atomic.Value)(rec).Store(r)
 }
 
-type transportFactory func(io.ReadWriteCloser) rpc.Transport
-
-func (f transportFactory) NewTransport(rwc io.ReadWriteCloser) rpc.Transport { return f(rwc) }
-
-func streamFields(s network.Stream) log.F {
-	return log.F{
-		"peer":   s.Conn().RemotePeer(),
-		"conn":   s.Conn().ID(),
-		"proto":  s.Protocol(),
-		"stream": s.ID(),
-	}
+func (rec *atomicRecord) Load() *peer.PeerRecord {
+	return (*atomic.Value)(rec).Load().(*peer.PeerRecord)
 }
 
-/*
+type addGossiper struct {
+	NS  string
+	Opt *discovery.Options
+}
 
- ...
+func (add addGossiper) NewGossiper(ctx context.Context, s gossipStore) *gossiper {
+	return newGossiper(ctx, s, gossipParams(add.Opt))
+}
 
-*/
-
-// // Bootstrap a namespace by performing an initial gossip round with a known peer.
-// func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peer peer.AddrInfo) error {
-// 	if err := px.h.Connect(ctx, peer); err != nil {
-// 		return err
-// 	}
-
-// 	s, err := px.h.NewStream(ctx, peer.ID, proto(ns))
-// 	if err != nil {
-// 		return streamError{Peer: peer.ID, error: err}
-// 	}
-// 	defer s.Close()
-
-// 	return px.pushpull(ctx, px.namespace(ns), s)
-// }
-
-// func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-// 	opts, err := px.options(ns, opt)
-// 	if err != nil {
-// 		return 0, err
-// 	}
-
-// 	ctx, cancel := context.WithTimeout(ctx, timeout)
-// 	defer cancel()
-
-// 	px.trackNamespace(ns, opts.Ttl)
-
-// 	// try the gossip cache first; if it's empty (or if we fail to connect
-// 	// to the peers within), fall back on the discovery service.
-// 	if err = px.gossipCache(ctx, ns); err != nil && px.d != nil {
-// 		err = px.gossipDiscover(ctx, ns)
-// 	}
-
-// 	return opts.Ttl, err
-// }
-
-// func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-// 	opts, err := px.options(ns, opt)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	view, err := px.namespace(ns).View()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	out := make(chan peer.AddrInfo, len(view))
-// 	defer close(out)
-
-// 	for _, info := range limit(opts, view) {
-// 		out <- info
-// 	}
-
-// 	return out, nil
-// }
-
-// func (px *PeerExchange) options(ns string, opt []discovery.Option) (opts *discovery.Options, err error) {
-// 	opts = &discovery.Options{Limit: px.newGossip(ns).C}
-// 	if err = opts.Apply(opt...); err == nil && opts.Ttl == 0 {
-// 		opts.Ttl = px.newTick(ns)
-// 	}
-
-// 	return
-// }
-
-// func (px *PeerExchange) gossipCache(ctx context.Context, ns string) error {
-// 	view, err := px.namespace(ns).View()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	if len(view) == 0 {
-// 		return errors.New("orphaned host")
-// 	}
-
-// 	// local host should not be in view
-
-// 	for _, info := range view {
-// 		if err = px.Bootstrap(ctx, ns, info); err != nil {
-// 			if se, ok := err.(streamError); ok {
-// 				px.log.With(se).Debug("gossip error")
-// 				continue
-// 			}
-// 		}
-
-// 		break
-// 	}
-
-// 	return err
-// }
-
-// func (px *PeerExchange) gossipDiscover(ctx context.Context, ns string) error {
-// 	ps, err := px.d.FindPeers(ctx, ns)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	for info := range ps {
-// 		if info.ID == px.h.ID() {
-// 			continue // don't dial self
-// 		}
-
-// 		if err = px.Bootstrap(ctx, ns, info); err != nil {
-// 			if se, ok := err.(streamError); ok {
-// 				px.log.With(se).Debug("gossip error")
-// 				continue
-// 			}
-// 		}
-// 		break
-// 	}
-
-// 	return err
-// }
-
-// type tracker struct {
-// }
-
-// func (px *PeerExchange) matcher() (func(s string) bool, error) {
-// 	versionOK, err := helpers.MultistreamSemverMatcher(Proto)
-// 	return func(s string) bool {
-// 		return versionOK(path.Dir(s))
-// 	}, err
-// }
-
-// func (px *PeerExchange) setLocalRecord(e *record.Envelope) error {
-// 	g, err := NewGossipRecord(e)
-// 	if err == nil {
-// 		px.self.Store(g)
-// 	}
-// 	return err
-// }
-
-// func proto(ns string) protocol.ID {
-// 	return protoutil.AppendStrings(Proto, ns)
-// }
-
-// func limit(opts *discovery.Options, is []peer.AddrInfo) []peer.AddrInfo {
-// 	if opts.Limit < len(is) {
-// 		is = is[:opts.Limit]
-// 	}
-
-// 	return is
-// }
-
-// func (px *PeerExchange) namespace(ns string) namespace {
-// 	// function for abstracting of internal management of the namespace
-// 	return px.getOrCreateNamespace(ns)
-// }
-
-// func (px *PeerExchange) trackNamespace(ns string, ttl time.Duration) {
-// 	for {
-// 		select {
-// 		case px.getOrCreateNamespace(ns).ttl <- ttl:
-// 			return
-// 		case <-px.getOrCreateNamespace(ns).ctx.Done():
-// 			// If namespace context is Done, the loop continues
-// 			// until a new namespace is created and the TTL is set
-// 		}
-// 	}
-// }
-
-// func (px *PeerExchange) getOrCreateNamespace(nss string) namespace {
-// 	px.mu.Lock()
-// 	defer px.mu.Unlock()
-
-// 	if ns, ok := px.ns[nss]; ok {
-// 		return ns
-// 	}
-
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	ns := namespace{
-// 		nss:    nss,
-// 		prefix: px.prefix.ChildString(nss),
-// 		id:     px.h.ID(),
-// 		gossip: px.newGossip(nss),
-// 		e:      px.e,
-// 		ds:     px.newStore(nss),
-
-// 		ttl:    make(chan time.Duration),
-// 		ctx:    ctx,
-// 		cancel: cancel,
-// 	}
-// 	px.ns[nss] = ns
-// 	// Namespace is reomved after 15 seconds,
-// 	// unless the user requests for a longer tracking TTL
-// 	go px.removeNamespace(ns, 15*time.Second)
-// 	return ns
-// }
-
-// func (px *PeerExchange) removeNamespace(ns namespace, ttl time.Duration) {
-// 	timer := time.NewTimer(ttl)
-// 	defer timer.Stop()
-
-// 	for {
-// 		select {
-// 		case <-timer.C:
-// 			px.mu.Lock()
-// 			defer px.mu.Unlock()
-// 			delete(px.ns, ns.nss)
-// 			ns.cancel()
-// 			return
-// 		case ttl := <-ns.ttl:
-// 			timer.Reset(ttl)
-// 		}
-// 	}
-// }
-
-// /*
-//  * Set-up functions
-//  */
-
-// // suppliedComponents is  needed in order for fx to correctly handle
-// // the 'host.Host' interface.  Simply relying on 'fx.Supply' will
-// // use the type of the underlying host implementation, which may
-// // vary.
-// type suppliedComponents struct {
-// 	fx.Out
-
-// 	Ctx      context.Context
-// 	ID       peer.ID
-// 	Bus      event.Bus
-// 	Host     host.Host
-// 	PrivKey  crypto.PrivKey
-// 	CertBook ps.CertifiedAddrBook
-// }
-
-// // Supply is used to pass interfaces to the dependency-injection framework.
-// // This is used in cases where fx's reflection erroneously uses the value's
-// // concrete type instead of its interface type.
-// //
-// // As a matter of convenience, we also provide commonly-used components
-// // of 'Host' directly.
-// func supply(ctx context.Context, h host.Host) func(fx.Lifecycle) (suppliedComponents, error) {
-// 	return func(lx fx.Lifecycle) (cs suppliedComponents, err error) {
-// 		cb, ok := ps.GetCertifiedAddrBook(h.Peerstore())
-// 		if !ok {
-// 			return suppliedComponents{}, errNoSignedAddrs
-// 		}
-
-// 		// cancel the context when the PeerExchange is closed.
-// 		ctx, cancel := context.WithCancel(ctx)
-// 		lx.Append(fx.Hook{
-// 			OnStop: func(context.Context) error {
-// 				cancel()
-// 				return nil
-// 			},
-// 		})
-
-// 		return suppliedComponents{
-// 			Ctx:      ctx,
-// 			Host:     h,
-// 			ID:       h.ID(),
-// 			Bus:      h.EventBus(),
-// 			PrivKey:  h.Peerstore().PrivKey(h.ID()),
-// 			CertBook: cb,
-// 		}, nil
-// 	}
-// }
-
-// func newConfig(id peer.ID, opt []Option) (c Config) {
-// 	c.Apply(opt)
-// 	c.Log = c.Log.WithField("id", id)
-// 	return
-// }
-
-// type pexParams struct {
-// 	fx.In
-
-// 	Ctx         context.Context
-// 	Log         log.Logger
-// 	Host        host.Host
-// 	NewGossip   func(ns string) Gossip
-// 	TickFactory func(ns string) time.Duration
-// 	NewStore    func(ns string) ds.Batching
-// 	Disc        discovery.Discovery
-// }
-
-// func (p pexParams) Prefix() ds.Key {
-// 	return ds.NewKey(p.Host.ID().String())
-// }
-
-// func newPeerExchange(p pexParams) (*PeerExchange, error) {
-// 	e, err := p.Host.EventBus().Emitter(new(EvtViewUpdated))
-// 	return &PeerExchange{
-// 		ctx:       p.Ctx,
-// 		log:       p.Log,
-// 		newGossip: p.NewGossip,
-// 		h:         p.Host,
-// 		d:         p.Disc,
-// 		newTick:   p.TickFactory,
-// 		newStore:  p.NewStore,
-// 		ns:        make(map[string]namespace),
-// 		prefix:    p.Prefix(),
-// 		e:         e,
-// 	}, err
-// }
-
-// func newEvents(bus event.Bus, lx fx.Lifecycle) (s event.Subscription, err error) {
-// 	if s, err = bus.Subscribe(new(event.EvtLocalAddressesUpdated)); err == nil {
-// 		lx.Append(closer(s))
-// 	}
-
-// 	return
-// }
-
-// type runParam struct {
-// 	fx.In
-
-// 	Log  log.Logger
-// 	Host host.Host
-// 	Sub  event.Subscription
-// 	CAB  ps.CertifiedAddrBook
-// 	PeX  *PeerExchange
-// }
-
-// func (p runParam) Go(f func(log.Logger, <-chan interface{}, *PeerExchange, ps.CertifiedAddrBook)) fx.Hook {
-// 	return fx.Hook{
-// 		OnStart: func(context.Context) error {
-// 			go f(p.Log, p.Sub.Out(), p.PeX, p.CAB)
-// 			return nil
-// 		},
-// 	}
-// }
-
-// // func run(p runParam, lx fx.Lifecycle) {
-// // 	// // Block until the host's signed record has propagated.  Note
-// // 	// // that 'EvtLocalAddressesUpdated' is a stateful subscription,
-// // 	// // so we can be certain that this does not block indefinitely.
-// // 	// lx.Append(fx.Hook{OnStart: func(ctx context.Context) error {
-// // 	// 	select {
-// // 	// 	case v, ok := <-p.Sub.Out():
-// // 	// 		if ok {
-// // 	// 			ev := v.(event.EvtLocalAddressesUpdated)
-// // 	// 			return p.PeX.setLocalRecord(ev.SignedPeerRecord)
-// // 	// 		}
-
-// // 	// 	case <-ctx.Done():
-// // 	// 		return ctx.Err()
-// // 	// 	}
-
-// // 	// 	return errors.New("host shutting down")
-// // 	// }})
-
-// // 	// // Once the local record is safely stored in the gossipStore,
-// // 	// // we can begin processing events normally in the background.
-// // 	// lx.Append(p.Go(func(log log.Logger, events <-chan interface{}, px *PeerExchange, c ps.CertifiedAddrBook) {
-// // 	// 	for v := range events {
-// // 	// 		ev := v.(event.EvtLocalAddressesUpdated)
-// // 	// 		if err := px.setLocalRecord(ev.SignedPeerRecord); err != nil {
-// // 	// 			log.WithError(err).
-// // 	// 				Error("error updating local record")
-// // 	// 		}
-// // 	// 	}
-// // 	// }))
-
-// // 	// // Now that the exchange's state is consistent and all background tasks
-// // 	// // have started, we can connect the stream handlers and begin gossipping.
-// // 	// lx.Append(fx.Hook{
-// // 	// 	OnStart: func(ctx context.Context) error {
-// // 	// 		match, err := p.PeX.matcher()
-// // 	// 		if err == nil {
-// // 	// 			p.Host.SetStreamHandlerMatch(Proto, match, p.PeX.handler(ctx))
-// // 	// 		}
-// // 	// 		return err
-// // 	// 	},
-// // 	// 	OnStop: func(context.Context) error {
-// // 	// 		p.Host.RemoveStreamHandler(Proto)
-// // 	// 		return nil
-// // 	// 	},
-// // 	// })
-// // }
-
-// // func closer(c io.Closer) fx.Hook {
-// // 	return fx.Hook{
-// // 		OnStop: func(context.Context) error {
-// // 			return c.Close()
-// // 		},
-// // 	}
-// // }
+type getGossiper struct {
+	NS  string
+	Res chan<- *gossiper // nil if not found
+}

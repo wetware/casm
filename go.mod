@@ -43,7 +43,6 @@ require (
 
 require (
 	github.com/coreos/go-semver v0.3.0
-	github.com/ipfs/go-log v1.0.5
 	go.uber.org/multierr v1.7.0
 )
 
@@ -64,6 +63,7 @@ require (
 	github.com/ipfs/go-cid v0.1.0 // indirect
 	github.com/ipfs/go-ipfs-util v0.0.2 // indirect
 	github.com/ipfs/go-ipns v0.1.2 // indirect
+	github.com/ipfs/go-log v1.0.5 // indirect
 	github.com/ipfs/go-log/v2 v2.3.0 // indirect
 	github.com/ipld/go-ipld-prime v0.9.0 // indirect
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect

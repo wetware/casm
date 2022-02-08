@@ -67,23 +67,25 @@ func (g *GossipRecord) Distance(id peer.ID) uint64 {
 
 func (g *GossipRecord) Message() *capnp.Message { return g.g.Message() }
 
-func (g *GossipRecord) ReadMessage(m *capnp.Message) (err error) {
+func (g *GossipRecord) ReadMessage(m *capnp.Message) error {
+	var err error
 	if g.g, err = pex.ReadRootGossip(m); err != nil {
-		return
+		return err
 	}
 
-	var b []byte
-	if b, err = g.g.Envelope(); err != nil {
-		return
+	b, err := g.g.Envelope()
+	if err != nil {
+		return err
 	}
 
-	if g.Envelope, err = record.ConsumeTypedEnvelope(b, &g.PeerRecord); err != nil {
-		return
+	e, err := record.ConsumeTypedEnvelope(b, g.PeerRecord)
+	if err != nil {
+		return err
 	}
 
 	// is record self-signed?
-	if g.PeerID.MatchesPublicKey(g.Envelope.PublicKey) {
-		return
+	if g.PeerID.MatchesPublicKey(e.PublicKey) {
+		return nil
 	}
 
 	return ValidationError{
