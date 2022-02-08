@@ -1,59 +1,35 @@
 package pex_test
 
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/libp2p/go-libp2p-core/peerstore"
+	"github.com/stretchr/testify/require"
+	"github.com/wetware/casm/pkg/pex"
+	mx "github.com/wetware/matrix/pkg"
+)
+
+func TestPeX(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	h := mx.New(ctx).MustHost(ctx)
+
+	px, err := pex.New(ctx, h)
+	require.NoError(t, err, "should construct PeerExchange")
+	require.NotNil(t, px, "should return PeerExchange")
+
+	ttl, err := px.Advertise(ctx, "test")
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(peerstore.PermanentAddrTTL), ttl,
+		"should return default TTL of 'PermanentAddrTTL'")
+}
+
 // const ns = "casm.pex.test"
-
-// func TestHostRegression(t *testing.T) {
-// 	t.Parallel()
-
-// 	/*
-// 	 * This is a regression test to ensure the libp2p Host
-// 	 * supports all necessary features.
-// 	 */
-
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
-
-// 	h := mx.New(ctx).MustHost(ctx)
-// 	defer h.Close()
-
-// 	/*
-// 	 * First we validate that the host provides a stateful
-// 	 * event subscription for addres updates.  If not, the
-// 	 * pex constructor will block indefinitely.
-// 	 *
-// 	 * See:  https://github.com/libp2p/go-libp2p/pull/1147
-// 	 */
-
-// 	s, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-// 	require.NoError(t, err)
-
-// 	select {
-// 	case v := <-s.Out():
-// 		require.NotNil(t, v)
-// 		require.IsType(t, event.EvtLocalAddressesUpdated{}, v)
-// 		ev := v.(event.EvtLocalAddressesUpdated)
-
-// 		require.NotZero(t, ev.Current)
-// 		require.NotZero(t, ev.SignedPeerRecord)
-// 	case <-time.After(time.Millisecond * 100):
-// 		t.Error("did not receive initial addrs")
-// 	}
-
-// 	/*
-// 	 * Once the event has been received, the host's signed
-// 	 * record should be contained within the address book,
-// 	 * provided it satisfies peerstore.CertifiedAddrBook.
-// 	 *
-// 	 * If this fails, we may experience panics as type
-// 	 * assertions fail.
-// 	 */
-
-// 	cb, ok := ps.GetCertifiedAddrBook(h.Peerstore())
-// 	require.True(t, ok)
-
-// 	env := cb.GetPeerRecord(h.ID())
-// 	require.NotNil(t, env)
-// }
 
 // func TestPeerExchange_Init(t *testing.T) {
 // 	t.Parallel()
