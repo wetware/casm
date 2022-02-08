@@ -1,77 +1,71 @@
-package pex
+package pex_test
 
-// func TestNewGossipRecord(t *testing.T) {
-// 	t.Parallel()
-// 	t.Helper()
+import (
+	"bytes"
+	"crypto/rand"
+	"testing"
 
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
+	"capnproto.org/go/capnp/v3"
+	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/record"
+	ma "github.com/multiformats/go-multiaddr"
+	"github.com/stretchr/testify/require"
+	"github.com/wetware/casm/pkg/pex"
+)
 
-// 	h := mx.New(ctx).MustHost(ctx)
-// 	e, err := getSignedRecord(h)
-// 	require.NoError(t, err)
+func TestNewGossipRecord(t *testing.T) {
+	t.Parallel()
 
-// 	g, err := NewGossipRecord(e)
-// 	require.NoError(t, err)
+	_, e := newTestRecord()
 
-// 	require.Zero(t, g.Hop())
-// 	g.IncrHop()
-// 	require.Equal(t, uint64(1), g.Hop())
+	g, err := pex.NewGossipRecord(e)
+	require.NoError(t, err)
 
-// 	// r, err := g.Envelope.Record()
-// 	// require.NoError(t, err)
-// 	// require.NotNil(t, r)
-// 	// require.IsType(t, &peer.PeerRecord{}, r)
+	require.Zero(t, g.Hop())
+	g.IncrHop()
+	require.Equal(t, uint64(1), g.Hop())
+}
 
-// 	// rec := r.(*peer.PeerRecord)
-// 	// rec.PeerID.MatchesPublicKey(g.PublicKey)
-// }
+func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
+	t.Parallel()
 
-// func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
-// 	t.Parallel()
+	_, e := newTestRecord()
 
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
+	want, err := pex.NewGossipRecord(e)
+	require.NoError(t, err)
+	require.NotZero(t, want.Seq)
 
-// 	h := mx.New(ctx).MustHost(ctx)
-// 	e, err := getSignedRecord(h)
-// 	require.NoError(t, err)
+	// increment hop to ensure that it is properly encoded.
+	want.IncrHop()
+	require.Equal(t, uint64(1), want.Hop())
 
-// 	want, err := NewGossipRecord(e)
-// 	require.NoError(t, err)
-// 	require.NotZero(t, want.Seq)
+	var buf bytes.Buffer
 
-// 	// increment hop to ensure that it is properly encoded.
-// 	want.IncrHop()
-// 	require.Equal(t, uint64(1), want.Hop())
+	// marshal
+	err = capnp.NewPackedEncoder(&buf).Encode(want.Message())
+	require.NoError(t, err)
 
-// 	var buf bytes.Buffer
+	t.Logf("message size (packed): %d", buf.Len())
 
-// 	// marshal
-// 	err = capnp.NewPackedEncoder(&buf).Encode(want.Message())
-// 	require.NoError(t, err)
+	// unmarshal
+	msg, err := capnp.NewPackedDecoder(&buf).Decode()
+	require.NoError(t, err)
 
-// 	t.Logf("message size (packed): %d", buf.Len())
+	var got pex.GossipRecord
+	err = got.ReadMessage(msg)
+	require.NoError(t, err)
 
-// 	// unmarshal
-// 	msg, err := capnp.NewPackedDecoder(&buf).Decode()
-// 	require.NoError(t, err)
+	// validate
+	require.Equal(t, want.Hop(), got.Hop())
+	require.Equal(t, want.PeerID, got.PeerID)
 
-// 	var got GossipRecord
-// 	err = got.ReadMessage(msg)
-// 	require.NoError(t, err)
-
-// 	// validate
-// 	require.Equal(t, want.Hop(), got.Hop())
-// 	require.Equal(t, want.PeerID, got.PeerID)
-// 	require.True(t, want.Envelope.Equal(got.Envelope))
-
-// 	require.NotNil(t, got.Addrs)
-// 	require.Len(t, got.Addrs, len(want.Addrs))
-// 	for i, expect := range want.Addrs {
-// 		require.True(t, expect.Equal(got.Addrs[i]))
-// 	}
-// }
+	require.NotNil(t, got.Addrs)
+	require.Len(t, got.Addrs, len(want.Addrs))
+	for i, expect := range want.Addrs {
+		require.True(t, expect.Equal(got.Addrs[i]))
+	}
+}
 
 // func TestView_validation(t *testing.T) {
 // 	t.Parallel()
@@ -172,6 +166,31 @@ package pex
 // 		})
 // 	})
 // }
+
+func newTestRecord() (*peer.PeerRecord, *record.Envelope) {
+	priv, pub, err := crypto.GenerateECDSAKeyPair(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	id, err := peer.IDFromPublicKey(pub)
+	if err != nil {
+		panic(err)
+	}
+
+	var rec = &peer.PeerRecord{
+		PeerID: id,
+		Addrs:  []ma.Multiaddr{ma.StringCast("/ip4/127.0.0.1/tcp/92")},
+		Seq:    1,
+	}
+
+	e, err := record.Seal(rec, priv)
+	if err != nil {
+		panic(err)
+	}
+
+	return rec, e
+}
 
 // func mustGossipSlice(hs []host.Host) gossipSlice {
 // 	gs := make([]*GossipRecord, len(hs))

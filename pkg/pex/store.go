@@ -234,7 +234,7 @@ func appendLocal(rec recordLoader) func(gossipSlice) gossipSlice {
 			panic(err)
 		}
 
-		g.PeerRecord = rec.Load()
+		g.PeerRecord = *rec.Load()
 
 		return append(gs, &g)
 	}

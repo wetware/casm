@@ -13,7 +13,7 @@ import (
 
 type GossipRecord struct {
 	g pex.Gossip
-	*peer.PeerRecord
+	peer.PeerRecord
 }
 
 func NewGossipRecord(env *record.Envelope) (*GossipRecord, error) {
@@ -27,7 +27,7 @@ func NewGossipRecord(env *record.Envelope) (*GossipRecord, error) {
 		return nil, errors.New("not a peer record")
 	}
 
-	g, err := newGossip(capnp.SingleSegment(nil))
+	g, err := newGossip(capnp.SingleSegment(make([]byte, 0, 512)))
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func NewGossipRecord(env *record.Envelope) (*GossipRecord, error) {
 
 	return &GossipRecord{
 		g:          g,
-		PeerRecord: rec,
+		PeerRecord: *rec,
 	}, err
 }
 
@@ -78,7 +78,7 @@ func (g *GossipRecord) ReadMessage(m *capnp.Message) error {
 		return err
 	}
 
-	e, err := record.ConsumeTypedEnvelope(b, g.PeerRecord)
+	e, err := record.ConsumeTypedEnvelope(b, &g.PeerRecord)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (g *GossipRecord) ReadMessage(m *capnp.Message) error {
 
 func newGossip(a capnp.Arena) (g pex.Gossip, err error) {
 	var s *capnp.Segment
-	if _, s, err = capnp.NewMessage(a); err != nil {
+	if _, s, err = capnp.NewMessage(a); err == nil {
 		g, err = pex.NewRootGossip(s)
 	}
 
