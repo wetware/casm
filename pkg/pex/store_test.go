@@ -9,8 +9,6 @@ package pex
 // 	t.Parallel()
 // 	t.Helper()
 
-// 	t.Skip() // XXX
-
 // 	for _, tt := range []struct {
 // 		name string
 // 		test func(*testing.T, params)

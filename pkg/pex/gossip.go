@@ -8,67 +8,113 @@ import (
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
 	syncutil "github.com/lthibault/util/sync"
 	casm "github.com/wetware/casm/pkg"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
 
+// const (
+// 	gossipTimeout = time.Second * 30
+// 	maxMsgSize    = 2048 // max capnp message size
+// )
+
+type StreamHandler interface {
+	SetStreamHandlerMatch(protocol.ID, func(string) bool, network.StreamHandler)
+	RemoveStreamHandler(pid protocol.ID)
+}
+
+// GossipConfig contains parameters for the PeX gossip algorithm.
+// Users SHOULD use the default settings.  The zero value is ready
+// to use.
+type GossipConfig struct {
+	MaxView int     // maximum View size (default: 30)
+	Swap    int     // swapping amount (default: 10)
+	Protect int     // protection amount (default: 5)
+	Decay   float64 // decay probability (default .005)
+
+	// Tick defines the maximum interval separating two gossip
+	// rounds.  If Tick == 0, a default value of 5min is used.
+	//
+	// Intervals are jittered in order to smooth out network load.
+	// The actual tick duration is derived by uniformly sampling
+	// the interval (Tick/2, Tick), resulting in a mean interval
+	// of .75 * Tick.
+	//
+	// To avoid redundant gossip rounds, Tick SHOULD be at least
+	// twice the value of Timeout.
+	Tick time.Duration
+
+	// Timeout specifies the maximum duration of a gossip round.
+	// If Timeout == 0, a default value of of 30s is used.
+	//
+	// To avoid redundant gossip rounds, Timeout SHOULD be less
+	// than half of Tick.
+	Timeout time.Duration
+
+	// MaxMsgSize specifies the maximum size of a single record over
+	// the wire.  This is used to prevent amplification attacks.  If
+	// MaxMsgSize == 0, a default value of 2048 is used.  This value
+	// is quite generous, but moderate increases are reasonably safe.
+	MaxMsgSize uint64
+}
+
+func (g GossipConfig) tail() func(View) View {
+	return tail(g.Protect)
+}
+
+func (g GossipConfig) head() func(View) View {
+	return head((g.MaxView / 2) - 1)
+}
+
+func (g GossipConfig) newDecoder(r io.Reader) *capnp.Decoder {
+	dec := capnp.NewPackedDecoder(r)
+	dec.MaxMessageSize = g.MaxMsgSize
+	return dec
+}
+
 type gossiper struct {
-	Deadline time.Time
-	param    GossipParam
-	gossipStore
+	config GossipConfig
+	store  gossipStore
+
+	Stop func()
 }
 
-func newGossiper(gs gossipStore, ps GossipParam) *gossiper {
-	return &gossiper{
-		param:       ps,
-		gossipStore: gs,
-	}
-}
-
-func (g *gossiper) RegisterRPC(log log.Logger, h StreamHandler) {
+func (px *PeerExchange) newGossiper(ns string) *gossiper {
 	var (
-		match       = casm.NewMatcher(g.String())
+		ctx, cancel = context.WithCancel(px.ctx)
+		log         = px.log.WithField("ns", ns)
+		proto       = casm.Subprotocol(ns)
+		protoPacked = casm.Subprotocol(ns, "packed")
+		match       = casm.NewMatcher(ns)
 		matchPacked = match.Then(protoutil.Exactly("packed"))
 	)
 
-	h.SetStreamHandlerMatch(
-		casm.Subprotocol(g.String()),
-		match,
-		g.newHandler(log, rpc.NewStreamTransport))
-
-	h.SetStreamHandlerMatch(
-		casm.Subprotocol(g.String(), "packed"),
-		matchPacked,
-		g.newHandler(log, rpc.NewPackedStreamTransport))
-}
-
-func (g *gossiper) UnregisterRPC(h StreamHandler) {
-	h.RemoveStreamHandler(casm.Subprotocol(g.String()))
-	h.RemoveStreamHandler(casm.Subprotocol(g.String(), "packed"))
-}
-
-func (g *gossiper) newHandler(log log.Logger, f transportFactory) network.StreamHandler {
-	return func(s network.Stream) {
-		slog := log.
-			With(streamFields(s)).
-			With(g)
-		defer s.Close()
-
-		ctx, cancel := context.WithTimeout(context.TODO(), timeout)
-		defer cancel()
-
-		log.Debug("handler started")
-		defer func() { log.Debug("handler finished") }()
-
-		if err := g.pushpull(ctx, s); err != nil {
-			slog.WithError(err).Debug("peer exchange failed")
-		}
+	g := &gossiper{
+		config: px.newParams(ns),
+		store:  px.store.New(ns),
+		Stop: func() {
+			cancel()
+			px.h.RemoveStreamHandler(proto)
+			px.h.RemoveStreamHandler(protoPacked)
+		},
 	}
+
+	px.h.SetStreamHandlerMatch(
+		proto,
+		match,
+		g.newHandler(ctx, log, rpc.NewStreamTransport))
+
+	px.h.SetStreamHandlerMatch(
+		protoPacked,
+		matchPacked,
+		g.newHandler(ctx, log, rpc.NewPackedStreamTransport))
+
+	return g
 }
 
-func (g *gossiper) pushpull(ctx context.Context, s network.Stream) error {
+func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	var (
 		j      syncutil.Join
 		t, _   = ctx.Deadline()
@@ -79,17 +125,17 @@ func (g *gossiper) pushpull(ctx context.Context, s network.Stream) error {
 		return err
 	}
 
-	recs, err := g.LoadRecords()
+	view, err := g.store.LoadView()
 	if err != nil {
 		return err
 	}
 
-	recs = recs.Bind(sorted())
-	oldest := recs.Bind(g.param.tail())
+	view = view.Bind(sorted())
+	oldest := view.Bind(g.config.tail())
 
 	local := append(
-		recs.
-			Bind(head(len(recs)-len(oldest))).
+		view.
+			Bind(head(len(view)-len(oldest))).
 			Bind(shuffled()),
 		oldest...)
 
@@ -99,8 +145,8 @@ func (g *gossiper) pushpull(ctx context.Context, s network.Stream) error {
 
 		buffer := local.
 			Bind(isNot(s.Conn().RemotePeer())).
-			Bind(g.param.head()).
-			Bind(appendLocal(g))
+			Bind(g.config.head()).
+			Bind(appendLocal(g.store))
 
 		enc := capnp.NewPackedEncoder(s)
 		for _, g := range buffer {
@@ -116,10 +162,7 @@ func (g *gossiper) pushpull(ctx context.Context, s network.Stream) error {
 	j.Go(func() error {
 		defer s.CloseRead()
 
-		r := io.LimitReader(s, g.param.mtu())
-
-		dec := capnp.NewPackedDecoder(r)
-		dec.MaxMessageSize = mtu
+		dec := g.config.newDecoder(s)
 
 		for {
 			msg, err := dec.Decode()
@@ -141,13 +184,32 @@ func (g *gossiper) pushpull(ctx context.Context, s network.Stream) error {
 	})
 
 	if err = j.Wait(); err == nil {
-		err = g.MergeAndStore(local, remote)
+		err = g.mergeAndStore(local, remote)
 	}
 
 	return err
 }
 
-func (g *gossiper) MergeAndStore(local, remote View) error {
+func (g *gossiper) newHandler(ctx context.Context, log log.Logger, f transportFactory) network.StreamHandler {
+	return func(s network.Stream) {
+		slog := log.
+			With(streamFields(s)).
+			With(g.store)
+		defer s.Close()
+
+		ctx, cancel := context.WithTimeout(ctx, g.config.Timeout)
+		defer cancel()
+
+		log.Debug("handler started")
+		defer func() { log.Debug("handler finished") }()
+
+		if err := g.PushPull(ctx, s); err != nil {
+			slog.WithError(err).Debug("peer exchange failed")
+		}
+	}
+}
+
+func (g *gossiper) mergeAndStore(local, remote View) error {
 	if err := remote.Validate(); err != nil {
 		return err
 	}
@@ -155,21 +217,21 @@ func (g *gossiper) MergeAndStore(local, remote View) error {
 	// Remove duplicates and combine local and remote records
 	newLocal := local.
 		Bind(merged(remote)).
-		Bind(isNot(g.Record().PeerID))
+		Bind(isNot(g.store.Record().PeerID))
 
 	// Apply swapping
-	s := min(g.param.S, max(len(newLocal)-g.param.C, 0))
+	s := min(g.config.Swap, max(len(newLocal)-g.config.MaxView, 0))
 	newLocal = newLocal.
 		Bind(tail(len(newLocal) - s)).
 		Bind(sorted())
 
 	// Apply retention
-	r := min(min(g.param.P, g.param.C), len(newLocal))
-	maxDecay := min(r, max(len(newLocal)-g.param.C, 0))
-	oldest := newLocal.Bind(tail(r)).Bind(decay(g.param.D, maxDecay))
+	r := min(min(g.config.Protect, g.config.MaxView), len(newLocal))
+	maxDecay := min(r, max(len(newLocal)-g.config.MaxView, 0))
+	oldest := newLocal.Bind(tail(r)).Bind(decay(g.config.Decay, maxDecay))
 
 	//Apply random eviction
-	c := g.param.C - len(oldest)
+	c := g.config.MaxView - len(oldest)
 	newLocal = newLocal.
 		Bind(head(max(len(newLocal)-r, 0))).
 		Bind(shuffled()).
@@ -181,7 +243,7 @@ func (g *gossiper) MergeAndStore(local, remote View) error {
 
 	newLocal.incrHops()
 
-	return g.StoreRecords(local, newLocal)
+	return g.store.StoreRecords(local, newLocal)
 }
 
 type transportFactory func(io.ReadWriteCloser) rpc.Transport

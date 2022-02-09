@@ -2,7 +2,6 @@ package pex
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 
 	"time"
@@ -10,41 +9,12 @@ import (
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/wetware/casm/pkg/boot"
 
+	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
 )
-
-const (
-	mtu     = 2048             // maximum transmission unit => max capnp message size
-	timeout = time.Second * 15 // Push-pull timeout
-)
-
-// GossipParam contains parameters for the PeX gossip algorithm.
-type GossipParam struct {
-	C int     // maximum View size
-	S int     // swapping amount
-	P int     // protection amount
-	D float64 // retention decay probability
-}
-
-func (g GossipParam) mtu() int64 { return int64(g.C * mtu) }
-
-func (g GossipParam) tail() func(View) View {
-	return tail(g.P)
-}
-
-func (g GossipParam) head() func(View) View {
-	return head((g.C / 2) - 1)
-}
-
-type StreamHandler interface {
-	SetStreamHandlerMatch(protocol.ID, func(string) bool, network.StreamHandler)
-	RemoveStreamHandler(pid protocol.ID)
-}
 
 // PeerExchange is a collection of passive views of various p2p clusters.
 //
@@ -64,81 +34,66 @@ type StreamHandler interface {
 // these have been carefully selected to work in a broad range of applications
 // and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
-	cq  <-chan struct{}
+	ctx context.Context
 	log log.Logger
 
-	add chan<- addGossiper
-	get chan<- getGossiper
-	gs  map[string]*gossiper
+	h         host.Host
+	newParams func(string) GossipConfig
 
-	disc    discovery.Discovery
-	discOpt []discovery.Option
-	store   rootStore
+	t      time.Time
+	as     map[string]advertiser
+	thunks chan<- func()
+
+	store rootStore
+	disc  discover
 }
 
 func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error) {
-	var (
-		addq = make(chan addGossiper)
-		getq = make(chan getGossiper)
-	)
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		return nil, err
+	}
+
+	var thunks = make(chan func(), 1)
 
 	var px = PeerExchange{
-		cq:  ctx.Done(),
-		add: addq,
-		get: getq,
-		gs:  make(map[string]*gossiper),
+		ctx:    ctx,
+		h:      h,
+		thunks: thunks,
+		as:     make(map[string]advertiser),
 	}
 
 	for _, option := range withDefaults(opt) {
 		option(&px)
 	}
 
-	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-	if err != nil {
-		return nil, err
-	}
-
-	// Sync the local record
-	select {
-	case v := <-sub.Out():
-		px.store.Consume(v.(event.EvtLocalAddressesUpdated))
-
-	case <-ctx.Done():
-		defer sub.Close()
-		return nil, ctx.Err()
+	// Ensure the local record is stored before processing anything else.
+	thunks <- func() {
+		px.store.Consume((<-sub.Out()).(event.EvtLocalAddressesUpdated))
 	}
 
 	// Update
 	go func() {
 		defer sub.Close()
 
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 
 		for {
 			select {
-			case v := <-sub.Out():
-				px.store.Consume(v.(event.EvtLocalAddressesUpdated))
-
-			case t := <-ticker.C:
-				for ns, g := range px.gs {
-					if t.After(g.Deadline) {
-						g.UnregisterRPC(h)
-						delete(px.gs, ns)
+			case px.t = <-ticker.C:
+				for ns, ad := range px.as {
+					if ad.Expired(px.t) {
+						ad.Gossiper.Stop()
+						delete(px.as, ns)
 					}
 				}
 
-			case add := <-addq:
-				g, ok := px.gs[add.NS]
-				if !ok {
-					g = add.NewGossiper(px.store.New(add.NS))
-					g.RegisterRPC(px.log, h)
-					px.gs[add.NS] = g
-				}
-				g.Deadline = time.Now().Add(add.Opt.Ttl)
+			case f := <-thunks:
+				f() // f is free to access shared fields
 
-			case get := <-getq:
-				get.Res <- px.gs[get.NS]
+			case v := <-sub.Out():
+				px.store.Consume(v.(event.EvtLocalAddressesUpdated))
 
 			case <-ctx.Done():
 				return
@@ -149,27 +104,55 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 	return &px, nil
 }
 
-func (px *PeerExchange) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	var opts discovery.Options
-	if err := opts.Apply(opt...); err != nil {
-		return 0, err
-	}
-
-	ttl, err := px.disc.Advertise(ctx, ns, opt...)
-	if err != nil {
-		return 0, err
-	}
+// Advertise triggers a gossip round for the specified namespace.
+// The returned TTL is derived from the GossipParam instance
+// associated with 'ns'. Any options passed to Advertise are ignored.
+//
+// The caller is responsible for calling Advertise with the same ns
+// parameter as soon as the returned TTL has elapsed.  Failure to do
+// so will cause the PeerExchange to eventually drop ns and to cease
+// its participation in the namespace's gossip. A brief grace period
+// is in effect, but SHOULD NOT be relied upon, and is therefore not
+// documented.
+func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery.Option) (time.Duration, error) {
+	ch := make(chan *gossiper, 1) // TODO:  pool?
 
 	select {
-	case px.add <- addGossiper{NS: ns, Opt: &opts}:
-		return ttl, nil
+	case px.thunks <- func() {
+		ad, ok := px.as[ns]
+		if !ok {
+			ad.Gossiper = px.newGossiper(ns)
+			px.as[ns] = ad
+			// XXX:  signal to the discovery service that we should bootstrap this namespace
+		}
+
+		ad.ResetTTL(px.t)
+		ch <- ad.Gossiper
+	}:
 
 	case <-ctx.Done():
 		return 0, ctx.Err()
 
-	case <-px.cq:
-		return 0, errors.New("closed")
+	case <-px.ctx.Done():
+		return 0, ErrClosed
 	}
+
+	g := <-ch
+
+	// YOU ARE HERE
+	//
+	// 1. Try to load records from g
+	// 2. If that fails, use px.disc to find a peer
+	// 3. Then, open a stream 's' to that peer
+	//
+
+	if err := g.PushPull(ctx, s); err != nil {
+		return 0, err
+	}
+
+	return jitterbug.
+		Uniform{Min: g.config.Tick / 2}.
+		Jitter(g.config.Tick), nil
 }
 
 func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
@@ -180,37 +163,39 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 
 	var ch = make(chan *gossiper, 1) // TODO: pool
 	select {
-	case px.get <- getGossiper{NS: ns, Res: ch}:
+	case px.thunks <- func() { ch <- px.as[ns].Gossiper }:
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-px.cq:
-		return nil, errors.New("closed")
+
+	case <-px.ctx.Done():
+		return nil, ErrClosed
 	}
 
 	var g *gossiper
 	select {
 	case g = <-ch:
 		if g == nil {
-			return nil, errors.New("not found")
+			return nil, ErrNotFound
 		}
 
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-px.cq:
-		return nil, errors.New("closed")
+
+	case <-px.ctx.Done():
+		return nil, ErrClosed
 	}
 
-	gs, err := g.LoadRecords()
+	v, err := g.store.LoadView()
 	if err != nil {
 		return nil, err
 	}
 
-	if len(gs) == 0 {
-		return px.disc.FindPeers(ctx, ns, px.discOpt...)
+	if len(v) == 0 {
+		// XXX:  we should block until ctx expires, or until a gossip round completes
 	}
 
-	sa := make(boot.StaticAddrs, len(gs))
-	for i, r := range gs {
+	sa := make(boot.StaticAddrs, len(v))
+	for i, r := range v.Bind(shuffled()) {
 		sa[i].ID = r.PeerID
 		sa[i].Addrs = r.Addrs
 	}
@@ -230,19 +215,30 @@ func (rec *atomicRecord) Consume(e event.EvtLocalAddressesUpdated) {
 }
 
 func (rec *atomicRecord) Record() *peer.PeerRecord {
-	return (*atomic.Value)(rec).Load().(*peer.PeerRecord)
+	var v interface{}
+	for v = (*atomic.Value)(rec).Load(); v == nil; {
+		time.Sleep(time.Microsecond * 500)
+	}
+	return v.(*peer.PeerRecord)
 }
 
-type addGossiper struct {
-	NS  string
-	Opt *discovery.Options
+type advertiser struct {
+	Deadline time.Time
+	Gossiper *gossiper
 }
 
-func (add addGossiper) NewGossiper(s gossipStore) *gossiper {
-	return newGossiper(s, gossipParams(add.Opt))
+func (ad advertiser) Expired(t time.Time) bool {
+	// Add a grace period equal to the timeout for a gossip round.
+	// This prevents advertisers from being garbage-collected during
+	// a gossip round.
+	return t.After(ad.Deadline)
 }
 
-type getGossiper struct {
-	NS  string
-	Res chan<- *gossiper // nil if not found
+func (ad *advertiser) ResetTTL(t time.Time) {
+	// Tick + Timeout serves as a grace period that prevents
+	// an advertiser from being immediately dropped after the
+	// TTL returned from Advertise has elapsed.  This is used
+	// to prevent churn.  See Advertise for more details.
+	d := ad.Gossiper.config.Tick + ad.Gossiper.config.Timeout
+	ad.Deadline = t.Add(d)
 }

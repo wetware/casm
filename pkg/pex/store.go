@@ -45,11 +45,10 @@ func (gs gossipStore) Loggable() map[string]interface{} {
 	}
 }
 
-func (gs gossipStore) LoadRecords() (View, error) {
+func (gs gossipStore) LoadView() (View, error) {
 	// return all entries under the local instance's key prefix
 	res, err := gs.store.Query(query.Query{
 		Prefix: "/",
-		Orders: []query.Order{randomOrder()},
 	})
 	if err != nil {
 		return nil, err
@@ -108,23 +107,6 @@ func (gs gossipStore) StoreRecords(old, new View) error {
 	}
 
 	return err
-}
-
-func randomOrder() query.OrderByFunction {
-	nonce := rand.Uint64()
-
-	return func(a, b query.Entry) int {
-		xa := lastUint64(a.Key) ^ nonce
-		xb := lastUint64(b.Key) ^ nonce
-
-		if xa > xb {
-			return 1
-		}
-		if xa < xb {
-			return -1
-		}
-		return 0
-	}
 }
 
 func filter(f func(*GossipRecord) bool) func(View) View {

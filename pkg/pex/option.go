@@ -1,6 +1,8 @@
 package pex
 
 import (
+	"time"
+
 	ds "github.com/ipfs/go-datastore"
 	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/sync"
@@ -49,8 +51,8 @@ func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 	}
 
 	return func(px *PeerExchange) {
-		px.disc = d
-		px.discOpt = opt
+		px.disc.d = d
+		px.disc.opt = opt
 	}
 }
 
@@ -58,12 +60,12 @@ func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 // // A lower value of 'tick' improves cluster resiliency
 // // at the cost of increased bandwidth usage.
 // //
-// // If d == nil, a default value of 1m is used.  Users
+// // If d == nil, a default value of 5m is used.  Users
 // // SHOULD NOT alter this value without good reason.
 // func WithTick(newTick func(ns string) time.Duration) Option {
 // 	if newTick == nil {
 // 		newTick = func(ns string) time.Duration {
-// 			return time.Minute
+// 			return time.Minute * 5
 // 		}
 // 	}
 
@@ -72,34 +74,59 @@ func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 // 	}
 // }
 
-// // WithGossip sets the parameters for gossiping:
-// // C, S, R and D. Check github.com/wetware/casm/specs/pex.md
-// // for more information on the meaining of each parameter.
-// //
-// // If n == nil, default values of {c=30, s=10, r=5, d=0.005} are used.
-// //
-// // Users SHOULD ensure all nodes in a given cluster have
-// // the same gossiping parameters.
-// func WithGossip(newGossip func(ns string) GossipParam) Option {
-// 	deafaultNewGossip := func(ns string) GossipParam {
-// 		return GossipParam{30, 10, 5, 0.005}
-// 	}
+// WithGossip sets the parameters for gossiping.
+// See github.com/wetware/casm/specs/pex.md for details on the
+// MaxView, Swap, Protect and Decay parameters.
+//
+// If newGossip == nil, the following default values are used
+// for each namespace:
+//
+//    GossipConfig{
+//        MaxView:    32,
+//        Swap:       10,
+//        Protect:    5,
+//        Decay:      0.005,
+//
+//        Tick:       time.Minute * 5,
+//        Timeout:    time.Second * 30,
+//        MaxMsgSize: 2048,
+//    }
+//
+// Users should exercise care when modifying the gossip params
+// and ensure they fully understand the implications of their
+// changes. Generally speaking, it is safe to increase MaxView.
+// It is also reasonably safe to increase Decay by moderate
+// amounts, in order to more aggressively expunge stale entries
+// from cache.
+//
+// Users SHOULD ensure all nodes in a given namespace
+// have identical GossipParam values.
+func WithGossip(newGossip func(ns string) GossipConfig) Option {
+	if newGossip == nil {
+		newGossip = func(ns string) GossipConfig {
+			return GossipConfig{
+				MaxView:    32,
+				Swap:       10,
+				Protect:    5,
+				Decay:      0.005,
+				Tick:       time.Minute * 5,
+				Timeout:    time.Second * 30,
+				MaxMsgSize: 2048,
+			}
+		}
+	}
 
-// 	if newGossip == nil {
-// 		newGossip = deafaultNewGossip
-// 	}
-
-// 	return func(px *PeerExchange) {
-// 		px.newGossip = newGossip
-// 	}
-// }
+	return func(px *PeerExchange) {
+		px.newParams = newGossip
+	}
+}
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
 		WithLogger(nil),
+		WithGossip(nil),
 		WithDatastore(nil),
 		// WithTick(nil),
-		// WithGossip(nil),
 		WithDiscovery(nil),
 	}, opt...)
 }
@@ -112,11 +139,16 @@ type (
 	keyGossipParam struct{}
 )
 
-func gossipParams(opts *discovery.Options) GossipParam {
-	ps := GossipParam{C: 30, S: 10, P: 5, D: 0.005}
+func gossipParams(opts *discovery.Options) GossipConfig {
+	ps := GossipConfig{
+		MaxView: 30,
+		Swap:    10,
+		Protect: 5,
+		Decay:   .005,
+	}
 
 	if v := opts.Other[keyGossipParam{}]; v != nil {
-		ps = v.(GossipParam)
+		ps = v.(GossipConfig)
 	}
 
 	return ps
@@ -125,7 +157,7 @@ func gossipParams(opts *discovery.Options) GossipParam {
 // WithGossipParam is consumed by PeX.Advertise.  If the namespace does
 // not exist, it will be created with gossip parameters specified by ps.
 // If the namespace already exists, WithGossipParam is ignored.
-func WithGossipParam(ps GossipParam) discovery.Option {
+func WithGossipParam(ps GossipConfig) discovery.Option {
 	return func(opts *discovery.Options) error {
 		if opts.Other == nil {
 			opts.Other = make(map[interface{}]interface{}, 1)
