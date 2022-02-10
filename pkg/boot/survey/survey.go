@@ -63,16 +63,18 @@ type Surveyor struct {
 	cancel context.CancelFunc
 	log    log.Logger
 
-	advert         chan<- advert
-	disc, discDone chan<- disc
+	t     time.Time
+	thunk chan<- func()
+	// advert         chan<- advert
+	// disc, discDone chan<- disc
 
 	e   atomic.Value
 	rec atomic.Value
 
-	mustFind      map[string]map[disc]struct{}
+	mustFind      map[string]map[listener]struct{}
 	mustAdvertise map[string]time.Time
 
-	t   Transport
+	tp  Transport
 	c   comm
 	err atomic.Value
 }
@@ -82,21 +84,18 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		cq          = h.Network().Process().Closing()
 		ctx, cancel = context.WithCancel(ctxutil.C(cq))
 
-		cherr    = make(chan error)
-		recv     = make(chan *capnp.Message, 8)
-		send     = make(chan *capnp.Message, 8)
-		advert   = make(chan advert)
-		discover = make(chan disc)
-		discDone = make(chan disc)
+		cherr = make(chan error)
+		thunk = make(chan func())
+		recv  = make(chan *capnp.Message, 8)
+		send  = make(chan *capnp.Message, 8)
 	)
 
 	s := &Surveyor{
 		ctx:           ctx,
 		cancel:        cancel,
-		advert:        advert,
-		disc:          discover,
-		discDone:      discDone,
-		mustFind:      make(map[string]map[disc]struct{}),
+		t:             time.Now(),
+		thunk:         thunk,
+		mustFind:      make(map[string]map[listener]struct{}),
 		mustAdvertise: make(map[string]time.Time),
 	}
 
@@ -104,12 +103,12 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		option(s)
 	}
 
-	lconn, err := s.t.Listen(addr)
+	lconn, err := s.tp.Listen(addr)
 	if err != nil {
 		return nil, err
 	}
 
-	dconn, err := s.t.Dial(addr)
+	dconn, err := s.tp.Dial(addr)
 	if err != nil {
 		lconn.Close()
 		return nil, err
@@ -135,15 +134,10 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		return nil, err
 	}
 
-	// sync - wait until local record is set
-	select {
-	case v := <-sub.Out():
-		s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	// Ensure the sync operation is run before anything else
+	v := <-sub.Out()
+	s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
 
-	// Update local record aysnchronously
 	go func() {
 		for v := range sub.Out() {
 			s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
@@ -159,39 +153,22 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
-		var t time.Time
-
 		for {
 			select {
-			case m := <-recv:
-				if err := s.handleMessage(ctx, m); err != nil {
-					s.log.WithError(err).Debug("dropped message")
-				}
-
-			case t = <-ticker.C:
+			case s.t = <-ticker.C:
 				for ns, deadline := range s.mustAdvertise {
-					if t.After(deadline) {
+					if s.t.After(deadline) {
 						delete(s.mustAdvertise, ns)
 					}
 				}
 
-			case ad := <-advert:
-				s.mustAdvertise[ad.NS] = t.Add(ad.TTL)
+			case f := <-thunk:
+				f()
 
-			case d := <-discover:
-				nsm, ok := s.mustFind[d.NS]
-				if !ok {
-					nsm = map[disc]struct{}{}
-					s.mustFind[d.NS] = nsm
+			case m := <-recv:
+				if err := s.handleMessage(ctx, m); err != nil {
+					s.log.WithError(err).Debug("dropped message")
 				}
-
-				nsm[d] = struct{}{}
-
-			case d := <-discDone:
-				if nsm, ok := s.mustFind[d.NS]; ok {
-					delete(nsm, d)
-				}
-				close(d.Ch)
 
 			case err := <-cherr:
 				if err == nil {
@@ -333,10 +310,7 @@ func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Op
 	}
 
 	select {
-	case s.advert <- advert{
-		NS:  ns,
-		TTL: opts.Ttl,
-	}:
+	case s.thunk <- func() { s.mustAdvertise[ns] = s.t.Add(opts.Ttl) }:
 		return opts.Ttl, nil
 
 	case <-ctx.Done():
@@ -358,24 +332,29 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, err
 	}
 
-	finder := make(chan *peer.PeerRecord, 8)
-	out := make(chan peer.AddrInfo, 8)
+	var (
+		cherr = make(chan error, 1) // TODO:  pool?
+		recv  = make(chan *peer.PeerRecord, 8)
+		out   = make(chan peer.AddrInfo, 8)
+	)
 
-	go func() {
+	loop := func() {
+		defer close(out)
 		defer func() {
 			select {
-			case <-s.ctx.Done():
-			case s.discDone <- disc{
-				NS: ns,
-				Ch: finder,
+			case s.thunk <- func() {
+				if nsm, ok := s.mustFind[ns]; ok {
+					delete(nsm, listener{recv})
+				}
+				close(recv)
 			}:
-				close(out)
+			case <-s.ctx.Done():
 			}
 		}()
 
 		for {
 			select {
-			case rec, ok := <-finder:
+			case rec, ok := <-recv:
 				if !ok {
 					return
 				}
@@ -383,10 +362,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 				select {
 				case <-ctx.Done():
 				case <-s.ctx.Done():
-				case out <- peer.AddrInfo{
-					ID:    rec.PeerID,
-					Addrs: rec.Addrs,
-				}:
+				case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
 					if opts.Limit--; opts.Limit == 0 {
 						return
 					}
@@ -398,14 +374,27 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 				return
 			}
 		}
-	}()
+	}
+
+	findPeers := func() {
+		if err := s.c.Send(ctx, m); err != nil {
+			cherr <- err
+			return
+		}
+
+		ls, ok := s.mustFind[ns]
+		if !ok {
+			ls = map[listener]struct{}{}
+			s.mustFind[ns] = ls
+		}
+
+		ls[listener{recv}] = struct{}{}
+		cherr <- nil
+		go loop()
+	}
 
 	select {
-	case s.disc <- disc{
-		NS: ns,
-		Ch: finder,
-	}:
-
+	case s.thunk <- findPeers:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 
@@ -413,7 +402,16 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, errors.New("closed")
 	}
 
-	return out, s.c.Send(ctx, m)
+	select {
+	case err := <-cherr:
+		return out, err
+
+	case <-ctx.Done():
+		return nil, ctx.Err()
+
+	case <-s.ctx.Done():
+		return nil, errors.New("closed")
+	}
 }
 
 func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
@@ -455,12 +453,6 @@ func xor(id1, id2 peer.ID) uint32 {
 	return binary.BigEndian.Uint32(xored)
 }
 
-type advert struct {
-	NS  string
-	TTL time.Duration
-}
-
-type disc struct {
-	NS string
+type listener struct {
 	Ch chan<- *peer.PeerRecord
 }

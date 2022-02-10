@@ -93,6 +93,8 @@ Maximum distance = 5
 0000 0000 0100 0000 >> 5 = 0000 0000 0000 0010 =base10= 2 
 ```
 
+Another key design choice of the distance is to specify the distance as a `uint8`. By being a `uint8`, we ensure that the distance overflows relatively fast, so that it goes back to zero. This is very powerful, because if the network temporarily goes down, when it gets back up, the nodes will be surveying uniformly distributed distances. That is to say, there will not be a burst of responses, as some nodes will be requesting short distances.
+
 ### API
 Survey provides a `discovery.Discovery` Libp2p interface.
 

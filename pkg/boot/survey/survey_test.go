@@ -72,18 +72,23 @@ func TestDiscover(t *testing.T) {
 	const multicastAddr = "228.8.8.8:8824"
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
-	a1, err := survey.New(h1, addr)
+	s1, err := survey.New(h1, addr)
 	require.NoError(t, err)
-	defer a1.Close()
+	defer func() {
+		assert.NoError(t, s1.Close(), "should close without error")
+	}()
 
-	a2, err := survey.New(h2, addr)
+	s2, err := survey.New(h2, addr)
 	require.NoError(t, err)
-	defer a2.Close()
+	defer func() {
+		assert.NoError(t, s2.Close(), "should close without error")
+	}()
 
-	a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
-	a2.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+	ttl, err := s2.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+	require.NoError(t, err)
+	require.Equal(t, advertiseTTL, ttl)
 
-	finder, err := a1.FindPeers(ctx, testNs)
+	finder, err := s1.FindPeers(ctx, testNs)
 	require.NoError(t, err)
 
 	info := <-finder
@@ -96,22 +101,24 @@ func TestClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sim := mx.New(ctx)
-	h1 := sim.MustHost(ctx)
-	defer h1.Close()
+	h := mx.New(ctx).MustHost(ctx)
+	defer h.Close()
 
 	// Change port in order to avoid conflicts between parallel tests.
 	const multicastAddr = "228.8.8.8:8825"
 	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
 
-	a1, err := survey.New(h1, addr)
+	s1, err := survey.New(h, addr)
 	require.NoError(t, err)
 
-	_, err = a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+	ttl, err := s1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+	require.NoError(t, err)
+	require.Equal(t, advertiseTTL, ttl)
+
+	err = s1.Close()
 	require.NoError(t, err)
 
-	a1.Close()
-
-	_, err = a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+	ttl, err = s1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
 	require.Error(t, err, "closed")
+	require.Zero(t, ttl)
 }

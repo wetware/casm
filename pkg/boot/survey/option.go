@@ -20,7 +20,7 @@ func WithLogger(l log.Logger) Option {
 
 func WithTransport(t Transport) Option {
 	return func(s *Surveyor) {
-		s.t = t
+		s.tp = t
 	}
 }
 
