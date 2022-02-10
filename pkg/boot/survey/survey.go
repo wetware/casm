@@ -159,7 +159,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
-		var t time.Time
+		var t time.Time = time.Now()
 		for {
 			select {
 			case m := <-recv:
@@ -175,7 +175,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 				}
 
 			case ad := <-advert:
-				s.mustAdvertise[ad.NS] = time.Now().Add(ad.TTL)
+				s.mustAdvertise[ad.NS] = t.Add(ad.TTL)
 
 			case d := <-discover:
 				nsm, ok := s.mustFind[d.NS]
