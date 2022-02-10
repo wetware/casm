@@ -347,6 +347,9 @@ func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Op
 }
 
 func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
@@ -412,7 +415,12 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, errors.New("closed")
 	}
 
-	return out, s.c.Send(ctx, m)
+	if err = s.c.Send(ctx, m); err != nil {
+		cancel()
+		return nil, err
+	}
+
+	return out, nil
 }
 
 func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
