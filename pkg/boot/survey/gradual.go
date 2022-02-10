@@ -58,30 +58,21 @@ func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discov
 			case <-time.After(b.Duration()):
 				cancel()
 				ctxSurv, cancel = context.WithCancel(ctx)
-				defer cancel()
 
 				found, err = g.Surveyor.FindPeers(ctxSurv, ns, append(opt, WithDistance(uint8(b.Attempt())))...)
 				if err != nil {
 					g.log.WithError(err).Debug("retry failed")
 				}
-				continue
 
 			case info := <-found:
-				out <- info
+				select {
+				case out <- info:
+				default:
+				}
 
 			case <-ctx.Done():
 				return
 			}
-			break
-		}
-
-		select {
-		case info := <-found:
-			out <- info
-
-		case <-ctx.Done():
-			return
-
 		}
 	}()
 

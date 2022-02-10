@@ -160,7 +160,6 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		defer ticker.Stop()
 
 		var t time.Time
-		time.Now()
 		for {
 			select {
 			case m := <-recv:

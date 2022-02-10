@@ -36,14 +36,14 @@ func TestDiscoverGradual(t *testing.T) {
 	require.NoError(t, err)
 	defer a2.Close()
 
-	gradual := survey.GradualSurveyor{Surveyor: a1, Min: 50 * time.Millisecond, Max: 50 * time.Millisecond}
+	gradual := survey.GradualSurveyor{Surveyor: a1, Min: 10 * time.Millisecond, Max: 10 * time.Millisecond}
 
 	a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
 	a2.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
 
 	infos := make([]peer.AddrInfo, 0)
 
-	ctxTtl, cancel := context.WithTimeout(ctx, 7*time.Second)
+	ctxTtl, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	finder, err := gradual.FindPeers(ctxTtl, testNs)
@@ -53,6 +53,8 @@ func TestDiscoverGradual(t *testing.T) {
 		infos = append(infos, info)
 	}
 
-	require.Len(t, infos, 1)
-	require.Equal(t, infos[0].ID, h2.ID())
+	require.True(t, 1 < len(infos))
+	for _, info := range infos {
+		require.Equal(t, info.ID, h2.ID())
+	}
 }
