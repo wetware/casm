@@ -19,21 +19,42 @@ import (
 ) */
 
 const (
-	P_CRAWL_CODE   = 100
-	P_SURVEY_CODE  = 101
-	P_GRADUAL_CODE = 102
+	P_CRAWL   = 100
+	P_SURVEY  = 101
+	P_GRADUAL = 102
 )
 
 var (
-	P_CRAWL   = multiaddr.Protocol{"crawl", P_CRAWL_CODE, varint.ToUvarint(P_CRAWL_CODE), -1, false, CrawlTranscoder{}}
-	P_SURVEY  = multiaddr.Protocol{"survey", P_SURVEY_CODE, varint.ToUvarint(P_SURVEY_CODE), 0, false, nil}
-	P_GRADUAL = multiaddr.Protocol{"gradual", P_GRADUAL_CODE, varint.ToUvarint(P_GRADUAL_CODE), 0, false, nil}
+	protoCrawl = multiaddr.Protocol{
+		Name:       "crawl",
+		Code:       P_CRAWL,
+		VCode:      varint.ToUvarint(P_CRAWL),
+		Size:       -1,
+		Path:       false,
+		Transcoder: CrawlTranscoder{},
+	}
+	protoSurvey = multiaddr.Protocol{
+		Name:       "survey",
+		Code:       P_SURVEY,
+		VCode:      varint.ToUvarint(P_SURVEY),
+		Size:       0,
+		Path:       false,
+		Transcoder: nil,
+	}
+	protoGradual = multiaddr.Protocol{
+		Name:       "gradual",
+		Code:       P_GRADUAL,
+		VCode:      varint.ToUvarint(P_GRADUAL),
+		Size:       0,
+		Path:       false,
+		Transcoder: nil,
+	}
 )
 
 func init() {
-	multiaddr.AddProtocol(P_CRAWL)
-	multiaddr.AddProtocol(P_SURVEY)
-	multiaddr.AddProtocol(P_GRADUAL)
+	multiaddr.AddProtocol(protoCrawl)
+	multiaddr.AddProtocol(protoSurvey)
+	multiaddr.AddProtocol(protoGradual)
 }
 
 func Parse(h host.Host, maddr multiaddr.Multiaddr) (discovery.Discoverer, error) {
@@ -138,21 +159,21 @@ func getTransport(maddr multiaddr.Multiaddr) (isUdp bool, num int, err error) {
 }
 
 func getSurvey(maddr multiaddr.Multiaddr) error {
-	_, err := maddr.ValueForProtocol(P_SURVEY_CODE)
+	_, err := maddr.ValueForProtocol(P_SURVEY)
 	return err
 }
 
 func getGradual(maddr multiaddr.Multiaddr) error {
-	_, err := maddr.ValueForProtocol(P_GRADUAL_CODE)
+	_, err := maddr.ValueForProtocol(P_GRADUAL)
 	return err
 }
 
 func getCrawl(maddr multiaddr.Multiaddr) (int, error) {
-	c, err := maddr.ValueForProtocol(P_CRAWL_CODE)
+	c, err := maddr.ValueForProtocol(P_CRAWL)
 	if err != nil {
 		return 0, err
 	}
-	valBytes, err := P_CRAWL.Transcoder.StringToBytes(c)
+	valBytes, err := protoCrawl.Transcoder.StringToBytes(c)
 	if err != nil {
 		return 0, err
 	}
