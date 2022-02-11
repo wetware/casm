@@ -33,6 +33,7 @@ type GradualSurveyor struct {
 }
 
 func (g *GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+
 	ctxSurv, cancel := context.WithCancel(ctx)
 
 	found, err := g.Surveyor.FindPeers(ctxSurv, ns, append(opt, WithDistance(uint8(0)))...)
