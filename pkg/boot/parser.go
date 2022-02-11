@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	P_CRAWL   = multiaddr.Protocol{"crawl", P_CRAWL_CODE, varint.ToUvarint(P_CRAWL_CODE), -1, true, CrawlTranscoder{}}
+	P_CRAWL   = multiaddr.Protocol{"crawl", P_CRAWL_CODE, varint.ToUvarint(P_CRAWL_CODE), -1, false, CrawlTranscoder{}}
 	P_SURVEY  = multiaddr.Protocol{"survey", P_SURVEY_CODE, varint.ToUvarint(P_SURVEY_CODE), 0, false, nil}
 	P_GRADUAL = multiaddr.Protocol{"gradual", P_GRADUAL_CODE, varint.ToUvarint(P_GRADUAL_CODE), 0, false, nil}
 )
@@ -34,6 +34,79 @@ func init() {
 	multiaddr.AddProtocol(P_CRAWL)
 	multiaddr.AddProtocol(P_SURVEY)
 	multiaddr.AddProtocol(P_GRADUAL)
+}
+
+func Parse(h host.Host, maddr multiaddr.Multiaddr) (discovery.Discoverer, error) {
+	var addr net.Addr
+
+	isIp4, ip, err := getNetwork(maddr)
+	if err != nil {
+		return nil, err
+	}
+
+	isUdp, port, err := getTransport(maddr)
+	if err != nil {
+		return nil, err
+	}
+
+	// resolve the address (net.Addr)
+	if isUdp && isIp4 {
+		addr, err = net.ResolveUDPAddr("udp4", fmt.Sprintf("%v:%v", ip, port))
+		if err != nil {
+			return nil, err
+		}
+	} else if isUdp && !isIp4 {
+		addr, err = net.ResolveUDPAddr("udp6", fmt.Sprintf("%v:%v", ip, port))
+		if err != nil {
+			return nil, err
+		}
+	} else if !isUdp && isIp4 {
+		addr, err = net.ResolveTCPAddr("tcp4", fmt.Sprintf("%v:%v", ip, port))
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		addr, err = net.ResolveTCPAddr("tcp6", fmt.Sprintf("%v:%v", ip, port))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// check if it's crawler and if it's, instantiate
+	cidrBlock, err := getCrawl(maddr)
+	if err == nil {
+		scheme := "tcp"
+		if isUdp {
+			scheme = "udp"
+		}
+		return Crawler{
+			Dialer: new(net.Dialer),
+			Strategy: &ScanSubnet{
+				Net:  scheme,
+				Port: port,
+				CIDR: fmt.Sprintf("%v/%v", ip, cidrBlock), // e.g. '10.0.1.0/24'
+			},
+		}, nil
+	}
+
+	// check if it's survey and if it's, instantiate
+	err = getSurvey(maddr)
+	if err != nil {
+		return nil, err
+	} else {
+		surv, err := survey.New(h, addr)
+		if err != nil {
+			return nil, err
+		}
+
+		// check if it's gradual survey and if it's, instantiate
+		if err = getGradual(maddr); err == nil {
+			return &survey.GradualSurveyor{Surveyor: surv}, nil
+		} else {
+			return surv, nil
+		}
+
+	}
 }
 
 func getNetwork(maddr multiaddr.Multiaddr) (isIp4 bool, ip net.IP, err error) {
@@ -52,76 +125,16 @@ func getTransport(maddr multiaddr.Multiaddr) (isUdp bool, num int, err error) {
 	udp, err := maddr.ValueForProtocol(multiaddr.P_UDP)
 	if err == nil {
 		num, err = strconv.Atoi(udp)
-		return
+		return true, num, err
 	}
 
 	tcp, err := maddr.ValueForProtocol(multiaddr.P_TCP)
 	if err == nil {
 		num, err = strconv.Atoi(tcp)
-		return
+		return false, num, err
 	}
 
 	return isUdp, num, errors.New("no transport")
-}
-
-func parse(h host.Host, maddr multiaddr.Multiaddr) (discovery.Discoverer, error) {
-	var addr net.Addr
-
-	isIp4, n, err := getNetwork(maddr)
-	if err != nil {
-		return nil, err
-	}
-
-	isUdp, t, err := getTransport(maddr)
-	if err != nil {
-		return nil, err
-	}
-
-	if isUdp && isIp4 {
-		addr, err = net.ResolveUDPAddr("udp4", fmt.Sprintf("%v:%v", n, t))
-		if err != nil {
-			return nil, err
-		}
-	} else if isUdp && !isIp4 {
-		addr, err = net.ResolveUDPAddr("udp6", fmt.Sprintf("%v:%v", n, t))
-		if err != nil {
-			return nil, err
-		}
-	} else if !isUdp && isIp4 {
-		addr, err = net.ResolveTCPAddr("tcp4", fmt.Sprintf("%v:%v", n, t))
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		addr, err = net.ResolveTCPAddr("tcp6", fmt.Sprintf("%v:%v", n, t))
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	c, err := getCrawl(maddr)
-	if err != nil {
-		return nil, err
-	} else {
-		// TODO: initialize crawler
-	}
-
-	err = getSurvey(maddr)
-	if err != nil {
-		return nil, err
-	} else {
-		surv, err := survey.New(h, addr)
-		if err != nil {
-			return nil, err
-		}
-
-		if err = getGradual(maddr); err == nil {
-			return survey.GradualSurveyor{Surveyor: surv}, nil
-		} else {
-			return surv, nil
-		}
-
-	}
 }
 
 func getSurvey(maddr multiaddr.Multiaddr) error {
@@ -146,6 +159,7 @@ func getCrawl(maddr multiaddr.Multiaddr) (int, error) {
 	return ByteArrayToInt(valBytes), nil
 }
 
+// transcoder for the Crawler protocol e.g. "/crawl/24"
 type CrawlTranscoder struct{}
 
 func (ct CrawlTranscoder) StringToBytes(cidrBlock string) ([]byte, error) {

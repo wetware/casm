@@ -32,7 +32,7 @@ type GradualSurveyor struct {
 	*Surveyor
 }
 
-func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+func (g *GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	ctxSurv, cancel := context.WithCancel(ctx)
 
 	found, err := g.Surveyor.FindPeers(ctxSurv, ns, append(opt, WithDistance(uint8(0)))...)
@@ -79,21 +79,21 @@ func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discov
 	return out, nil
 }
 
-func (g GradualSurveyor) factor() float64 {
+func (g *GradualSurveyor) factor() float64 {
 	if g.Factor == 0 {
 		return 1.5
 	}
 	return g.Factor
 }
 
-func (g GradualSurveyor) min() time.Duration {
+func (g *GradualSurveyor) min() time.Duration {
 	if g.Min == 0 {
 		return time.Second * 5
 	}
 	return g.Min
 }
 
-func (g GradualSurveyor) max() time.Duration {
+func (g *GradualSurveyor) max() time.Duration {
 	if g.Max == 0 {
 		return time.Second * 90
 	}
