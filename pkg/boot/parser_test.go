@@ -112,16 +112,17 @@ func TestParse(t *testing.T) {
 
 	t.Run("Survey", func(t *testing.T) {
 		t.Parallel()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		sim := mx.New(ctx)
-		h := sim.MustHost(ctx)
-		defer h.Close()
+		t.Helper()
 
 		t.Run("Surveyor", func(t *testing.T) {
 			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sim := mx.New(ctx)
+			h := sim.MustHost(ctx)
+			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/udp/8820/survey")
 			d, err := boot.Parse(h, maddr)
@@ -133,6 +134,13 @@ func TestParse(t *testing.T) {
 
 		t.Run("GradualSurveyor", func(t *testing.T) {
 			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			sim := mx.New(ctx)
+			h := sim.MustHost(ctx)
+			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/udp/8820/survey/gradual")
 			d, err := boot.Parse(h, maddr)

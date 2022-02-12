@@ -49,7 +49,7 @@ func init() {
 		{
 			Name:  "gradual",
 			Code:  P_GRADUAL,
-			VCode: ma.CodeToVarint(P_CIDR),
+			VCode: ma.CodeToVarint(P_GRADUAL),
 		},
 	} {
 		if err := ma.AddProtocol(p); err != nil {
