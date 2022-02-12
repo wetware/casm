@@ -1,4 +1,4 @@
-package boot
+package crawl
 
 import (
 	"context"
@@ -12,6 +12,18 @@ import (
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/lthibault/log"
 )
+
+type Dialer interface {
+	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
+}
+
+type DialStrategy interface {
+	Dial(context.Context, Dialer) (<-chan net.Conn, error)
+}
+
+type Scanner interface {
+	Scan(net.Conn, record.Record) (*record.Envelope, error)
+}
 
 type Crawler struct {
 	Logger   log.Logger

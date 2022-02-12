@@ -43,7 +43,6 @@ require (
 
 require (
 	github.com/coreos/go-semver v0.3.0
-	github.com/multiformats/go-varint v0.0.6
 	go.uber.org/multierr v1.7.0
 )
 
@@ -121,6 +120,7 @@ require (
 	github.com/multiformats/go-multicodec v0.2.0 // indirect
 	github.com/multiformats/go-multihash v0.0.16 // indirect
 	github.com/multiformats/go-multistream v0.2.2 // indirect
+	github.com/multiformats/go-varint v0.0.6 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/polydawn/refmt v0.0.0-20190807091052-3d65705ee9f1 // indirect

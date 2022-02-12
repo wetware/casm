@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/boot"
+	"github.com/wetware/casm/pkg/boot/crawl"
 	"github.com/wetware/casm/pkg/boot/survey"
 	mx "github.com/wetware/matrix/pkg"
 )
@@ -169,7 +170,7 @@ func TestParse(t *testing.T) {
 			disc, err := boot.Parse(h, maddr)
 			require.NoError(t, err)
 
-			_, ok := disc.(boot.Crawler)
+			_, ok := disc.(crawl.Crawler)
 			require.True(t, ok)
 		})
 

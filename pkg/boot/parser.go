@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
+	"github.com/wetware/casm/pkg/boot/crawl"
 	"github.com/wetware/casm/pkg/boot/survey"
 )
 
@@ -123,10 +124,10 @@ func ParseLayer4(maddr ma.Multiaddr) (ma.Multiaddr, error) {
 	return ma.Join(cs[0], cs[1]), nil
 }
 
-func newCrawler(addr net.Addr, cidr int) (c Crawler, err error) {
+func newCrawler(addr net.Addr, cidr int) (c crawl.Crawler, err error) {
 	switch a := addr.(type) {
 	case *net.TCPAddr:
-		c.Strategy = &ScanSubnet{
+		c.Strategy = &crawl.ScanSubnet{
 			Net:  a.Network(),
 			Port: a.Port,
 			CIDR: fmt.Sprintf("%v/%v", a.IP, cidr), // e.g. '10.0.1.0/24'
