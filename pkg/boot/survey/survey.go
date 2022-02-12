@@ -164,7 +164,6 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 
 			case f := <-thunk:
 				f()
-
 			case m := <-recv:
 				if err := s.handleMessage(ctx, m); err != nil {
 					s.log.WithError(err).Debug("dropped message")
