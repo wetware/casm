@@ -34,30 +34,6 @@ func TestMultiaddr(t *testing.T) {
 	}
 }
 
-func TestParseLayer4(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range []struct {
-		addr string
-		fail bool
-	}{
-		{"/ip4/228.8.8.8/udp/8822/cidr/32", false},
-		{"/ip4/228.8.8.8/udp/8822/survey", false},
-		{"/ip4/228.8.8.8/udp/8822/survey/gradual", false},
-		{"/ip4/228.8.8.8", true},
-		{"/udp/8822/ip4/228.8.8.8", true},
-		{"/ip4/228.8.8.8/unix/foo", true},
-		{"/unix/foo", true},
-	} {
-		_, err := boot.ParseLayer4(multiaddr.StringCast(tt.addr))
-		if tt.fail {
-			assert.Error(t, err, "should fail to parse %s", tt.addr)
-		} else {
-			assert.NoError(t, err, "should parse %s", tt.addr)
-		}
-	}
-}
-
 func TestTranscoderCIDR(t *testing.T) {
 	t.Parallel()
 	t.Helper()

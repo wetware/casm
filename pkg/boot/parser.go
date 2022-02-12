@@ -60,7 +60,7 @@ func init() {
 }
 
 func Parse(h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
-	a, err := ParseLayer4(maddr)
+	a, err := parseLayer4(maddr)
 	if err != nil {
 		return nil, err
 	}
@@ -95,10 +95,10 @@ func Parse(h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
 	return nil, ErrUnknownBootProto
 }
 
-// ParseLayer4 fetches the first two components from a multiaddr, which
+// parseLayer4 fetches the first two components from a multiaddr, which
 // are expected to IPs and TCP/UDP repsectively, and joins them into a
 // single multiaddress.
-func ParseLayer4(maddr ma.Multiaddr) (ma.Multiaddr, error) {
+func parseLayer4(maddr ma.Multiaddr) (ma.Multiaddr, error) {
 	var cs []ma.Multiaddr
 	ma.ForEach(maddr, func(c ma.Component) bool {
 		cs = append(cs, &c)
