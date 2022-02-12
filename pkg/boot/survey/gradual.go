@@ -32,7 +32,7 @@ type GradualSurveyor struct {
 	*Surveyor
 }
 
-func (g *GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 
 	ctxSurv, cancel := context.WithCancel(ctx)
 
@@ -47,12 +47,7 @@ func (g *GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...disco
 		defer close(out)
 		defer cancel()
 
-		b := backoff.Backoff{
-			Factor: g.factor(),
-			Min:    g.min(),
-			Max:    g.max(),
-			Jitter: !g.DisableJitter,
-		}
+		b := g.backoff()
 
 		for {
 			select {
@@ -80,23 +75,25 @@ func (g *GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...disco
 	return out, nil
 }
 
-func (g *GradualSurveyor) factor() float64 {
-	if g.Factor == 0 {
-		return 1.5
+func (g GradualSurveyor) backoff() backoff.Backoff {
+	var b = backoff.Backoff{
+		Factor: g.Factor,
+		Min:    g.Max,
+		Max:    g.Max,
+		Jitter: !g.DisableJitter,
 	}
-	return g.Factor
-}
 
-func (g *GradualSurveyor) min() time.Duration {
-	if g.Min == 0 {
-		return time.Second * 5
+	if b.Factor == 0 {
+		b.Factor = 1.5
 	}
-	return g.Min
-}
 
-func (g *GradualSurveyor) max() time.Duration {
-	if g.Max == 0 {
-		return time.Second * 90
+	if b.Min == 0 {
+		b.Min = time.Second * 5
 	}
-	return g.Max
+
+	if b.Max == 0 {
+		b.Max = time.Second * 90
+	}
+
+	return b
 }
