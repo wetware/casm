@@ -10,7 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/wetware/casm/pkg/boot"
+	casm "github.com/wetware/casm/pkg"
 
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
@@ -85,6 +85,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 				for ns, ad := range px.as {
 					if ad.Expired(px.t) {
 						ad.Gossiper.Stop()
+						px.disc.StopTracking(ns)
 						delete(px.as, ns)
 					}
 				}
@@ -115,44 +116,43 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 // is in effect, but SHOULD NOT be relied upon, and is therefore not
 // documented.
 func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery.Option) (time.Duration, error) {
-	ch := make(chan *gossiper, 1) // TODO:  pool?
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	select {
-	case px.thunks <- func() {
-		ad, ok := px.as[ns]
-		if !ok {
-			ad.Gossiper = px.newGossiper(ns)
-			px.as[ns] = ad
-			// XXX:  signal to the discovery service that we should bootstrap this namespace
-		}
-
-		ad.ResetTTL(px.t)
-		ch <- ad.Gossiper
-	}:
-
-	case <-ctx.Done():
-		return 0, ctx.Err()
-
-	case <-px.ctx.Done():
-		return 0, ErrClosed
-	}
-
-	g := <-ch
-
-	// YOU ARE HERE
-	//
-	// 1. Try to load records from g
-	// 2. If that fails, use px.disc to find a peer
-	// 3. Then, open a stream 's' to that peer
-	//
-
-	if err := g.PushPull(ctx, s); err != nil {
+	g, err := px.upsert(ctx, ns)
+	if err != nil {
 		return 0, err
 	}
 
-	return jitterbug.
+	ttl := jitterbug.
 		Uniform{Min: g.config.Tick / 2}.
-		Jitter(g.config.Tick), nil
+		Jitter(g.config.Tick)
+
+	// First, try cached peers
+	cache, err := g.GetCached()
+	if err != nil {
+		return 0, err
+	}
+
+	for _, info := range cache {
+		if err = px.gossipRound(ctx, g, info); err != nil {
+			return ttl, nil
+		}
+	}
+
+	// If cache is empty or all peers fail, fall back on boot service.
+	peers, err := px.disc.Bootstrap(ctx, ns)
+	if err != nil {
+		return 0, err
+	}
+
+	for info := range peers {
+		if err = px.gossipRound(ctx, g, info); err != nil {
+			return ttl, nil
+		}
+	}
+
+	return 0, err
 }
 
 func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
@@ -161,9 +161,107 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 		return nil, err
 	}
 
-	var ch = make(chan *gossiper, 1) // TODO: pool
+	g, err := px.get(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+
+	// First, try cached peers
+	cache, err := g.GetCached()
+	if err != nil {
+		return nil, err
+	}
+
+	cached := func(ctx context.Context) (<-chan peer.AddrInfo, error) {
+		return cache.FindPeers(ctx, ns, opt...)
+	}
+
+	// If cache is empty or all peers fail, fall back on boot service.
+	bootstrap := func(ctx context.Context) (<-chan peer.AddrInfo, error) {
+		return px.disc.Bootstrap(ctx, ns)
+	}
+
+	out := make(chan peer.AddrInfo)
+	go func() {
+		defer close(out)
+
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		for _, f := range []func(context.Context) (<-chan peer.AddrInfo, error){
+			cached,
+			bootstrap,
+		} {
+			peers, err := f(ctx)
+			if err != nil {
+				// TODO:  log
+				continue
+			}
+
+			for info := range peers {
+				select {
+				case out <- info:
+				case <-ctx.Done():
+				case <-px.ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return out, nil
+}
+
+func (px *PeerExchange) gossipRound(ctx context.Context, g *gossiper, info peer.AddrInfo) error {
+	err := px.h.Connect(ctx, info)
+	if err != nil {
+		return err
+	}
+
+	s, err := px.h.NewStream(ctx, info.ID,
+		casm.Subprotocol(g.String(), "packed"),
+		casm.Subprotocol(g.String()))
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	return g.PushPull(ctx, s)
+}
+
+func (px *PeerExchange) upsert(ctx context.Context, ns string) (*gossiper, error) {
+	ch := make(chan *gossiper, 1) // TODO:  pool?
+	advertise := func() {
+		ad, ok := px.as[ns]
+		if !ok {
+			ad.Gossiper = px.newGossiper(ns)
+			px.as[ns] = ad
+		}
+
+		ad.ResetTTL(px.t)
+		ch <- ad.Gossiper
+	}
+
 	select {
-	case px.thunks <- func() { ch <- px.as[ns].Gossiper }:
+	case px.thunks <- advertise:
+		return <-ch, nil
+
+	case <-ctx.Done():
+		return nil, ctx.Err()
+
+	case <-px.ctx.Done():
+		return nil, ErrClosed
+	}
+}
+
+func (px *PeerExchange) get(ctx context.Context, ns string) (*gossiper, error) {
+	var ch = make(chan *gossiper, 1) // TODO: pool
+
+	select {
+	case px.thunks <- func() {
+		ch <- px.as[ns].Gossiper
+	}:
+
 	case <-ctx.Done():
 		return nil, ctx.Err()
 
@@ -171,11 +269,10 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 		return nil, ErrClosed
 	}
 
-	var g *gossiper
 	select {
-	case g = <-ch:
-		if g == nil {
-			return nil, ErrNotFound
+	case g := <-ch:
+		if g != nil {
+			return g, nil
 		}
 
 	case <-ctx.Done():
@@ -185,22 +282,7 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 		return nil, ErrClosed
 	}
 
-	v, err := g.store.LoadView()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(v) == 0 {
-		// XXX:  we should block until ctx expires, or until a gossip round completes
-	}
-
-	sa := make(boot.StaticAddrs, len(v))
-	for i, r := range v.Bind(shuffled()) {
-		sa[i].ID = r.PeerID
-		sa[i].Addrs = r.Addrs
-	}
-
-	return sa.FindPeers(ctx, "")
+	return nil, ErrNotFound
 }
 
 type atomicRecord atomic.Value

@@ -12,6 +12,7 @@ import (
 	"github.com/lthibault/log"
 	syncutil "github.com/lthibault/util/sync"
 	casm "github.com/wetware/casm/pkg"
+	"github.com/wetware/casm/pkg/boot"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
 
@@ -112,6 +113,23 @@ func (px *PeerExchange) newGossiper(ns string) *gossiper {
 		g.newHandler(ctx, log, rpc.NewPackedStreamTransport))
 
 	return g
+}
+
+func (g *gossiper) String() string { return g.store.ns }
+
+func (g *gossiper) GetCached() (boot.StaticAddrs, error) {
+	view, err := g.store.LoadView()
+	if err != nil || view.Len() == 0 {
+		return nil, err
+	}
+
+	info := make(boot.StaticAddrs, len(view))
+	for i, rec := range view.Bind(shuffled()) {
+		info[i].ID = rec.PeerID
+		info[i].Addrs = rec.Addrs
+	}
+
+	return info, err
 }
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
