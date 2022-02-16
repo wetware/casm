@@ -65,8 +65,6 @@ type Surveyor struct {
 
 	t     time.Time
 	thunk chan<- func()
-	// advert         chan<- advert
-	// disc, discDone chan<- disc
 
 	e   atomic.Value
 	rec atomic.Value
@@ -103,6 +101,20 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		option(s)
 	}
 
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure the sync operation is run before anything else
+	select {
+	case v := <-sub.Out():
+		s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
+
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	lconn, err := s.tp.Listen(addr)
 	if err != nil {
 		return nil, err
@@ -126,17 +138,6 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 
 	go s.c.StartRecv(ctx, lconn)
 	go s.c.StartSend(ctx, dconn)
-
-	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-	if err != nil {
-		lconn.Close()
-		dconn.Close()
-		return nil, err
-	}
-
-	// Ensure the sync operation is run before anything else
-	v := <-sub.Out()
-	s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
 
 	go func() {
 		for v := range sub.Out() {
