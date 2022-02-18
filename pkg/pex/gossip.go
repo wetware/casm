@@ -167,8 +167,8 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 			Bind(appendLocal(g.store))
 
 		enc := capnp.NewPackedEncoder(s)
-		for _, g := range buffer {
-			if err = enc.Encode(g.Message()); err != nil {
+		for _, gr := range buffer {
+			if err = enc.Encode(gr.Message()); err != nil {
 				break
 			}
 		}
@@ -188,14 +188,15 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 				if err == io.EOF {
 					break
 				}
+				println("A")
 				return err
 			}
 
 			g := new(GossipRecord) // TODO(performance):  pool?
 			if err = g.ReadMessage(msg); err != nil {
+				println("B")
 				return err
 			}
-
 			remote = append(remote, g)
 		}
 		return nil
@@ -204,7 +205,6 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	if err = j.Wait(); err == nil {
 		err = g.mergeAndStore(local, remote)
 	}
-
 	return err
 }
 

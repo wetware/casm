@@ -10,6 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/record"
 	casm "github.com/wetware/casm/pkg"
 
 	"github.com/lthibault/jitterbug/v2"
@@ -38,7 +39,7 @@ type PeerExchange struct {
 	log log.Logger
 
 	h         host.Host
-	newParams func(string) GossipConfig
+	newParams func(ns string) GossipConfig
 
 	t      time.Time
 	as     map[string]advertiser
@@ -67,10 +68,8 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 		option(&px)
 	}
 
-	// Ensure the local record is stored before processing anything else.
-	thunks <- func() {
-		px.store.Consume((<-sub.Out()).(event.EvtLocalAddressesUpdated))
-	}
+	// ensure the local record is stored before processing anything else.
+	px.store.Consume((<-sub.Out()).(event.EvtLocalAddressesUpdated))
 
 	// Update
 	go func() {
@@ -85,7 +84,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 				for ns, ad := range px.as {
 					if ad.Expired(px.t) {
 						ad.Gossiper.Stop()
-						px.disc.StopTracking(ns)
+						//px.disc.StopTracking(ns)
 						delete(px.as, ns)
 					}
 				}
@@ -135,7 +134,7 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 	}
 
 	for _, info := range cache {
-		if err = px.gossipRound(ctx, g, info); err != nil {
+		if err = px.gossipRound(ctx, g, info); err == nil {
 			return ttl, nil
 		}
 	}
@@ -147,12 +146,13 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 	}
 
 	for info := range peers {
-		if err = px.gossipRound(ctx, g, info); err != nil {
+		if err = px.gossipRound(ctx, g, info); err == nil {
 			return ttl, nil
 		}
+		// TODO: log error?
 	}
 
-	return 0, err
+	return ttl, nil // no peer was found to advertise to (it may be the first node to join the network)
 }
 
 func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
@@ -285,7 +285,10 @@ func (px *PeerExchange) get(ctx context.Context, ns string) (*gossiper, error) {
 	return nil, ErrNotFound
 }
 
-type atomicRecord atomic.Value
+type atomicRecord struct {
+	rec atomic.Value
+	env atomic.Value
+}
 
 func (rec *atomicRecord) Consume(e event.EvtLocalAddressesUpdated) {
 	r, err := e.SignedPeerRecord.Record()
@@ -293,15 +296,24 @@ func (rec *atomicRecord) Consume(e event.EvtLocalAddressesUpdated) {
 		panic(err)
 	}
 
-	(*atomic.Value)(rec).Store(r)
+	rec.env.Store(e.SignedPeerRecord)
+	rec.rec.Store(r)
 }
 
 func (rec *atomicRecord) Record() *peer.PeerRecord {
 	var v interface{}
-	for v = (*atomic.Value)(rec).Load(); v == nil; {
+	for v = rec.rec.Load(); v == nil; {
 		time.Sleep(time.Microsecond * 500)
 	}
 	return v.(*peer.PeerRecord)
+}
+
+func (rec *atomicRecord) Envelope() *record.Envelope {
+	var v interface{}
+	for v = rec.env.Load(); v == nil; {
+		time.Sleep(time.Microsecond * 500)
+	}
+	return v.(*record.Envelope)
 }
 
 type advertiser struct {

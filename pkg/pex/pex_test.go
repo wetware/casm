@@ -5,17 +5,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/peerstore"
+	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/pex"
 	mx "github.com/wetware/matrix/pkg"
 )
 
-func TestPeX(t *testing.T) {
+func TestPeX_SingleNode(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	ns := "single-node"
 
 	h := mx.New(ctx).MustHost(ctx)
 
@@ -23,10 +26,121 @@ func TestPeX(t *testing.T) {
 	require.NoError(t, err, "should construct PeerExchange")
 	require.NotNil(t, px, "should return PeerExchange")
 
-	ttl, err := px.Advertise(ctx, "test")
+	ttl, err := px.Advertise(ctx, ns)
 	require.NoError(t, err)
-	require.Equal(t, time.Duration(peerstore.PermanentAddrTTL), ttl,
-		"should return default TTL of 'PermanentAddrTTL'")
+	require.LessOrEqual(t, ttl, 5*time.Minute,
+		"should return TTL less or equal to default Tick of 5 minutes")
+	require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+		"should return TTL greater or equal to half of the default Tick of 5 minutes")
+
+	finder, err := px.FindPeers(ctx, ns)
+	require.NoError(t, err)
+
+	_, ok := <-finder
+	require.False(t, ok, "shouldn't find any peer, the channel should close directly")
+}
+func TestPeX_TwoNodes(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ns := "two-nodes"
+
+	sim := mx.New(ctx)
+	h1 := sim.MustHost(ctx)
+	h2 := sim.MustHost(ctx)
+
+	px1, err := pex.New(ctx, h1, pex.WithBootstrapPeers(*host.InfoFromHost(h2)))
+	require.NoError(t, err, "should construct PeerExchange")
+	require.NotNil(t, px1, "should return PeerExchange")
+
+	px2, err := pex.New(ctx, h2, pex.WithBootstrapPeers(*host.InfoFromHost(h1)))
+	require.NoError(t, err, "should construct PeerExchange")
+	require.NotNil(t, px2, "should return PeerExchange")
+
+	ttl, err := px1.Advertise(ctx, ns)
+	require.NoError(t, err)
+	require.LessOrEqual(t, ttl, 5*time.Minute,
+		"should return TTL less or equal to default Tick of 5 minutes")
+	require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+		"should return TTL greater or equal to half of the default Tick of 5 minutes")
+
+	ttl, err = px2.Advertise(ctx, ns)
+	require.NoError(t, err)
+	require.LessOrEqual(t, ttl, 5*time.Minute,
+		"should return TTL less or equal to default Tick of 5 minutes")
+	require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+		"should return TTL greater or equal to half of the default Tick of 5 minutes")
+
+	infos, err := peers(ctx, px2, ns)
+	require.NoError(t, err)
+	require.Len(t, infos, 2)
+	require.Equal(t, infos[0].ID, h1.ID())
+
+	infos, err = peers(ctx, px1, ns)
+	require.NoError(t, err)
+	require.Len(t, infos, 2)
+	require.Equal(t, infos[0].ID, h2.ID())
+}
+
+const N = 10
+
+func TestPexNNodes(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var err error
+	ns := "n-nodes"
+
+	sim := mx.New(ctx)
+	hs := make([]host.Host, N)
+	pxs := make([]*pex.PeerExchange, N)
+	for i := 0; i < N; i++ {
+		hs[i] = sim.MustHost(ctx)
+
+		if i != 0 {
+			pxs[i], err = pex.New(ctx, hs[i], pex.WithBootstrapPeers(*host.InfoFromHost(hs[0])))
+		} else {
+			pxs[i], err = pex.New(ctx, hs[i])
+		}
+		require.NoError(t, err, "should construct PeerExchange")
+		require.NotNil(t, pxs[i], "should return PeerExchange")
+
+		ttl, err := pxs[i].Advertise(ctx, ns)
+		require.NoError(t, err)
+		require.LessOrEqual(t, ttl, 5*time.Minute,
+			"should return TTL less or equal to default Tick of 5 minutes")
+		require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+			"should return TTL greater or equal to half of the default Tick of 5 minutes")
+
+		infos, err := peers(ctx, pxs[i], ns)
+		require.NoError(t, err)
+
+		if i == 0 {
+			continue
+		} else if i+1 < pex.MaxView {
+			require.Len(t, infos, i+1)
+		} else {
+			require.Len(t, infos, pex.MaxView)
+		}
+	}
+
+}
+
+func peers(ctx context.Context, px *pex.PeerExchange, ns string) ([]peer.AddrInfo, error) {
+	finder, err := px.FindPeers(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+
+	infos := make([]peer.AddrInfo, 0)
+	for info := range finder {
+		infos = append(infos, info)
+	}
+	return infos, nil
 }
 
 // const ns = "casm.pex.test"

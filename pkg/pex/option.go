@@ -7,9 +7,12 @@ import (
 	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/sync"
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/lthibault/log"
 	"github.com/wetware/casm/pkg/boot"
 )
+
+const MaxView = 32
 
 type Option func(px *PeerExchange)
 
@@ -53,6 +56,22 @@ func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 	return func(px *PeerExchange) {
 		px.disc.d = d
 		px.disc.opt = opt
+	}
+}
+
+// WithBootstrapPeers sets the bootstrap discovery service
+// for the PeX instance to bootstrap with specific peers.
+// It is a user-friendly way to set up the discovery service.
+// The supplied instance will be called with 'opt' whenever
+// the PeeerExchange is unable to connect to peers in its cache.
+func WithBootstrapPeers(peers ...peer.AddrInfo) Option {
+
+	d := boot.StaticAddrs(peers)
+
+	return func(px *PeerExchange) {
+		if len(peers) > 0 {
+			px.disc.d = d
+		}
 	}
 }
 
@@ -105,7 +124,7 @@ func WithGossip(newGossip func(ns string) GossipConfig) Option {
 	if newGossip == nil {
 		newGossip = func(ns string) GossipConfig {
 			return GossipConfig{
-				MaxView:    32,
+				MaxView:    MaxView,
 				Swap:       10,
 				Protect:    5,
 				Decay:      0.005,

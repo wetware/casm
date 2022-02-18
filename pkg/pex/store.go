@@ -10,7 +10,7 @@ import (
 	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/query"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/wetware/casm/internal/api/pex"
+	"github.com/libp2p/go-libp2p-core/record"
 )
 
 func init() { rand.Seed(time.Now().UnixNano()) }
@@ -203,24 +203,15 @@ func decay(d float64, maxDecay int) func(View) View {
 
 type recordProvider interface {
 	Record() *peer.PeerRecord
+	Envelope() *record.Envelope
 }
 
 func appendLocal(rec recordProvider) func(View) View {
 	return func(v View) View {
-		var g = GossipRecord{
-			PeerRecord: *rec.Record(),
-		}
-
-		_, s, err := capnp.NewMessage(capnp.SingleSegment(nil))
+		rec, err := NewGossipRecord(rec.Envelope())
 		if err != nil {
 			panic(err)
 		}
-
-		g.g, err = pex.NewRootGossip(s)
-		if err != nil {
-			panic(err)
-		}
-
-		return append(v, &g)
+		return append(v, rec)
 	}
 }
