@@ -104,6 +104,20 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 	return &px, nil
 }
 
+func (px *PeerExchange) Close(ctx context.Context) {
+	closeFunc := func() {
+		for ns, ad := range px.as {
+			ad.Gossiper.Stop()
+			//px.disc.StopTracking(ns)
+			delete(px.as, ns)
+		}
+	}
+	select {
+	case px.thunks <- closeFunc:
+	case <-ctx.Done():
+	}
+}
+
 // Advertise triggers a gossip round for the specified namespace.
 // The returned TTL is derived from the GossipParam instance
 // associated with 'ns'. Any options passed to Advertise are ignored.
@@ -118,7 +132,7 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	g, err := px.upsert(ctx, ns)
+	g, err := px.getOrCreateGossiper(ctx, ns)
 	if err != nil {
 		return 0, err
 	}
@@ -128,7 +142,7 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 		Jitter(g.config.Tick)
 
 	// First, try cached peers
-	cache, err := g.GetCached()
+	cache, err := g.GetCachedPeers()
 	if err != nil {
 		return 0, err
 	}
@@ -161,13 +175,13 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 		return nil, err
 	}
 
-	g, err := px.get(ctx, ns)
+	g, err := px.getGossiper(ctx, ns)
 	if err != nil {
 		return nil, err
 	}
 
 	// First, try cached peers
-	cache, err := g.GetCached()
+	cache, err := g.GetCachedPeers()
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +243,7 @@ func (px *PeerExchange) gossipRound(ctx context.Context, g *gossiper, info peer.
 	return g.PushPull(ctx, s)
 }
 
-func (px *PeerExchange) upsert(ctx context.Context, ns string) (*gossiper, error) {
+func (px *PeerExchange) getOrCreateGossiper(ctx context.Context, ns string) (*gossiper, error) {
 	ch := make(chan *gossiper, 1) // TODO:  pool?
 	advertise := func() {
 		ad, ok := px.as[ns]
@@ -254,7 +268,7 @@ func (px *PeerExchange) upsert(ctx context.Context, ns string) (*gossiper, error
 	}
 }
 
-func (px *PeerExchange) get(ctx context.Context, ns string) (*gossiper, error) {
+func (px *PeerExchange) getGossiper(ctx context.Context, ns string) (*gossiper, error) {
 	var ch = make(chan *gossiper, 1) // TODO: pool
 
 	select {

@@ -121,10 +121,10 @@ func TestPexNNodes(t *testing.T) {
 
 		if i == 0 {
 			continue
-		} else if i+1 < pex.MaxView {
+		} else if i+1 < pex.DefaultMaxView {
 			require.Len(t, infos, i+1)
 		} else {
-			require.Len(t, infos, pex.MaxView)
+			require.Len(t, infos, pex.DefaultMaxView)
 		}
 	}
 
@@ -143,45 +143,40 @@ func peers(ctx context.Context, px *pex.PeerExchange, ns string) ([]peer.AddrInf
 	return infos, nil
 }
 
-// const ns = "casm.pex.test"
+const ns = "casm.pex.test"
 
-// func TestPeerExchange_Init(t *testing.T) {
-// 	t.Parallel()
-// 	t.Helper()
+func TestPeerExchange_Init(t *testing.T) {
+	t.Parallel()
+	t.Helper()
 
-// 	t.Run("Succeed", func(t *testing.T) {
-// 		t.Parallel()
+	t.Run("Fail to find unadvertised ns", func(t *testing.T) {
+		t.Parallel()
 
-// 		ctx, cancel := context.WithCancel(context.Background())
-// 		defer cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-// 		h := mx.New(ctx).MustHost(ctx)
+		h := mx.New(ctx).MustHost(ctx)
 
-// 		px, err := pex.New(ctx, h)
-// 		require.NoError(t, err)
+		px, err := pex.New(ctx, h)
+		require.NoError(t, err)
 
-// 		peers, err := px.FindPeers(ctx, ns)
-// 		require.NoError(t, err)
+		peers, err := px.FindPeers(ctx, ns)
+		require.Error(t, err)
+		require.Nil(t, peers)
+	})
 
-// 		_, ok := <-peers
-// 		require.False(t, ok)
+	// t.Run("Fail_no_addrs", func(t *testing.T) {
+	// 	t.Parallel()
 
-// 		err = px.Close()
-// 		assert.NoError(t, err, "error closing PeerExchange")
-// 	})
+	// 	ctx, cancel := context.WithCancel(context.Background())
+	// 	defer cancel()
 
-// 	t.Run("Fail_no_addrs", func(t *testing.T) {
-// 		t.Parallel()
+	// 	h := mx.New(ctx).MustHost(ctx, libp2p.NoListenAddrs)
 
-// 		ctx, cancel := context.WithCancel(context.Background())
-// 		defer cancel()
-
-// 		h := mx.New(ctx).MustHost(ctx, libp2p.NoListenAddrs)
-
-// 		_, err := pex.New(ctx, h)
-// 		require.EqualError(t, err, "host not accepting connections")
-// 	})
-// }
+	// 	_, err := pex.New(ctx, h)
+	// 	require.EqualError(t, err, "host not accepting connections")
+	// })
+}
 
 // func TestPeerExchange_Bootstrap(t *testing.T) {
 // 	t.Parallel()

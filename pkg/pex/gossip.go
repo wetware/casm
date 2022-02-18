@@ -117,7 +117,7 @@ func (px *PeerExchange) newGossiper(ns string) *gossiper {
 
 func (g *gossiper) String() string { return g.store.ns }
 
-func (g *gossiper) GetCached() (boot.StaticAddrs, error) {
+func (g *gossiper) GetCachedPeers() (boot.StaticAddrs, error) {
 	view, err := g.store.LoadView()
 	if err != nil || view.Len() == 0 {
 		return nil, err
@@ -188,13 +188,11 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 				if err == io.EOF {
 					break
 				}
-				println("A")
 				return err
 			}
 
 			g := new(GossipRecord) // TODO(performance):  pool?
 			if err = g.ReadMessage(msg); err != nil {
-				println("B")
 				return err
 			}
 			remote = append(remote, g)

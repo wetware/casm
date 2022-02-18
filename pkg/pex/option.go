@@ -12,7 +12,7 @@ import (
 	"github.com/wetware/casm/pkg/boot"
 )
 
-const MaxView = 32
+const DefaultMaxView = 32
 
 type Option func(px *PeerExchange)
 
@@ -124,7 +124,7 @@ func WithGossip(newGossip func(ns string) GossipConfig) Option {
 	if newGossip == nil {
 		newGossip = func(ns string) GossipConfig {
 			return GossipConfig{
-				MaxView:    MaxView,
+				MaxView:    DefaultMaxView,
 				Swap:       10,
 				Protect:    5,
 				Decay:      0.005,
