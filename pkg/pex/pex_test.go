@@ -122,14 +122,22 @@ func TestPex_NNodes(t *testing.T) {
 		}).
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
 			ps[i], err = pex.New(ctx, h, pex.WithGossip(newGossip))
-			if i != 0 {
-				ps[i].Bootstrap(ctx, ns, *host.InfoFromHost(hs[i-1]))
+			if err != nil {
+				return err
 			}
-			return
+			_, err = ps[i].Advertise(ctx, ns)
+			return err
 		}).
 		// start advertiser loop
 		Go(func(ctx context.Context, i int, h host.Host) error {
-			next, err := ps[i].Advertise(ctx, ns)
+			var (
+				err  error
+				next = time.Duration(0)
+			)
+			if i != 0 {
+				err = ps[i].Bootstrap(ctx, ns, *host.InfoFromHost(hs[i-1]))
+			}
+
 			if err == nil {
 				go func() {
 					for {
@@ -263,7 +271,7 @@ func TestPeX_Bootstrap(t *testing.T) {
 		}).Must(ctx, hs)
 }
 
-func TestAdvertise(t *testing.T) {
+func TestPeX_Advertise(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -296,7 +304,7 @@ func TestAdvertise(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestPeerExchange_simulation(t *testing.T) {
+func TestPeX_Simulation(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
