@@ -2,6 +2,7 @@ package pex
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	"time"
@@ -50,6 +51,10 @@ type PeerExchange struct {
 }
 
 func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error) {
+	if len(h.Addrs()) == 0 {
+		return nil, errors.New("host not accepting connections")
+	}
+
 	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
 	if err != nil {
 		return nil, err
@@ -69,7 +74,12 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 	}
 
 	// ensure the local record is stored before processing anything else.
-	px.store.Consume((<-sub.Out()).(event.EvtLocalAddressesUpdated))
+	select {
+	case ev := <-sub.Out():
+		px.store.Consume((ev).(event.EvtLocalAddressesUpdated))
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 
 	// Update
 	go func() {
@@ -116,6 +126,21 @@ func (px *PeerExchange) Close(ctx context.Context) {
 	case px.thunks <- closeFunc:
 	case <-ctx.Done():
 	}
+}
+
+func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peers ...peer.AddrInfo) error {
+	g, err := px.getOrCreateGossiper(ctx, ns)
+	if err != nil {
+		return err
+	}
+
+	for _, info := range peers {
+		if err = px.gossipRound(ctx, g, info); err == nil {
+			return nil
+		}
+	}
+
+	return errors.New("no peer found")
 }
 
 // Advertise triggers a gossip round for the specified namespace.

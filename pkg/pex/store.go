@@ -37,8 +37,6 @@ type gossipStore struct {
 	*atomicRecord
 }
 
-func (gs gossipStore) Local()
-
 func (gs gossipStore) String() string { return gs.ns }
 
 func (gs gossipStore) Loggable() map[string]interface{} {
