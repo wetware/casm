@@ -93,20 +93,21 @@ func (px *PeerExchange) newGossiper(ns string) *gossiper {
 		protoPacked = casm.Subprotocol(ns, "packed")
 		match       = casm.NewMatcher(ns)
 		matchPacked = match.Then(protoutil.Exactly("packed"))
-		config      = px.newParams(ns)
-		store       = px.store.New(ns)
 	)
 
 	g := &gossiper{
-		config: config,
-		store:  store,
-		mvm:    mutexViewManager{config: config, store: store},
+		config: px.newParams(ns),
+		store:  px.store.New(ns),
 		Stop: func() {
 			cancel()
 			px.h.RemoveStreamHandler(proto)
 			px.h.RemoveStreamHandler(protoPacked)
 		},
 	}
+
+	// set view manager
+	g.mvm.config = &g.config
+	g.mvm.store = &g.store
 
 	px.h.SetStreamHandlerMatch(
 		proto,
@@ -160,7 +161,6 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 		defer s.CloseWrite()
 
 		buffer := local.
-			//Bind(isNot(s.Conn().RemotePeer())).
 			Bind(g.config.head()).
 			Bind(appendLocal(g.store))
 
@@ -252,8 +252,8 @@ func max(n1, n2 int) int {
 type mutexViewManager struct {
 	mu sync.Mutex
 
-	store  gossipStore
-	config GossipConfig
+	config *GossipConfig
+	store  *gossipStore
 }
 
 func (mvm *mutexViewManager) getPushView() (local View, err error) {
