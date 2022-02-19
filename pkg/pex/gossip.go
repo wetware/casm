@@ -8,6 +8,7 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
@@ -79,13 +80,14 @@ func (g GossipConfig) newDecoder(r io.Reader) *capnp.Decoder {
 type gossiper struct {
 	config GossipConfig
 	store  gossipStore
+	e      event.Emitter
 
 	mvm mutexViewManager
 
 	Stop func()
 }
 
-func (px *PeerExchange) newGossiper(ns string) *gossiper {
+func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
 	var (
 		ctx, cancel = context.WithCancel(px.ctx)
 		log         = px.log.WithField("ns", ns)
@@ -98,6 +100,7 @@ func (px *PeerExchange) newGossiper(ns string) *gossiper {
 	g := &gossiper{
 		config: px.newParams(ns),
 		store:  px.store.New(ns),
+		e:      e,
 		Stop: func() {
 			cancel()
 			px.h.RemoveStreamHandler(proto)
@@ -141,10 +144,10 @@ func (g *gossiper) GetCachedPeers() (boot.StaticAddrs, error) {
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	var (
-		j             syncutil.Join
-		t, _          = ctx.Deadline()
-		remote, local View
-		err           error
+		j                       syncutil.Join
+		t, _                    = ctx.Deadline()
+		remote, local, newLocal View
+		err                     error
 	)
 
 	if err := s.SetDeadline(t); err != nil {
@@ -199,7 +202,11 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	})
 
 	if err = j.Wait(); err == nil {
-		err = g.mvm.mergeAndStore(local, remote)
+		if newLocal, err = g.mvm.merge(local, remote); err == nil {
+			if err = g.store.StoreRecords(local, newLocal); err == nil {
+				g.e.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
+			}
+		}
 	}
 	return err
 }
@@ -276,12 +283,12 @@ func (mvm *mutexViewManager) getPushView() (local View, err error) {
 	return
 }
 
-func (mvm *mutexViewManager) mergeAndStore(local, remote View) error {
+func (mvm *mutexViewManager) merge(local, remote View) (View, error) {
 	mvm.mu.Lock()
 	defer mvm.mu.Unlock()
 
 	if err := remote.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Remove duplicates and combine local and remote records
@@ -313,5 +320,5 @@ func (mvm *mutexViewManager) mergeAndStore(local, remote View) error {
 
 	newLocal.incrHops()
 
-	return mvm.store.StoreRecords(local, newLocal)
+	return newLocal, nil
 }

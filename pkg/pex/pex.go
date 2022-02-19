@@ -271,12 +271,18 @@ func (px *PeerExchange) gossipRound(ctx context.Context, g *gossiper, info peer.
 	return g.PushPull(ctx, s)
 }
 
+type EvtPeersUpdated []*peer.PeerRecord
+
 func (px *PeerExchange) getOrCreateGossiper(ctx context.Context, ns string) (*gossiper, error) {
 	ch := make(chan *gossiper, 1) // TODO:  pool?
+	e, err := px.h.EventBus().Emitter(new(EvtPeersUpdated))
+	if err != nil {
+		return nil, err
+	}
 	advertise := func() {
 		ad, ok := px.as[ns]
 		if !ok {
-			ad.Gossiper = px.newGossiper(ns)
+			ad.Gossiper = px.newGossiper(ns, e)
 			px.as[ns] = ad
 		}
 

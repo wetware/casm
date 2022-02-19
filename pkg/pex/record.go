@@ -103,6 +103,14 @@ func (v View) Len() int           { return len(v) }
 func (v View) Less(i, j int) bool { return v[i].Hop() < v[j].Hop() }
 func (v View) Swap(i, j int)      { v[i], v[j] = v[j], v[i] }
 
+func (v View) PeerRecords() []*peer.PeerRecord {
+	recs := make([]*peer.PeerRecord, 0, v.Len())
+	for _, p := range v {
+		recs = append(recs, &p.PeerRecord)
+	}
+	return recs
+}
+
 // Validate a View that was received during a gossip round.
 func (v View) Validate() error {
 	if len(v) == 0 {
