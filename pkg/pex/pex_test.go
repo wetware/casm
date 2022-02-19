@@ -373,23 +373,24 @@ func TestPeX_Simulation(t *testing.T) {
 		// start advertiser loop
 		Go(func(ctx context.Context, i int, h host.Host) error {
 			next, err := ps[i].Advertise(ctx, ns)
-			if err == nil {
-				go func() {
-					for {
-						select {
-						case <-time.After(next):
-							next, err = ps[i].Advertise(ctx, ns)
-							if err != nil {
-								require.ErrorIs(t, err, pex.ErrClosed)
-							}
-						case <-ctx.Done():
-							return
-						}
-					}
-				}()
+			if err != nil {
+				return err
 			}
+			go func() {
+				for {
+					select {
+					case <-time.After(next):
+						next, err = ps[i].Advertise(ctx, ns)
+						if err != nil {
+							require.ErrorIs(t, err, pex.ErrClosed)
+						}
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
 
-			return err
+			return nil
 		}).
 		Err(ctx, hs)
 

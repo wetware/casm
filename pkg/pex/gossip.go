@@ -277,6 +277,9 @@ func (mvm *mutexViewManager) getPushView() (local View, err error) {
 }
 
 func (mvm *mutexViewManager) mergeAndStore(local, remote View) error {
+	mvm.mu.Lock()
+	defer mvm.mu.Unlock()
+
 	if err := remote.Validate(); err != nil {
 		return err
 	}
