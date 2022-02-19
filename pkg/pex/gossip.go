@@ -3,6 +3,7 @@ package pex
 import (
 	"context"
 	"io"
+	"sync"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
@@ -79,6 +80,8 @@ type gossiper struct {
 	config GossipConfig
 	store  gossipStore
 
+	mvm mutexViewManager
+
 	Stop func()
 }
 
@@ -90,11 +93,14 @@ func (px *PeerExchange) newGossiper(ns string) *gossiper {
 		protoPacked = casm.Subprotocol(ns, "packed")
 		match       = casm.NewMatcher(ns)
 		matchPacked = match.Then(protoutil.Exactly("packed"))
+		config      = px.newParams(ns)
+		store       = px.store.New(ns)
 	)
 
 	g := &gossiper{
-		config: px.newParams(ns),
-		store:  px.store.New(ns),
+		config: config,
+		store:  store,
+		mvm:    mutexViewManager{config: config, store: store},
 		Stop: func() {
 			cancel()
 			px.h.RemoveStreamHandler(proto)
@@ -134,35 +140,27 @@ func (g *gossiper) GetCachedPeers() (boot.StaticAddrs, error) {
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	var (
-		j      syncutil.Join
-		t, _   = ctx.Deadline()
-		remote View
+		j             syncutil.Join
+		t, _          = ctx.Deadline()
+		remote, local View
+		err           error
 	)
 
 	if err := s.SetDeadline(t); err != nil {
 		return err
 	}
 
-	view, err := g.store.LoadView()
+	local, err = g.mvm.getPushView()
 	if err != nil {
 		return err
 	}
-
-	view = view.Bind(sorted())
-	oldest := view.Bind(g.config.tail())
-
-	local := append(
-		view.
-			Bind(head(len(view)-len(oldest))).
-			Bind(shuffled()),
-		oldest...)
 
 	// push
 	j.Go(func() error {
 		defer s.CloseWrite()
 
 		buffer := local.
-			Bind(isNot(s.Conn().RemotePeer())).
+			//Bind(isNot(s.Conn().RemotePeer())).
 			Bind(g.config.head()).
 			Bind(appendLocal(g.store))
 
@@ -201,7 +199,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	})
 
 	if err = j.Wait(); err == nil {
-		err = g.mergeAndStore(local, remote)
+		err = g.mvm.mergeAndStore(local, remote)
 	}
 	return err
 }
@@ -223,43 +221,6 @@ func (g *gossiper) newHandler(ctx context.Context, log log.Logger, f transportFa
 			slog.WithError(err).Debug("peer exchange failed")
 		}
 	}
-}
-
-func (g *gossiper) mergeAndStore(local, remote View) error {
-	if err := remote.Validate(); err != nil {
-		return err
-	}
-
-	// Remove duplicates and combine local and remote records
-	newLocal := local.
-		Bind(merged(remote)).
-		Bind(isNot(g.store.Record().PeerID))
-
-	// Apply swapping
-	s := min(g.config.Swap, max(len(newLocal)-g.config.MaxView, 0))
-	newLocal = newLocal.
-		Bind(tail(len(newLocal) - s)).
-		Bind(sorted())
-
-	// Apply retention
-	r := min(min(g.config.Protect, g.config.MaxView), len(newLocal))
-	maxDecay := min(r, max(len(newLocal)-g.config.MaxView, 0))
-	oldest := newLocal.Bind(tail(r)).Bind(decay(g.config.Decay, maxDecay))
-
-	//Apply random eviction
-	c := g.config.MaxView - len(oldest)
-	newLocal = newLocal.
-		Bind(head(max(len(newLocal)-r, 0))).
-		Bind(shuffled()).
-		Bind(head(c))
-
-	// Merge with oldest nodes
-	newLocal = newLocal.
-		Bind(merged(oldest))
-
-	newLocal.incrHops()
-
-	return g.store.StoreRecords(local, newLocal)
 }
 
 type transportFactory func(io.ReadWriteCloser) rpc.Transport
@@ -286,4 +247,68 @@ func max(n1, n2 int) int {
 		return n2
 	}
 	return n1
+}
+
+type mutexViewManager struct {
+	mu sync.Mutex
+
+	store  gossipStore
+	config GossipConfig
+}
+
+func (mvm *mutexViewManager) getPushView() (local View, err error) {
+	mvm.mu.Lock()
+	defer mvm.mu.Unlock()
+
+	local, err = mvm.store.LoadView()
+	if err != nil {
+		return
+	}
+
+	local = local.Bind(sorted())
+	oldest := local.Bind(mvm.config.tail())
+
+	local = append(
+		local.
+			Bind(head(len(local)-len(oldest))).
+			Bind(shuffled()),
+		oldest...)
+	return
+}
+
+func (mvm *mutexViewManager) mergeAndStore(local, remote View) error {
+	if err := remote.Validate(); err != nil {
+		return err
+	}
+
+	// Remove duplicates and combine local and remote records
+	newLocal := local.
+		Bind(merged(remote)).
+		Bind(isNot(mvm.store.Record().PeerID))
+
+	// Apply swapping
+	s := min(mvm.config.Swap, max(len(newLocal)-mvm.config.MaxView, 0))
+	newLocal = newLocal.
+		Bind(tail(len(newLocal) - s)).
+		Bind(sorted())
+
+	// Apply retention
+	r := min(min(mvm.config.Protect, mvm.config.MaxView), len(newLocal))
+	maxDecay := min(r, max(len(newLocal)-mvm.config.MaxView, 0))
+	oldest := newLocal.Bind(tail(r)).Bind(decay(mvm.config.Decay, maxDecay))
+
+	//Apply random eviction
+	c := mvm.config.MaxView - len(oldest)
+	newLocal = newLocal.
+		Bind(head(max(len(newLocal)-r, 0))).
+		Bind(shuffled()).
+		Bind(head(c))
+
+	// Merge with oldest nodes
+	newLocal = newLocal.
+		Bind(merged(oldest))
+
+	newLocal.incrHops()
+
+	return mvm.store.StoreRecords(local, newLocal)
 }

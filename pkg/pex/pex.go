@@ -36,21 +36,24 @@ import (
 // these have been carefully selected to work in a broad range of applications
 // and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
-	ctx context.Context
-	log log.Logger
+	ctx    context.Context
+	cancel context.CancelFunc
+	log    log.Logger
 
 	h         host.Host
 	newParams func(ns string) GossipConfig
 
-	t      time.Time
-	as     map[string]advertiser
-	thunks chan<- func()
+	t     time.Time
+	as    map[string]advertiser
+	thunk chan<- func()
 
 	store rootStore
 	disc  discover
 }
 
 func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error) {
+	ctx, cancel := context.WithCancel(ctx)
+
 	if len(h.Addrs()) == 0 {
 		return nil, errors.New("host not accepting connections")
 	}
@@ -64,8 +67,9 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 
 	var px = PeerExchange{
 		ctx:    ctx,
+		cancel: cancel,
 		h:      h,
-		thunks: thunks,
+		thunk:  thunks,
 		as:     make(map[string]advertiser),
 	}
 
@@ -106,6 +110,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 				px.store.Consume(v.(event.EvtLocalAddressesUpdated))
 
 			case <-ctx.Done():
+				px.close()
 				return
 			}
 		}
@@ -114,17 +119,15 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 	return &px, nil
 }
 
-func (px *PeerExchange) Close(ctx context.Context) {
-	closeFunc := func() {
-		for ns, ad := range px.as {
-			ad.Gossiper.Stop()
-			//px.disc.StopTracking(ns)
-			delete(px.as, ns)
-		}
-	}
-	select {
-	case px.thunks <- closeFunc:
-	case <-ctx.Done():
+func (px *PeerExchange) Close() {
+	px.cancel()
+}
+
+func (px *PeerExchange) close() {
+	for ns, ad := range px.as {
+		ad.Gossiper.Stop()
+		//px.disc.StopTracking(ns)
+		delete(px.as, ns)
 	}
 }
 
@@ -282,7 +285,7 @@ func (px *PeerExchange) getOrCreateGossiper(ctx context.Context, ns string) (*go
 	}
 
 	select {
-	case px.thunks <- advertise:
+	case px.thunk <- advertise:
 		return <-ch, nil
 
 	case <-ctx.Done():
@@ -297,7 +300,7 @@ func (px *PeerExchange) getGossiper(ctx context.Context, ns string) (*gossiper, 
 	var ch = make(chan *gossiper, 1) // TODO: pool
 
 	select {
-	case px.thunks <- func() {
+	case px.thunk <- func() {
 		ch <- px.as[ns].Gossiper
 	}:
 
