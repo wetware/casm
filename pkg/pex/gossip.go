@@ -264,13 +264,6 @@ func max(n1, n2 int) int {
 	return n1
 }
 
-type mutexViewManager struct {
-	mu sync.Mutex
-
-	config *GossipConfig
-	store  *gossipStore
-}
-
 func (g *gossiper) mutexGetPushView() (local View, err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
