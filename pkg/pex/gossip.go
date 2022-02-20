@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/protocol"
@@ -17,11 +16,6 @@ import (
 	"github.com/wetware/casm/pkg/boot"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
-
-// const (
-// 	gossipTimeout = time.Second * 30
-// 	maxMsgSize    = 2048 // max capnp message size
-// )
 
 type StreamHandler interface {
 	SetStreamHandlerMatch(protocol.ID, func(string) bool, network.StreamHandler)
@@ -63,12 +57,31 @@ type GossipConfig struct {
 	MaxMsgSize uint64
 }
 
-func (g GossipConfig) tail() func(View) View {
-	return tail(g.Protect)
-}
-
-func (g GossipConfig) head() func(View) View {
-	return head((g.MaxView / 2) - 1)
+func (g *GossipConfig) applyDefaults() {
+	if g.MaxView == -1 {
+		g.MaxView = DefaultMaxView
+	}
+	if g.Swap == -1 {
+		g.Swap = DefaultSwap
+	}
+	if g.Protect == -1 {
+		g.Protect = DefaultProtect
+	}
+	if g.Decay == -1 {
+		g.Decay = DefaultDecay
+	}
+	if g.Swap == -1 {
+		g.Swap = DefaultSwap
+	}
+	if g.Tick == -1 {
+		g.Tick = DefaultTick
+	}
+	if g.Timeout == -1 {
+		g.Timeout = DefaultTimeout
+	}
+	if g.MaxMsgSize == 0 {
+		g.MaxMsgSize = DefaultMaxMsgSize
+	}
 }
 
 func (g GossipConfig) newDecoder(r io.Reader) *capnp.Decoder {
@@ -82,7 +95,7 @@ type gossiper struct {
 	store  gossipStore
 	e      event.Emitter
 
-	mvm mutexViewManager
+	mu sync.Mutex
 
 	Stop func()
 }
@@ -108,19 +121,18 @@ func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
 		},
 	}
 
-	// set view manager
-	g.mvm.config = &g.config
-	g.mvm.store = &g.store
+	// apply defaults
+	g.config.applyDefaults()
 
 	px.h.SetStreamHandlerMatch(
 		proto,
 		match,
-		g.newHandler(ctx, log, rpc.NewStreamTransport))
+		g.newHandler(ctx, log))
 
 	px.h.SetStreamHandlerMatch(
 		protoPacked,
 		matchPacked,
-		g.newHandler(ctx, log, rpc.NewPackedStreamTransport))
+		g.newHandler(ctx, log))
 
 	return g
 }
@@ -154,7 +166,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 		return err
 	}
 
-	local, err = g.mvm.getPushView()
+	local, err = g.mutexGetPushView()
 	if err != nil {
 		return err
 	}
@@ -164,7 +176,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 		defer s.CloseWrite()
 
 		buffer := local.
-			Bind(g.config.head()).
+			Bind(head((g.config.MaxView / 2) - 1)).
 			Bind(appendLocal(g.store))
 
 		enc := capnp.NewPackedEncoder(s)
@@ -202,7 +214,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	})
 
 	if err = j.Wait(); err == nil {
-		if newLocal, err = g.mvm.merge(local, remote); err == nil {
+		if newLocal, err = g.mutexMerge(local, remote); err == nil {
 			if err = g.store.StoreRecords(local, newLocal); err == nil {
 				g.e.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
 			}
@@ -211,7 +223,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	return err
 }
 
-func (g *gossiper) newHandler(ctx context.Context, log log.Logger, f transportFactory) network.StreamHandler {
+func (g *gossiper) newHandler(ctx context.Context, log log.Logger) network.StreamHandler {
 	return func(s network.Stream) {
 		slog := log.
 			With(streamFields(s)).
@@ -229,10 +241,6 @@ func (g *gossiper) newHandler(ctx context.Context, log log.Logger, f transportFa
 		}
 	}
 }
-
-type transportFactory func(io.ReadWriteCloser) rpc.Transport
-
-func (f transportFactory) NewTransport(rwc io.ReadWriteCloser) rpc.Transport { return f(rwc) }
 
 func streamFields(s network.Stream) log.F {
 	return log.F{
@@ -263,17 +271,17 @@ type mutexViewManager struct {
 	store  *gossipStore
 }
 
-func (mvm *mutexViewManager) getPushView() (local View, err error) {
-	mvm.mu.Lock()
-	defer mvm.mu.Unlock()
+func (g *gossiper) mutexGetPushView() (local View, err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
-	local, err = mvm.store.LoadView()
+	local, err = g.store.LoadView()
 	if err != nil {
 		return
 	}
 
 	local = local.Bind(sorted())
-	oldest := local.Bind(mvm.config.tail())
+	oldest := local.Bind(tail(g.config.Protect))
 
 	local = append(
 		local.
@@ -283,9 +291,9 @@ func (mvm *mutexViewManager) getPushView() (local View, err error) {
 	return
 }
 
-func (mvm *mutexViewManager) merge(local, remote View) (View, error) {
-	mvm.mu.Lock()
-	defer mvm.mu.Unlock()
+func (g *gossiper) mutexMerge(local, remote View) (View, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
 	if err := remote.Validate(); err != nil {
 		return nil, err
@@ -294,21 +302,21 @@ func (mvm *mutexViewManager) merge(local, remote View) (View, error) {
 	// Remove duplicates and combine local and remote records
 	newLocal := local.
 		Bind(merged(remote)).
-		Bind(isNot(mvm.store.Record().PeerID))
+		Bind(isNot(g.store.Record().PeerID))
 
 	// Apply swapping
-	s := min(mvm.config.Swap, max(len(newLocal)-mvm.config.MaxView, 0))
+	s := min(g.config.Swap, max(len(newLocal)-g.config.MaxView, 0))
 	newLocal = newLocal.
 		Bind(tail(len(newLocal) - s)).
 		Bind(sorted())
 
 	// Apply retention
-	r := min(min(mvm.config.Protect, mvm.config.MaxView), len(newLocal))
-	maxDecay := min(r, max(len(newLocal)-mvm.config.MaxView, 0))
-	oldest := newLocal.Bind(tail(r)).Bind(decay(mvm.config.Decay, maxDecay))
+	r := min(min(g.config.Protect, g.config.MaxView), len(newLocal))
+	maxDecay := min(r, max(len(newLocal)-g.config.MaxView, 0))
+	oldest := newLocal.Bind(tail(r)).Bind(decay(g.config.Decay, maxDecay))
 
 	//Apply random eviction
-	c := mvm.config.MaxView - len(oldest)
+	c := g.config.MaxView - len(oldest)
 	newLocal = newLocal.
 		Bind(head(max(len(newLocal)-r, 0))).
 		Bind(shuffled()).

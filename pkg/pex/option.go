@@ -12,7 +12,15 @@ import (
 	"github.com/wetware/casm/pkg/boot"
 )
 
-const DefaultMaxView = 32
+const (
+	DefaultMaxView    = 32
+	DefaultSwap       = 10
+	DefaultProtect    = 5
+	DefaultDecay      = 0.005
+	DefaultTick       = time.Minute * 5
+	DefaultTimeout    = time.Second * 30
+	DefaultMaxMsgSize = 2048
+)
 
 type Option func(px *PeerExchange)
 
@@ -75,24 +83,6 @@ func WithBootstrapPeers(peers ...peer.AddrInfo) Option {
 	}
 }
 
-// // WithTick sets the interval between gossip rounds.
-// // A lower value of 'tick' improves cluster resiliency
-// // at the cost of increased bandwidth usage.
-// //
-// // If d == nil, a default value of 5m is used.  Users
-// // SHOULD NOT alter this value without good reason.
-// func WithTick(newTick func(ns string) time.Duration) Option {
-// 	if newTick == nil {
-// 		newTick = func(ns string) time.Duration {
-// 			return time.Minute * 5
-// 		}
-// 	}
-
-// 	return func(px *PeerExchange) {
-// 		px.newTick = newTick
-// 	}
-// }
-
 // WithGossip sets the parameters for gossiping.
 // See github.com/wetware/casm/specs/pex.md for details on the
 // MaxView, Swap, Protect and Decay parameters.
@@ -125,12 +115,12 @@ func WithGossip(newGossip func(ns string) GossipConfig) Option {
 		newGossip = func(ns string) GossipConfig {
 			return GossipConfig{
 				MaxView:    DefaultMaxView,
-				Swap:       10,
-				Protect:    5,
-				Decay:      0.005,
-				Tick:       time.Minute * 5,
-				Timeout:    time.Second * 30,
-				MaxMsgSize: 2048,
+				Swap:       DefaultSwap,
+				Protect:    DefaultProtect,
+				Decay:      DefaultDecay,
+				Tick:       DefaultTick,
+				Timeout:    DefaultTimeout,
+				MaxMsgSize: DefaultMaxMsgSize,
 			}
 		}
 	}
@@ -145,7 +135,6 @@ func withDefaults(opt []Option) []Option {
 		WithLogger(nil),
 		WithGossip(nil),
 		WithDatastore(nil),
-		// WithTick(nil),
 		WithDiscovery(nil),
 	}, opt...)
 }

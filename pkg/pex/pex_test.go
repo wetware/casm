@@ -349,7 +349,7 @@ func TestPeX_DisconnectedNode(t *testing.T) {
 		ps  = make([]*pex.PeerExchange, len(hs))
 	)
 
-	ns := "two-nodes"
+	ns := "disconnected-node"
 
 	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
 		ps[i].Close()
