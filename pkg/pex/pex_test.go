@@ -428,10 +428,11 @@ func TestPeX_Simulation(t *testing.T) {
 			}
 		}
 
-		sim = mx.New(ctx)
-		hs  = sim.MustHostSet(ctx, n)
-		ps  = make([]*pex.PeerExchange, len(hs))
-		b   = make(boot.StaticAddrs, len(hs))
+		sim      = mx.New(ctx)
+		hs       = sim.MustHostSet(ctx, n)
+		ps       = make([]*pex.PeerExchange, len(hs))
+		b        = make(boot.StaticAddrs, len(hs))
+		finished = false
 	)
 
 	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
@@ -461,8 +462,8 @@ func TestPeX_Simulation(t *testing.T) {
 					select {
 					case <-time.After(next):
 						next, err = ps[i].Advertise(ctx, ns)
-						if err != nil {
-							require.ErrorIs(t, err, pex.ErrClosed)
+						if !finished {
+							require.NoError(t, err)
 						}
 					case <-ctx.Done():
 						return
@@ -478,4 +479,5 @@ func TestPeX_Simulation(t *testing.T) {
 
 	timer := time.NewTimer(5 * time.Second)
 	<-timer.C
+	finished = true
 }
