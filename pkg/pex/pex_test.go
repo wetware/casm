@@ -325,6 +325,86 @@ func peers(ctx context.Context, px *pex.PeerExchange, ns string) ([]peer.AddrInf
 	return infos, nil
 }
 
+func TestPeX_DisconnectedNode(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		newGossip = func(ns string) pex.GossipConfig {
+			return pex.GossipConfig{
+				MaxView:    pex.DefaultMaxView,
+				Swap:       10,
+				Protect:    5,
+				Decay:      0.005,
+				Tick:       5 * time.Minute,
+				Timeout:    time.Second,
+				MaxMsgSize: 2048,
+			}
+		}
+
+		sim = mx.New(ctx)
+		hs  = sim.MustHostSet(ctx, 2)
+		ps  = make([]*pex.PeerExchange, len(hs))
+	)
+
+	ns := "two-nodes"
+
+	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		ps[i].Close()
+		return hs[i].Close()
+	}).Must(ctx, hs)
+
+	mx.
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			if i == 0 {
+				ps[i], err = pex.New(ctx, h)
+			} else {
+				ps[i], err = pex.New(ctx, h,
+					pex.WithBootstrapPeers(*host.InfoFromHost(hs[0])),
+					pex.WithGossip(newGossip),
+				)
+			}
+			require.NoError(t, err, "should construct PeerExchange")
+			require.NotNil(t, ps[i], "should return PeerExchange")
+			return err
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			ttl, err := ps[i].Advertise(ctx, ns)
+			require.NoError(t, err)
+			require.LessOrEqual(t, ttl, 5*time.Minute,
+				"should return TTL less or equal to default Tick of 5 minutes")
+			require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+				"should return TTL greater or equal to half of the default Tick of 5 minutes")
+			return nil
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			if i == 1 {
+				infos, err := peers(ctx, ps[i], ns)
+				require.NoError(t, err)
+				require.Len(t, infos, 2)
+				require.Equal(t, infos[0].ID, hs[0].ID())
+			}
+			return nil
+		}).Go(func(ctx context.Context, i int, h host.Host) error {
+		if i == 0 {
+			err := hs[i].Close()
+			require.NoError(t, err)
+			ps[i].Close()
+			require.NoError(t, err)
+		} else {
+			ttl, err := ps[i].Advertise(ctx, ns)
+			require.NoError(t, err)
+			require.LessOrEqual(t, ttl, 5*time.Minute,
+				"should return TTL less or equal to default Tick of 5 minutes")
+			require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+				"should return TTL greater or equal to half of the default Tick of 5 minutes")
+		}
+		return nil
+	}).Must(ctx, hs)
+}
+
 func TestPeX_Simulation(t *testing.T) {
 	t.Parallel()
 

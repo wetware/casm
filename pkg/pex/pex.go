@@ -255,6 +255,9 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 }
 
 func (px *PeerExchange) gossipRound(ctx context.Context, g *gossiper, info peer.AddrInfo) error {
+	ctx, cancel := context.WithTimeout(ctx, g.config.Timeout)
+	defer cancel()
+
 	err := px.h.Connect(ctx, info)
 	if err != nil {
 		return err
@@ -266,6 +269,7 @@ func (px *PeerExchange) gossipRound(ctx context.Context, g *gossiper, info peer.
 	if err != nil {
 		return err
 	}
+
 	defer s.Close()
 
 	return g.PushPull(ctx, s)
