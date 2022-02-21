@@ -57,33 +57,6 @@ type GossipConfig struct {
 	MaxMsgSize uint64
 }
 
-func (g *GossipConfig) applyDefaults() {
-	if g.MaxView == -1 {
-		g.MaxView = DefaultMaxView
-	}
-	if g.Swap == -1 {
-		g.Swap = DefaultSwap
-	}
-	if g.Protect == -1 {
-		g.Protect = DefaultProtect
-	}
-	if g.Decay == -1 {
-		g.Decay = DefaultDecay
-	}
-	if g.Swap == -1 {
-		g.Swap = DefaultSwap
-	}
-	if g.Tick == -1 {
-		g.Tick = DefaultTick
-	}
-	if g.Timeout == -1 {
-		g.Timeout = DefaultTimeout
-	}
-	if g.MaxMsgSize == 0 {
-		g.MaxMsgSize = DefaultMaxMsgSize
-	}
-}
-
 func (g GossipConfig) newDecoder(r io.Reader) *capnp.Decoder {
 	dec := capnp.NewPackedDecoder(r)
 	dec.MaxMessageSize = g.MaxMsgSize
@@ -120,9 +93,6 @@ func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
 			px.h.RemoveStreamHandler(protoPacked)
 		},
 	}
-
-	// apply defaults
-	g.config.applyDefaults()
 
 	px.h.SetStreamHandlerMatch(
 		proto,

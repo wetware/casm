@@ -2,6 +2,7 @@ package pex_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -240,15 +241,9 @@ func TestPex_NNodes(t *testing.T) {
 
 	var (
 		newGossip = func(ns string) pex.GossipConfig {
-			return pex.GossipConfig{
-				MaxView:    pex.DefaultMaxView,
-				Swap:       10,
-				Protect:    5,
-				Decay:      0.005,
-				Tick:       time.Millisecond,
-				Timeout:    time.Second * 30,
-				MaxMsgSize: 2048,
-			}
+			config := pex.DefaultGossipConfig
+			config.Tick = time.Millisecond
+			return config
 		}
 
 		sim = mx.New(ctx)
@@ -333,15 +328,9 @@ func TestPeX_DisconnectedNode(t *testing.T) {
 
 	var (
 		newGossip = func(ns string) pex.GossipConfig {
-			return pex.GossipConfig{
-				MaxView:    pex.DefaultMaxView,
-				Swap:       10,
-				Protect:    5,
-				Decay:      0.005,
-				Tick:       5 * time.Minute,
-				Timeout:    time.Second,
-				MaxMsgSize: 2048,
-			}
+			config := pex.DefaultGossipConfig
+			config.Timeout = 5 * time.Second
+			return config
 		}
 
 		sim = mx.New(ctx)
@@ -417,23 +406,19 @@ func TestPeX_Simulation(t *testing.T) {
 
 	var (
 		newGossip = func(ns string) pex.GossipConfig {
-			return pex.GossipConfig{
-				MaxView:    pex.DefaultMaxView,
-				Swap:       10,
-				Protect:    5,
-				Decay:      0.005,
-				Tick:       time.Millisecond,
-				Timeout:    time.Second * 30,
-				MaxMsgSize: 2048,
-			}
+			config := pex.DefaultGossipConfig
+			config.Tick = time.Millisecond
+			return config
 		}
 
 		sim      = mx.New(ctx)
 		hs       = sim.MustHostSet(ctx, n)
 		ps       = make([]*pex.PeerExchange, len(hs))
 		b        = make(boot.StaticAddrs, len(hs))
-		finished = false
+		finished atomic.Value
 	)
+
+	finished.Store(false)
 
 	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
 		ps[i].Close()
@@ -462,7 +447,7 @@ func TestPeX_Simulation(t *testing.T) {
 					select {
 					case <-time.After(next):
 						next, err = ps[i].Advertise(ctx, ns)
-						if !finished {
+						if !finished.Load().(bool) {
 							require.NoError(t, err)
 						}
 					case <-ctx.Done():
@@ -479,5 +464,5 @@ func TestPeX_Simulation(t *testing.T) {
 
 	timer := time.NewTimer(5 * time.Second)
 	<-timer.C
-	finished = true
+	finished.Store(true)
 }

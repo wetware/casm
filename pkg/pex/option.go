@@ -22,6 +22,18 @@ const (
 	DefaultMaxMsgSize = 2048
 )
 
+var (
+	DefaultGossipConfig = GossipConfig{
+		MaxView:    DefaultMaxView,
+		Swap:       DefaultSwap,
+		Protect:    DefaultProtect,
+		Decay:      DefaultDecay,
+		Tick:       DefaultTick,
+		Timeout:    DefaultTimeout,
+		MaxMsgSize: DefaultMaxMsgSize,
+	}
+)
+
 type Option func(px *PeerExchange)
 
 // WithLogger sets the logger for the peer exchange.
@@ -113,15 +125,7 @@ func WithBootstrapPeers(peers ...peer.AddrInfo) Option {
 func WithGossip(newGossip func(ns string) GossipConfig) Option {
 	if newGossip == nil {
 		newGossip = func(ns string) GossipConfig {
-			return GossipConfig{
-				MaxView:    DefaultMaxView,
-				Swap:       DefaultSwap,
-				Protect:    DefaultProtect,
-				Decay:      DefaultDecay,
-				Tick:       DefaultTick,
-				Timeout:    DefaultTimeout,
-				MaxMsgSize: DefaultMaxMsgSize,
-			}
+			return DefaultGossipConfig
 		}
 	}
 
