@@ -6,6 +6,14 @@ import (
 )
 
 var (
+	// ErrClosed is returned from an operation performed against a
+	// closed PeerExchange or namespace.
+	ErrClosed = errors.New("closed")
+
+	// ErrNotFound is returned from an operation performed against
+	// a non-existent namespace.
+	ErrNotFound = errors.New("not found")
+
 	// ErrNoListenAddrs is returned from 'New' if the supplied host
 	// is not accepting peer connections.
 	ErrNoListenAddrs = errors.New("host not accepting connections")
@@ -13,8 +21,6 @@ var (
 	// ErrInvalidRange is returned as a cause in a ValidationError when
 	// a field's value falls outside the expected range.
 	ErrInvalidRange = errors.New("invalid range")
-
-	errNoSignedAddrs = errors.New("host does not provide signed peer addrs")
 )
 
 type ValidationError struct {

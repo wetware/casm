@@ -1,61 +1,42 @@
-package pex
+package pex_test
 
 import (
 	"bytes"
 	"context"
-	"errors"
+	"crypto/rand"
 	"testing"
 
 	"capnproto.org/go/capnp/v3"
+	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
-
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
+	"github.com/wetware/casm/pkg/pex"
 	mx "github.com/wetware/matrix/pkg"
 )
 
 func TestNewGossipRecord(t *testing.T) {
 	t.Parallel()
-	t.Helper()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	_, e := newTestRecord()
 
-	h := mx.New(ctx).MustHost(ctx)
-	e, err := getSignedRecord(h)
+	g, err := pex.NewGossipRecord(e)
 	require.NoError(t, err)
-
-	g, err := NewGossipRecord(e)
-	require.NoError(t, err)
-	require.NotNil(t, g.Envelope)
 
 	require.Zero(t, g.Hop())
 	g.IncrHop()
 	require.Equal(t, uint64(1), g.Hop())
-
-	r, err := g.Envelope.Record()
-	require.NoError(t, err)
-	require.NotNil(t, r)
-	require.IsType(t, &peer.PeerRecord{}, r)
-
-	rec := r.(*peer.PeerRecord)
-	rec.PeerID.MatchesPublicKey(g.PublicKey)
 }
 
 func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	_, e := newTestRecord()
 
-	h := mx.New(ctx).MustHost(ctx)
-	e, err := getSignedRecord(h)
-	require.NoError(t, err)
-
-	want, err := NewGossipRecord(e)
+	want, err := pex.NewGossipRecord(e)
 	require.NoError(t, err)
 	require.NotZero(t, want.Seq)
 
@@ -75,14 +56,13 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	msg, err := capnp.NewPackedDecoder(&buf).Decode()
 	require.NoError(t, err)
 
-	var got GossipRecord
+	var got pex.GossipRecord
 	err = got.ReadMessage(msg)
 	require.NoError(t, err)
 
 	// validate
 	require.Equal(t, want.Hop(), got.Hop())
 	require.Equal(t, want.PeerID, got.PeerID)
-	require.True(t, want.Envelope.Equal(got.Envelope))
 
 	require.NotNil(t, got.Addrs)
 	require.Len(t, got.Addrs, len(want.Addrs))
@@ -104,13 +84,13 @@ func TestView_validation(t *testing.T) {
 		sim := mx.New(ctx)
 
 		hs := sim.MustHostSet(ctx, 2)
-		gs := mustGossipSlice(hs)
+		v := mustView(hs)
 
 		// records from peers other than the sender MUST have hop > 0 in
 		// order to pass validation.
-		incrHops(gs[:len(gs)-1])
+		incrHops(v[:len(v)-1])
 
-		err := gs.Validate()
+		err := v.Validate()
 		require.NoError(t, err)
 	})
 
@@ -123,14 +103,14 @@ func TestView_validation(t *testing.T) {
 		sim := mx.New(ctx)
 
 		hs := sim.MustHostSet(ctx, 1)
-		gs := mustGossipSlice(hs)
+		v := mustView(hs)
 
 		/*
 		 * There is only one record (from the sender), so don't
 		 * increment hops.  This should pass.
 		 */
 
-		err := gs.Validate()
+		err := v.Validate()
 		require.NoError(t, err)
 	})
 
@@ -141,9 +121,9 @@ func TestView_validation(t *testing.T) {
 		t.Run("empty", func(t *testing.T) {
 			t.Parallel()
 
-			var gs gossipSlice
-			err := gs.Validate()
-			require.ErrorAs(t, err, &ValidationError{})
+			var v pex.View
+			err := v.Validate()
+			require.ErrorAs(t, err, &pex.ValidationError{})
 			require.EqualError(t, err, "empty view")
 		})
 
@@ -156,17 +136,17 @@ func TestView_validation(t *testing.T) {
 			sim := mx.New(ctx)
 
 			hs := sim.MustHostSet(ctx, 2)
-			gs := mustGossipSlice(hs)
+			v := mustView(hs)
 
 			/*
 			 * N.B.:  we increment hops for _all_ records, including the
 			 *        sender.  This should be caught in validation.
 			 */
-			incrHops(gs)
+			incrHops(v)
 
-			err := gs.Validate()
-			require.ErrorAs(t, err, &ValidationError{})
-			require.ErrorIs(t, err, ErrInvalidRange)
+			err := v.Validate()
+			require.ErrorAs(t, err, &pex.ValidationError{})
+			require.ErrorIs(t, err, pex.ErrInvalidRange)
 		})
 
 		t.Run("invalid_hop_range", func(t *testing.T) {
@@ -184,53 +164,60 @@ func TestView_validation(t *testing.T) {
 			 *        caught in validation.
 			 */
 
-			err := mustGossipSlice(hs).Validate()
-			require.ErrorAs(t, err, &ValidationError{})
-			require.ErrorIs(t, err, ErrInvalidRange)
+			err := mustView(hs).Validate()
+			require.ErrorAs(t, err, &pex.ValidationError{})
+			require.ErrorIs(t, err, pex.ErrInvalidRange)
 		})
 	})
 }
 
-func mustGossipSlice(hs []host.Host) gossipSlice {
-	gs := make([]*GossipRecord, len(hs))
-	mx.
-		Go(func(ctx context.Context, i int, h host.Host) error {
-			waitReady(h)
-			return nil
-		}).
-		Go(func(ctx context.Context, i int, h host.Host) error {
-			e, err := getSignedRecord(h)
-			if err == nil {
-				gs[i], err = NewGossipRecord(e)
-			}
+func newTestRecord() (*peer.PeerRecord, *record.Envelope) {
+	priv, pub, err := crypto.GenerateECDSAKeyPair(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
 
-			return err
-		}).Must(context.Background(), hs)
-	return gs
+	id, err := peer.IDFromPublicKey(pub)
+	if err != nil {
+		panic(err)
+	}
+
+	var rec = &peer.PeerRecord{
+		PeerID: id,
+		Addrs:  []ma.Multiaddr{ma.StringCast("/ip4/127.0.0.1/tcp/92")},
+		Seq:    1,
+	}
+
+	e, err := record.Seal(rec, priv)
+	if err != nil {
+		panic(err)
+	}
+
+	return rec, e
 }
 
-func incrHops(gs []*GossipRecord) {
-	for _, g := range gs {
+func mustView(hs []host.Host) pex.View {
+	v := make([]*pex.GossipRecord, len(hs))
+	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
+		v[i], err = pex.NewGossipRecord(waitReady(h))
+		return err
+	}).Must(context.Background(), hs)
+	return v
+}
+
+func incrHops(v []*pex.GossipRecord) {
+	for _, g := range v {
 		g.IncrHop()
 	}
 }
 
-func waitReady(h host.Host) {
+func waitReady(h host.Host) *record.Envelope {
 	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
 	if err != nil {
 		panic(err)
 	}
 	defer sub.Close()
 
-	<-sub.Out()
-}
-
-func getSignedRecord(h host.Host) (*record.Envelope, error) {
-	waitReady(h)
-
-	if cab, ok := peerstore.GetCertifiedAddrBook(h.Peerstore()); ok {
-		return cab.GetPeerRecord(h.ID()), nil
-	}
-
-	return nil, errors.New("no certified addrbook")
+	v := <-sub.Out()
+	return v.(event.EvtLocalAddressesUpdated).SignedPeerRecord
 }

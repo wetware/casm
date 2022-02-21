@@ -2,81 +2,26 @@ package pex_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
-	ps "github.com/libp2p/go-libp2p-core/peerstore"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/pex"
 	mx "github.com/wetware/matrix/pkg"
 )
 
-const ns = "casm.pex.test"
-
-func TestHostRegression(t *testing.T) {
-	t.Parallel()
-
-	/*
-	 * This is a regression test to ensure the libp2p Host
-	 * supports all necessary features.
-	 */
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	h := mx.New(ctx).MustHost(ctx)
-	defer h.Close()
-
-	/*
-	 * First we validate that the host provides a stateful
-	 * event subscription for addres updates.  If not, the
-	 * pex constructor will block indefinitely.
-	 *
-	 * See:  https://github.com/libp2p/go-libp2p/pull/1147
-	 */
-
-	s, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-	require.NoError(t, err)
-
-	select {
-	case v := <-s.Out():
-		require.NotNil(t, v)
-		require.IsType(t, event.EvtLocalAddressesUpdated{}, v)
-		ev := v.(event.EvtLocalAddressesUpdated)
-
-		require.NotZero(t, ev.Current)
-		require.NotZero(t, ev.SignedPeerRecord)
-	case <-time.After(time.Millisecond * 100):
-		t.Error("did not receive initial addrs")
-	}
-
-	/*
-	 * Once the event has been received, the host's signed
-	 * record should be contained within the address book,
-	 * provided it satisfies peerstore.CertifiedAddrBook.
-	 *
-	 * If this fails, we may experience panics as type
-	 * assertions fail.
-	 */
-
-	cb, ok := ps.GetCertifiedAddrBook(h.Peerstore())
-	require.True(t, ok)
-
-	env := cb.GetPeerRecord(h.ID())
-	require.NotNil(t, env)
-}
-
-func TestPeerExchange_Init(t *testing.T) {
+func TestPeX_Init(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	t.Run("Succeed", func(t *testing.T) {
+	ns := "init"
+
+	t.Run("Fail to find unadvertised ns", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -88,13 +33,8 @@ func TestPeerExchange_Init(t *testing.T) {
 		require.NoError(t, err)
 
 		peers, err := px.FindPeers(ctx, ns)
-		require.NoError(t, err)
-
-		_, ok := <-peers
-		require.False(t, ok)
-
-		err = px.Close()
-		assert.NoError(t, err, "error closing PeerExchange")
+		require.Error(t, err)
+		require.Nil(t, peers)
 	})
 
 	t.Run("Fail_no_addrs", func(t *testing.T) {
@@ -110,7 +50,7 @@ func TestPeerExchange_Init(t *testing.T) {
 	})
 }
 
-func TestPeerExchange_Bootstrap(t *testing.T) {
+func TestPeX_Bootstrap(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -120,6 +60,13 @@ func TestPeerExchange_Bootstrap(t *testing.T) {
 	hs := sim.MustHostSet(ctx, 2)
 	ps := make([]*pex.PeerExchange, len(hs))
 	is := make([]peer.AddrInfo, len(hs))
+
+	ns := "bootstrap"
+
+	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		ps[i].Close()
+		return hs[i].Close()
+	}).Must(ctx, hs)
 
 	mx.
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
@@ -132,6 +79,13 @@ func TestPeerExchange_Bootstrap(t *testing.T) {
 				is[1] = *host.InfoFromHost(h)
 			} else {
 				is[0] = *host.InfoFromHost(h)
+			}
+			return nil
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			if i != 0 {
+				_, err := ps[i].Advertise(ctx, ns)
+				require.NoError(t, err)
 			}
 			return nil
 		}).
@@ -159,15 +113,22 @@ func TestPeerExchange_Bootstrap(t *testing.T) {
 		}).Must(ctx, hs)
 }
 
-func TestAdvertise(t *testing.T) {
+func TestPeX_Advertise(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	hs := mx.New(ctx).MustHostSet(ctx, 8)
-	px := make([]*pex.PeerExchange, len(hs))
+	ps := make([]*pex.PeerExchange, len(hs))
 	as := make(boot.StaticAddrs, len(hs))
+
+	ns := "advertise"
+
+	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		ps[i].Close()
+		return hs[i].Close()
+	}).Must(ctx, hs)
 
 	mx.
 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
@@ -182,74 +143,326 @@ func TestAdvertise(t *testing.T) {
 				}
 			}
 
-			px[i], err = pex.New(ctx, h, pex.WithDiscovery(b))
+			ps[i], err = pex.New(ctx, h, pex.WithDiscovery(b))
 			return
 		}).Must(ctx, hs)
 
-	ttl, err := px[0].Advertise(ctx, ns)
+	_, err := ps[0].Advertise(ctx, ns)
 	require.NoError(t, err)
-	require.NotEqual(t, ps.PermanentAddrTTL, ttl,
-		"pex SHOULD NOT use the underlying discovery service's TTL")
 }
 
-// func TestPeerExchange_simulation(t *testing.T) {
-// 	t.Parallel()
+func TestPeX_SingleNode(t *testing.T) {
+	t.Parallel()
 
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-// 	const (
-// 		n = 8 // number of peers in cluster
-// 		k = 7 // max number of records in view
+	ns := "single-node"
 
-// 		tick = time.Millisecond
-// 		ttl  = tick * 10
-// 	)
+	h := mx.New(ctx).MustHost(ctx)
 
-// 	var (
-// 		opt = []discovery.Option{
-// 			discovery.TTL(ttl),
-// 			discovery.Limit(k),
-// 		}
+	px, err := pex.New(ctx, h)
+	require.NoError(t, err, "should construct PeerExchange")
+	require.NotNil(t, px, "should return PeerExchange")
 
-// 		sim = mx.New(ctx)
-// 		hs  = sim.MustHostSet(ctx, 2)
-// 		ps  = make([]*pex.PeerExchange, len(hs))
-// 		b   = make(boot.StaticAddrs, len(hs))
-// 	)
+	ttl, err := px.Advertise(ctx, ns)
+	require.NoError(t, err)
+	require.LessOrEqual(t, ttl, 5*time.Minute,
+		"should return TTL less or equal to default Tick of 5 minutes")
+	require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+		"should return TTL greater or equal to half of the default Tick of 5 minutes")
 
-// 	err := mx.
-// 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-// 			b[i] = *host.InfoFromHost(h)
-// 			return
-// 		}).
-// 		Go(func(ctx context.Context, i int, h host.Host) (err error) {
-// 			ps[i], err = pex.New(ctx, h, pex.WithDiscovery(b, opt...))
-// 			return
-// 		}).
-// 		// start advertiser loop
-// 		Go(func(ctx context.Context, i int, h host.Host) error {
-// 			next, err := ps[i].Advertise(ctx, ns, opt...)
-// 			if err == nil {
-// 				sim.Clock().Ticker()
-// 				go func() {
-// 					for {
-// 						select {
-// 						case <-time.After(next):
-// 							next, err = ps[i].Advertise(ctx, ns, opt...)
-// 							require.NoError(t, err)
-// 						case <-ctx.Done():
-// 							return
-// 						}
-// 					}
-// 				}()
-// 			}
+	finder, err := px.FindPeers(ctx, ns)
+	require.NoError(t, err)
 
-// 			return err
-// 		}).
-// 		Go(func(ctx context.Context, i int, h host.Host) error {
-// 			sim.Clock().Ticker()
-// 		}).Err(ctx, hs)
+	_, ok := <-finder
+	require.False(t, ok, "shouldn't find any peer, the channel should close directly")
+}
 
-// 	require.NoError(t, err)
-// }
+func TestPeX_TwoNodes(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		sim = mx.New(ctx)
+		hs  = sim.MustHostSet(ctx, 2)
+		ps  = make([]*pex.PeerExchange, len(hs))
+	)
+
+	ns := "two-nodes"
+
+	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		ps[i].Close()
+		return hs[i].Close()
+	}).Must(ctx, hs)
+
+	mx.
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			if i == 0 {
+				ps[i], err = pex.New(ctx, h)
+			} else {
+				ps[i], err = pex.New(ctx, h, pex.WithBootstrapPeers(*host.InfoFromHost(hs[0])))
+			}
+			require.NoError(t, err, "should construct PeerExchange")
+			require.NotNil(t, ps[i], "should return PeerExchange")
+			return err
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			ttl, err := ps[i].Advertise(ctx, ns)
+			require.NoError(t, err)
+			require.LessOrEqual(t, ttl, 5*time.Minute,
+				"should return TTL less or equal to default Tick of 5 minutes")
+			require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+				"should return TTL greater or equal to half of the default Tick of 5 minutes")
+			return nil
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			if i == 1 {
+				infos, err := peers(ctx, ps[i], ns)
+				require.NoError(t, err)
+				require.Len(t, infos, 2)
+				require.Equal(t, infos[0].ID, hs[0].ID())
+			}
+			return nil
+		}).Must(ctx, hs)
+}
+
+const N = 10
+
+func TestPex_NNodes(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ns := "n-nodes"
+
+	var (
+		newGossip = func(ns string) pex.GossipConfig {
+			config := pex.DefaultGossipConfig
+			config.Tick = time.Millisecond
+			return config
+		}
+
+		sim = mx.New(ctx)
+		hs  = sim.MustHostSet(ctx, N)
+		ps  = make([]*pex.PeerExchange, len(hs))
+	)
+
+	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		ps[i].Close()
+		return hs[i].Close()
+	}).Must(ctx, hs)
+
+	err := mx.
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			ps[i], err = pex.New(ctx, h, pex.WithGossip(newGossip))
+			if err != nil {
+				return err
+			}
+			_, err = ps[i].Advertise(ctx, ns)
+			return err
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			if i != 0 {
+				err := ps[i].Bootstrap(ctx, ns, *host.InfoFromHost(hs[i-1]))
+				if err != nil {
+					return err
+				}
+			}
+
+			go func() {
+				var (
+					next = time.Duration(0)
+				)
+				for {
+					select {
+					case <-time.After(next):
+						next, _ = ps[i].Advertise(ctx, ns)
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+
+			return nil
+		}).
+		Err(ctx, hs)
+
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		infos, err := peers(ctx, ps[0], ns)
+		require.NoError(t, err)
+		return len(infos) == min(pex.DefaultMaxView, N-1)
+	}, 10*time.Second, 10*time.Millisecond)
+}
+
+func min(n1, n2 int) int {
+	if n1 < n2 {
+		return n1
+	}
+	return n2
+}
+
+func peers(ctx context.Context, px *pex.PeerExchange, ns string) ([]peer.AddrInfo, error) {
+	finder, err := px.FindPeers(ctx, ns)
+	if err != nil {
+		return nil, err
+	}
+
+	infos := make([]peer.AddrInfo, 0)
+	for info := range finder {
+		infos = append(infos, info)
+	}
+	return infos, nil
+}
+
+func TestPeX_DisconnectedNode(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		newGossip = func(ns string) pex.GossipConfig {
+			config := pex.DefaultGossipConfig
+			config.Timeout = 5 * time.Second
+			return config
+		}
+
+		sim = mx.New(ctx)
+		hs  = sim.MustHostSet(ctx, 2)
+		ps  = make([]*pex.PeerExchange, len(hs))
+	)
+
+	ns := "disconnected-node"
+
+	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		ps[i].Close()
+		return hs[i].Close()
+	}).Must(ctx, hs)
+
+	mx.
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			if i == 0 {
+				ps[i], err = pex.New(ctx, h)
+			} else {
+				ps[i], err = pex.New(ctx, h,
+					pex.WithBootstrapPeers(*host.InfoFromHost(hs[0])),
+					pex.WithGossip(newGossip),
+				)
+			}
+			require.NoError(t, err, "should construct PeerExchange")
+			require.NotNil(t, ps[i], "should return PeerExchange")
+			return err
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			ttl, err := ps[i].Advertise(ctx, ns)
+			require.NoError(t, err)
+			require.LessOrEqual(t, ttl, 5*time.Minute,
+				"should return TTL less or equal to default Tick of 5 minutes")
+			require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+				"should return TTL greater or equal to half of the default Tick of 5 minutes")
+			return nil
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			if i == 1 {
+				infos, err := peers(ctx, ps[i], ns)
+				require.NoError(t, err)
+				require.Len(t, infos, 2)
+				require.Equal(t, infos[0].ID, hs[0].ID())
+			}
+			return nil
+		}).Go(func(ctx context.Context, i int, h host.Host) error {
+		if i == 0 {
+			err := hs[i].Close()
+			require.NoError(t, err)
+			ps[i].Close()
+			require.NoError(t, err)
+		} else {
+			ttl, err := ps[i].Advertise(ctx, ns)
+			require.NoError(t, err)
+			require.LessOrEqual(t, ttl, 5*time.Minute,
+				"should return TTL less or equal to default Tick of 5 minutes")
+			require.GreaterOrEqual(t, ttl, 5*time.Minute/2,
+				"should return TTL greater or equal to half of the default Tick of 5 minutes")
+		}
+		return nil
+	}).Must(ctx, hs)
+}
+
+func TestPeX_Simulation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const (
+		n = 8 // number of peers in cluster
+	)
+
+	var (
+		newGossip = func(ns string) pex.GossipConfig {
+			config := pex.DefaultGossipConfig
+			config.Tick = time.Millisecond
+			return config
+		}
+
+		sim      = mx.New(ctx)
+		hs       = sim.MustHostSet(ctx, n)
+		ps       = make([]*pex.PeerExchange, len(hs))
+		b        = make(boot.StaticAddrs, len(hs))
+		finished atomic.Value
+	)
+
+	finished.Store(false)
+
+	defer mx.Go(func(ctx context.Context, i int, h host.Host) error {
+		ps[i].Close()
+		return hs[i].Close()
+	}).Must(ctx, hs)
+
+	ns := "simulation"
+
+	err := mx.
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			b[i] = *host.InfoFromHost(h)
+			return
+		}).
+		Go(func(ctx context.Context, i int, h host.Host) (err error) {
+			ps[i], err = pex.New(ctx, h, pex.WithGossip(newGossip))
+			return
+		}).
+		// start advertiser loop
+		Go(func(ctx context.Context, i int, h host.Host) error {
+			next, err := ps[i].Advertise(ctx, ns)
+			if err != nil {
+				return err
+			}
+			go func() {
+				for {
+					select {
+					case <-time.After(next):
+						next, err = ps[i].Advertise(ctx, ns)
+						if !finished.Load().(bool) {
+							require.NoError(t, err)
+						}
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+
+			return nil
+		}).
+		Err(ctx, hs)
+
+	require.NoError(t, err)
+
+	timer := time.NewTimer(5 * time.Second)
+	<-timer.C
+	finished.Store(true)
+}

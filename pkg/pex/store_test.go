@@ -1,292 +1,276 @@
 package pex
 
-import (
-	"context"
-	"fmt"
-	"math/rand"
-	"testing"
+// const (
+// 	ns    = "casm.pex.test"
+// 	vsize = 30 // max view size
+// )
 
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/record"
-	"github.com/stretchr/testify/require"
-	mx "github.com/wetware/matrix/pkg"
-	"go.uber.org/fx"
-	"go.uber.org/fx/fxtest"
-)
+// func TestMerge(t *testing.T) {
+// 	t.Parallel()
+// 	t.Helper()
 
-const (
-	ns    = "casm.pex.test"
-	vsize = 30 // max view size
-)
+// 	for _, tt := range []struct {
+// 		name string
+// 		test func(*testing.T, params)
+// 	}{
+// 		{
+// 			name: fmt.Sprintf("should_have_view_size=%d", vsize),
+// 			test: shouldHaveViewSize_vsize,
+// 		},
+// 		{
+// 			name: "should_keep_records_with_equal_hop_seq",
+// 			test: shouldKeepRecordsWithEqualHopSeq,
+// 		},
+// 		{
+// 			name: "should_retain_higher_seq",
+// 			test: shouldRetainHigherSeq,
+// 		},
+// 		{
+// 			name: "should_retain_lower_hop",
+// 			test: shouldRetainLowerHop,
+// 		},
+// 		{
+// 			name: "should_retain_higher_seq_despite_lower_hop",
+// 			test: shouldRetainHigherSeqDespiteLowerHop,
+// 		},
+// 		{
+// 			name: "should_swap",
+// 			test: shouldSwap,
+// 		},
+// 		{
+// 			name: "should_retain",
+// 			test: shouldRetain,
+// 		},
+// 		{
+// 			name: "should_not_retain",
+// 			test: shouldNotRetain,
+// 		},
+// 		{
+// 			name: "should_sort_to_push",
+// 			test: shouldSortToPush,
+// 		},
+// 	} {
+// 		runner(t, tt.name, tt.test)
+// 	}
+// }
 
-func TestMerge(t *testing.T) {
-	t.Parallel()
-	t.Helper()
+// func runner(t *testing.T, name string, f func(t *testing.T, p params)) {
+// 	t.Helper()
 
-	t.Skip() // XXX
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
 
-	for _, tt := range []struct {
-		name string
-		test func(*testing.T, params)
-	}{
-		{
-			name: fmt.Sprintf("should_have_view_size=%d", vsize),
-			test: shouldHaveViewSize_vsize,
-		},
-		{
-			name: "should_keep_records_with_equal_hop_seq",
-			test: shouldKeepRecordsWithEqualHopSeq,
-		},
-		{
-			name: "should_retain_higher_seq",
-			test: shouldRetainHigherSeq,
-		},
-		{
-			name: "should_retain_lower_hop",
-			test: shouldRetainLowerHop,
-		},
-		{
-			name: "should_retain_higher_seq_despite_lower_hop",
-			test: shouldRetainHigherSeqDespiteLowerHop,
-		},
-		{
-			name: "should_swap",
-			test: shouldSwap,
-		},
-		{
-			name: "should_retain",
-			test: shouldRetain,
-		},
-		{
-			name: "should_not_retain",
-			test: shouldNotRetain,
-		},
-		{
-			name: "should_sort_to_push",
-			test: shouldSortToPush,
-		},
-	} {
-		runner(t, tt.name, tt.test)
-	}
-}
+// 	app := fxtest.New(t, fx.NopLogger,
+// 		fx.Supply(out{
+// 			Local:  mkValidView(vsize),
+// 			Remote: mkValidView(vsize),
+// 			Opt:    []Option{WithGossip(func(ns string) GossipParam { return GossipParam{vsize, 10, 5, 0.005} })},
+// 		}),
+// 		fx.Provide(
+// 			newConfig,
+// 			newPeerExchange,
+// 			supply(ctx, mx.New(ctx).MustHost(ctx))),
+// 		fx.Invoke(func(p params) {
+// 			t.Run(name, func(t *testing.T) {
+// 				t.Helper()
+// 				f(t, p)
+// 			})
+// 		}))
 
-func runner(t *testing.T, name string, f func(t *testing.T, p params)) {
-	t.Helper()
+// 	err := app.Start(ctx)
+// 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// 	err = app.Stop(ctx)
+// 	require.NoError(t, err)
+// }
 
-	app := fxtest.New(t, fx.NopLogger,
-		fx.Supply(out{
-			Local:  mkValidView(vsize),
-			Remote: mkValidView(vsize),
-			Opt:    []Option{WithGossip(func(ns string) Gossip { return Gossip{vsize, 10, 5, 0.005} })},
-		}),
-		fx.Provide(
-			newConfig,
-			newPeerExchange,
-			supply(ctx, mx.New(ctx).MustHost(ctx))),
-		fx.Invoke(func(p params) {
-			t.Run(name, func(t *testing.T) {
-				t.Helper()
-				f(t, p)
-			})
-		}))
+// type out struct {
+// 	fx.Out
 
-	err := app.Start(ctx)
-	require.NoError(t, err)
+// 	Opt    []Option
+// 	Local  gossipSlice `name:"local"`
+// 	Remote gossipSlice `name:"remote"`
+// }
 
-	err = app.Stop(ctx)
-	require.NoError(t, err)
-}
+// type params struct {
+// 	fx.In
 
-type out struct {
-	fx.Out
+// 	Host   host.Host
+// 	Local  gossipSlice `name:"local"`
+// 	Remote gossipSlice `name:"remote"`
+// 	PeX    *PeerExchange
+// }
 
-	Opt    []Option
-	Local  gossipSlice `name:"local"`
-	Remote gossipSlice `name:"remote"`
-}
+// func (p params) LocalRecord() *record.Envelope {
+// 	return mustGossipSlice([]host.Host{p.Host})[0].Envelope
+// }
 
-type params struct {
-	fx.In
+// func shouldSortToPush(t *testing.T, p params) {
+// 	err := p.PeX.setLocalRecord(p.LocalRecord())
+// 	require.NoError(t, err)
 
-	Host   host.Host
-	Local  gossipSlice `name:"local"`
-	Remote gossipSlice `name:"remote"`
-	PeX    *PeerExchange
-}
+// 	n := p.PeX.namespace(ns)
 
-func (p params) LocalRecord() *record.Envelope {
-	return mustGossipSlice([]host.Host{p.Host})[0].Envelope
-}
+// 	// Set random HOPs
+// 	for _, rec := range p.Local {
+// 		rec.g.SetHop(uint64(rand.Intn(100-1) + 1))
+// 	}
+// 	n.Store(gossipSlice{}, p.Local)
 
-func shouldSortToPush(t *testing.T, p params) {
-	err := p.PeX.setLocalRecord(p.LocalRecord())
-	require.NoError(t, err)
+// 	// Retrieve sorted records
+// 	recs, err := n.RecordsSortedToPush()
+// 	require.NoError(t, err)
 
-	n := p.PeX.namespace(ns)
+// 	// Check records are sorted
+// 	youngest, oldest := recs.Bind(head(len(recs)-n.gossip.P)), recs.Bind(tail(n.gossip.P))
+// 	oldestYoungest := youngest.Bind(sorted())[len(youngest)-1]
+// 	for _, old := range oldest {
+// 		require.True(t, oldestYoungest.Hop() <= old.Hop())
+// 	}
+// }
 
-	// Set random HOPs
-	for _, rec := range p.Local {
-		rec.g.SetHop(uint64(rand.Intn(100-1) + 1))
-	}
-	n.Store(gossipSlice{}, p.Local)
+// func shouldHaveViewSize_vsize(t *testing.T, p params) {
+// 	err := p.PeX.setLocalRecord(p.LocalRecord())
+// 	require.NoError(t, err)
 
-	// Retrieve sorted records
-	recs, err := n.RecordsSortedToPush()
-	require.NoError(t, err)
+// 	n := p.PeX.namespace(ns)
 
-	// Check records are sorted
-	youngest, oldest := recs.Bind(head(len(recs)-n.gossip.P)), recs.Bind(tail(n.gossip.P))
-	oldestYoungest := youngest.Bind(sorted())[len(youngest)-1]
-	for _, old := range oldest {
-		require.True(t, oldestYoungest.Hop() <= old.Hop())
-	}
-}
+// 	// When the current view is full (= n) ...
+// 	err = n.MergeAndStore(p.Local, p.Local)
+// 	require.NoError(t, err)
 
-func shouldHaveViewSize_vsize(t *testing.T, p params) {
-	err := p.PeX.setLocalRecord(p.LocalRecord())
-	require.NoError(t, err)
+// 	// ... and we merge a remote view ...
+// 	err = n.MergeAndStore(p.Local, p.Remote)
+// 	require.NoError(t, err)
 
-	n := p.PeX.namespace(ns)
+// 	// ... the size of the resulting view should be n.
+// 	gs, err := n.View()
+// 	require.NoError(t, err)
+// 	require.Len(t, gs, vsize)
+// }
 
-	// When the current view is full (= n) ...
-	err = n.MergeAndStore(p.Local, p.Local)
-	require.NoError(t, err)
+// func shouldKeepRecordsWithEqualHopSeq(t *testing.T, p params) {
+// 	err := p.PeX.setLocalRecord(p.LocalRecord())
+// 	require.NoError(t, err)
 
-	// ... and we merge a remote view ...
-	err = n.MergeAndStore(p.Local, p.Remote)
-	require.NoError(t, err)
+// 	n := p.PeX.namespace(ns)
 
-	// ... the size of the resulting view should be n.
-	gs, err := n.View()
-	require.NoError(t, err)
-	require.Len(t, gs, vsize)
-}
+// 	// Copy Local records to Remote
+// 	for i, lrec := range p.Local {
+// 		p.Remote[i].Seq = lrec.Seq
+// 		p.Remote[i].g.SetHop(lrec.Hop()) // Redundant because initially Hop=0
+// 		p.Remote[i].PeerID = lrec.PeerID
+// 	}
+// 	p.Remote[len(p.Remote)-1].g.SetHop(0)
 
-func shouldKeepRecordsWithEqualHopSeq(t *testing.T, p params) {
-	err := p.PeX.setLocalRecord(p.LocalRecord())
-	require.NoError(t, err)
+// 	err = n.MergeAndStore(p.Local, p.Local)
+// 	require.NoError(t, err)
+// 	err = n.MergeAndStore(p.Local, p.Remote)
+// 	require.NoError(t, err)
 
-	n := p.PeX.namespace(ns)
+// 	// ... the size of the resulting view should be n.
+// 	gs, err := n.View()
+// 	require.NoError(t, err)
+// 	require.Len(t, gs, vsize)
+// }
 
-	// Copy Local records to Remote
-	for i, lrec := range p.Local {
-		p.Remote[i].Seq = lrec.Seq
-		p.Remote[i].g.SetHop(lrec.Hop()) // Redundant because initially Hop=0
-		p.Remote[i].PeerID = lrec.PeerID
-	}
-	p.Remote[len(p.Remote)-1].g.SetHop(0)
+// func shouldSwap(t *testing.T, p params) {
+// 	err := p.PeX.setLocalRecord(p.LocalRecord())
+// 	require.NoError(t, err)
 
-	err = n.MergeAndStore(p.Local, p.Local)
-	require.NoError(t, err)
-	err = n.MergeAndStore(p.Local, p.Remote)
-	require.NoError(t, err)
+// 	n := p.PeX.namespace(ns)
 
-	// ... the size of the resulting view should be n.
-	gs, err := n.View()
-	require.NoError(t, err)
-	require.Len(t, gs, vsize)
-}
+// 	local := p.Local.Bind(sorted())
 
-func shouldSwap(t *testing.T, p params) {
-	err := p.PeX.setLocalRecord(p.LocalRecord())
-	require.NoError(t, err)
+// 	n.gossip.S = 2
+// 	err = n.MergeAndStore(local, p.Remote)
+// 	require.NoError(t, err)
+// 	gs, err := n.Records()
+// 	require.NoError(t, err)
 
-	n := p.PeX.namespace(ns)
+// 	merge := local.
+// 		Bind(merged(p.Remote)).
+// 		Bind(isNot(n.id))
+// 	s := min(n.gossip.S, max(len(merge)-n.gossip.C, 0))
 
-	local := p.Local.Bind(sorted())
+// 	for _, rec := range merge[:s] {
+// 		_, found := gs.find(rec)
+// 		require.False(t, found)
+// 	}
+// }
 
-	n.gossip.S = 2
-	err = n.MergeAndStore(local, p.Remote)
-	require.NoError(t, err)
-	gs, err := n.Records()
-	require.NoError(t, err)
+// func shouldRetain(t *testing.T, p params) {
+// 	err := p.PeX.setLocalRecord(p.LocalRecord())
+// 	require.NoError(t, err)
 
-	merge := local.
-		Bind(merged(p.Remote)).
-		Bind(isNot(n.id))
-	s := min(n.gossip.S, max(len(merge)-n.gossip.C, 0))
+// 	n := p.PeX.namespace(ns)
 
-	for _, rec := range merge[:s] {
-		_, found := gs.find(rec)
-		require.False(t, found)
-	}
-}
+// 	local := p.Local.Bind(sorted())
 
-func shouldRetain(t *testing.T, p params) {
-	err := p.PeX.setLocalRecord(p.LocalRecord())
-	require.NoError(t, err)
+// 	merge := local.
+// 		Bind(merged(p.Remote)).
+// 		Bind(isNot(n.id))
 
-	n := p.PeX.namespace(ns)
+// 	r := min(min(n.gossip.P, n.gossip.C), len(merge))
+// 	oldest := merge.Bind(sorted()).Bind(tail(r))
 
-	local := p.Local.Bind(sorted())
+// 	n.gossip.S = 0
+// 	n.gossip.D = 0
+// 	err = n.MergeAndStore(local, p.Remote)
+// 	require.NoError(t, err)
+// 	gs, err := n.RecordsSortedToPush()
+// 	require.NoError(t, err)
+// 	for _, rec := range oldest {
+// 		_, found := gs.find(rec)
+// 		require.True(t, found)
+// 	}
+// }
 
-	merge := local.
-		Bind(merged(p.Remote)).
-		Bind(isNot(n.id))
+// func shouldNotRetain(t *testing.T, p params) {
+// 	err := p.PeX.setLocalRecord(p.LocalRecord())
+// 	require.NoError(t, err)
 
-	r := min(min(n.gossip.P, n.gossip.C), len(merge))
-	oldest := merge.Bind(sorted()).Bind(tail(r))
+// 	n := p.PeX.namespace(ns)
 
-	n.gossip.S = 0
-	n.gossip.D = 0
-	err = n.MergeAndStore(local, p.Remote)
-	require.NoError(t, err)
-	gs, err := n.RecordsSortedToPush()
-	require.NoError(t, err)
-	for _, rec := range oldest {
-		_, found := gs.find(rec)
-		require.True(t, found)
-	}
-}
+// 	local := p.Local
 
-func shouldNotRetain(t *testing.T, p params) {
-	err := p.PeX.setLocalRecord(p.LocalRecord())
-	require.NoError(t, err)
+// 	merge := local.
+// 		Bind(merged(p.Remote)).
+// 		Bind(isNot(n.id))
 
-	n := p.PeX.namespace(ns)
+// 	r := min(min(n.gossip.P, n.gossip.C), len(merge))
+// 	oldest := merge.Bind(sorted()).Bind(tail(r))
 
-	local := p.Local
+// 	n.gossip.S = 0
+// 	n.gossip.D = 1
+// 	err = n.MergeAndStore(local, p.Remote)
+// 	require.NoError(t, err)
+// 	gs, err := n.RecordsSortedToPush()
+// 	require.NoError(t, err)
+// 	for _, rec := range oldest {
+// 		_, found := gs.find(rec)
+// 		require.False(t, found)
+// 	}
+// }
 
-	merge := local.
-		Bind(merged(p.Remote)).
-		Bind(isNot(n.id))
+// func shouldRetainHigherSeq(t *testing.T, p params) {
+// 	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
+// }
 
-	r := min(min(n.gossip.P, n.gossip.C), len(merge))
-	oldest := merge.Bind(sorted()).Bind(tail(r))
+// func shouldRetainLowerHop(t *testing.T, p params) {
+// 	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
+// }
 
-	n.gossip.S = 0
-	n.gossip.D = 1
-	err = n.MergeAndStore(local, p.Remote)
-	require.NoError(t, err)
-	gs, err := n.RecordsSortedToPush()
-	require.NoError(t, err)
-	for _, rec := range oldest {
-		_, found := gs.find(rec)
-		require.False(t, found)
-	}
-}
+// func shouldRetainHigherSeqDespiteLowerHop(t *testing.T, p params) {
+// 	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
+// }
 
-func shouldRetainHigherSeq(t *testing.T, p params) {
-	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
-}
+// func mkValidView(n int) gossipSlice {
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
 
-func shouldRetainLowerHop(t *testing.T, p params) {
-	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
-}
+// 	gs := mustGossipSlice(mx.New(ctx).MustHostSet(ctx, n))
+// 	gs[:n-1].incrHops() // last record must have hops=0
 
-func shouldRetainHigherSeqDespiteLowerHop(t *testing.T, p params) {
-	// TODO: t.Skip("Skipping ... (NOT IMPLEMENTED)")
-}
-
-func mkValidView(n int) gossipSlice {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	gs := mustGossipSlice(mx.New(ctx).MustHostSet(ctx, n))
-	gs[:n-1].incrHops() // last record must have hops=0
-
-	return gs
-}
+// 	return gs
+// }

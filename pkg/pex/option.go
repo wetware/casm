@@ -7,36 +7,34 @@ import (
 	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/sync"
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/lthibault/log"
-	"go.uber.org/fx"
+	"github.com/wetware/casm/pkg/boot"
 )
 
-type Gossip struct {
-	C int     // maximum View size
-	S int     // swapping amount
-	P int     // protection amount
-	D float64 // retention decay probability
-}
+const (
+	DefaultMaxView    = 32
+	DefaultSwap       = 10
+	DefaultProtect    = 5
+	DefaultDecay      = 0.005
+	DefaultTick       = time.Minute * 5
+	DefaultTimeout    = time.Second * 30
+	DefaultMaxMsgSize = 2048
+)
 
-// Config supplies options to the dependency-injection framework.
-type Config struct {
-	fx.Out
-
-	Log          log.Logger
-	NewGossip    func(ns string) Gossip
-	NewTick      func(ns string) time.Duration
-	NewStore     func(ns string) ds.Batching
-	Discovery    discovery.Discovery
-	DiscoveryOpt []discovery.Option
-}
-
-func (c *Config) Apply(opt []Option) {
-	for _, option := range withDefaults(opt) {
-		option(c)
+var (
+	DefaultGossipConfig = GossipConfig{
+		MaxView:    DefaultMaxView,
+		Swap:       DefaultSwap,
+		Protect:    DefaultProtect,
+		Decay:      DefaultDecay,
+		Tick:       DefaultTick,
+		Timeout:    DefaultTimeout,
+		MaxMsgSize: DefaultMaxMsgSize,
 	}
-}
+)
 
-type Option func(c *Config)
+type Option func(px *PeerExchange)
 
 // WithLogger sets the logger for the peer exchange.
 // If l == nil, a default logger is used.
@@ -45,8 +43,8 @@ func WithLogger(l log.Logger) Option {
 		l = log.New()
 	}
 
-	return func(c *Config) {
-		c.Log = l
+	return func(px *PeerExchange) {
+		px.log = l
 	}
 }
 
@@ -54,19 +52,15 @@ func WithLogger(l log.Logger) Option {
 // records.  If newStore == nil, a volatile storage backend
 // is used.
 //
-// Note that s MUST be thread-safe.
-func WithDatastore(newStore func(ns string) ds.Batching) Option {
-	deafaultNewStore := func(ns string) ds.Batching {
-		s := sync.MutexWrap(ds.NewMapDatastore())
-		return nsds.Wrap(s, ds.NewKey("/casm/pex"))
+// Note that store MUST be thread-safe.
+func WithDatastore(store ds.Batching) Option {
+	if store == nil {
+		store = sync.MutexWrap(ds.NewMapDatastore())
+		store = nsds.Wrap(store, ds.NewKey("/casm/pex"))
 	}
 
-	if newStore == nil {
-		newStore = deafaultNewStore
-	}
-
-	return func(c *Config) {
-		c.NewStore = newStore
+	return func(px *PeerExchange) {
+		px.store.Batching = store
 	}
 }
 
@@ -75,58 +69,80 @@ func WithDatastore(newStore func(ns string) ds.Batching) Option {
 // be called with 'opt' whenever the PeeerExchange is
 // unable to connect to peers in its cache.
 func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
-	return func(c *Config) {
-		c.DiscoveryOpt = opt
-		c.Discovery = d
+	if d == nil {
+		d = boot.StaticAddrs(nil)
+	}
+
+	return func(px *PeerExchange) {
+		px.disc.d = d
+		px.disc.opt = opt
 	}
 }
 
-// WithTick sets the interval between gossip rounds.
-// A lower value of 'tick' improves cluster resiliency
-// at the cost of increased bandwidth usage.
+// WithBootstrapPeers sets the bootstrap discovery service
+// for the PeX instance to bootstrap with specific peers.
+// It is a user-friendly way to set up the discovery service,
+// and is exactly equivalent to:
 //
-// If d == nil, a default value of 1m is used.  Users
-// SHOULD NOT alter this value without good reason.
-func WithTick(newTick func(ns string) time.Duration) Option {
-	defaultNewTick := func(ns string) time.Duration {
-		return time.Minute
-	}
-	if newTick == nil {
-		newTick = defaultNewTick
-	}
+//    WithDiscovery(boot.StaticAddrs{...})
+//
+//
+// Namespaces will be bootstrapped using the supplied peers whenever
+// the PeerExchange is unable to connect to peers in its cache.
+func WithBootstrapPeers(peers ...peer.AddrInfo) Option {
 
-	return func(c *Config) {
-		c.NewTick = newTick
+	d := boot.StaticAddrs(peers)
+
+	return func(px *PeerExchange) {
+		if len(peers) > 0 {
+			px.disc.d = d
+		}
 	}
 }
 
-// WithGossip sets the parameters for gossiping:
-// C, S, R and D. Check github.com/wetware/casm/specs/pex.md
-// for more information on the meaining of each parameter.
+// WithGossip sets the parameters for gossiping.
+// See github.com/wetware/casm/specs/pex.md for details on the
+// MaxView, Swap, Protect and Decay parameters.
 //
-// If n == nil, default values of {c=30, s=10, r=5, d=0.005} are used.
+// If newGossip == nil, the following default values are used
+// for each namespace:
 //
-// Users SHOULD ensure all nodes in a given cluster have
-// the same gossiping parameters.
-func WithGossip(newGossip func(ns string) Gossip) Option {
-	deafaultNewGossip := func(ns string) Gossip {
-		return Gossip{30, 10, 5, 0.005}
-	}
-
+//    GossipConfig{
+//        MaxView:    32,
+//        Swap:       10,
+//        Protect:    5,
+//        Decay:      0.005,
+//
+//        Tick:       time.Minute * 5,
+//        Timeout:    time.Second * 30,
+//        MaxMsgSize: 2048,
+//    }
+//
+// Users should exercise care when modifying the gossip params
+// and ensure they fully understand the implications of their
+// changes. Generally speaking, it is safe to increase MaxView.
+// It is also reasonably safe to increase Decay by moderate
+// amounts, in order to more aggressively expunge stale entries
+// from cache.
+//
+// Users SHOULD ensure all nodes in a given namespace
+// have identical GossipParam values.
+func WithGossip(newGossip func(ns string) GossipConfig) Option {
 	if newGossip == nil {
-		newGossip = deafaultNewGossip
+		newGossip = func(ns string) GossipConfig {
+			return DefaultGossipConfig
+		}
 	}
 
-	return func(c *Config) {
-		c.NewGossip = newGossip
+	return func(px *PeerExchange) {
+		px.newParams = newGossip
 	}
 }
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
-		WithTick(nil),
-		WithGossip(nil),
 		WithLogger(nil),
+		WithGossip(nil),
 		WithDatastore(nil),
 		WithDiscovery(nil),
 	}, opt...)
