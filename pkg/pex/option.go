@@ -69,8 +69,13 @@ func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 
 // WithBootstrapPeers sets the bootstrap discovery service
 // for the PeX instance to bootstrap with specific peers.
-// It is a user-friendly way to set up the discovery service.
-// The supplied instance will be called with 'opt' whenever
+// It is a user-friendly way to set up the discovery service,
+// and is exactly equivalent to:
+//
+//    WithDiscovery(boot.StaticAddrs{...})
+//
+//
+// Namespaces will be bootstrapped using the supplied peers whenever
 // the PeerExchange is unable to connect to peers in its cache.
 func WithBootstrapPeers(peers ...peer.AddrInfo) Option {
 
