@@ -71,7 +71,7 @@ func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 // for the PeX instance to bootstrap with specific peers.
 // It is a user-friendly way to set up the discovery service.
 // The supplied instance will be called with 'opt' whenever
-// the PeeerExchange is unable to connect to peers in its cache.
+// the PeerExchange is unable to connect to peers in its cache.
 func WithBootstrapPeers(peers ...peer.AddrInfo) Option {
 
 	d := boot.StaticAddrs(peers)
