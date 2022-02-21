@@ -278,7 +278,7 @@ func (g *gossiper) mutexMerge(local, remote View) (View, error) {
 	maxDecay := min(r, max(len(newLocal)-g.config.MaxView, 0))
 	oldest := newLocal.Bind(tail(r)).Bind(decay(g.config.Decay, maxDecay))
 
-	//Apply random eviction
+	// Apply random eviction
 	c := g.config.MaxView - len(oldest)
 	newLocal = newLocal.
 		Bind(head(max(len(newLocal)-r, 0))).

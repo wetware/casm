@@ -52,8 +52,6 @@ type PeerExchange struct {
 }
 
 func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error) {
-	ctx, cancel := context.WithCancel(ctx)
-
 	if len(h.Addrs()) == 0 {
 		return nil, errors.New("host not accepting connections")
 	}
@@ -65,6 +63,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 
 	var thunks = make(chan func(), 1)
 
+	ctx, cancel := context.WithCancel(ctx)
 	var px = PeerExchange{
 		ctx:    ctx,
 		cancel: cancel,
