@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/lthibault/log"
+	"github.com/wetware/casm/pkg/vat"
 )
 
 type Dialer interface {
@@ -99,7 +100,7 @@ func (c Crawler) deadline(ctx context.Context, conn net.Conn) error {
 		return conn.SetDeadline(t)
 	}
 
-	return conn.SetDeadline(time.Now().Add(time.Second))
+	return conn.SetDeadline(vat.Time().Add(time.Second))
 }
 
 func (c Crawler) dialer() Dialer {

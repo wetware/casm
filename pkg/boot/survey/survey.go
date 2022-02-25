@@ -18,6 +18,7 @@ import (
 	"github.com/lthibault/log"
 	ctxutil "github.com/lthibault/util/ctx"
 	"github.com/wetware/casm/internal/api/survey"
+	"github.com/wetware/casm/pkg/vat"
 )
 
 const (
@@ -91,7 +92,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	s := &Surveyor{
 		ctx:           ctx,
 		cancel:        cancel,
-		t:             time.Now(),
+		t:             vat.Time(),
 		thunk:         thunk,
 		mustFind:      make(map[string]map[listener]struct{}),
 		mustAdvertise: make(map[string]time.Time),

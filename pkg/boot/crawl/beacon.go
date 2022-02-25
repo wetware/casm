@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	ps "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/lthibault/log"
+	"github.com/wetware/casm/pkg/vat"
 )
 
 // Beacon is a small discovery server that binds to a local address
@@ -76,7 +77,7 @@ func (b Beacon) Serve(ctx context.Context) error {
 			go func(conn net.Conn) {
 				defer conn.Close()
 
-				err := conn.SetWriteDeadline(time.Now().Add(time.Second))
+				err := conn.SetWriteDeadline(vat.Time().Add(time.Second))
 				if err != nil {
 					cherr <- fmt.Errorf("set deadline: %w", err)
 					return
