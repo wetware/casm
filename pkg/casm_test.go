@@ -1,18 +1,18 @@
-package vat_test
+package casm_test
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wetware/casm/pkg/vat"
+	casm "github.com/wetware/casm/pkg"
 )
 
 func TestProto(t *testing.T) {
 	t.Parallel()
 
 	const ns = "test"
-	match := vat.NewMatcher(ns)
-	proto := vat.Subprotocol(ns)
+	match := casm.NewMatcher(ns)
+	proto := casm.Subprotocol(ns)
 
 	assert.True(t, match(string(proto)),
 		"matcher should match subprotocol")

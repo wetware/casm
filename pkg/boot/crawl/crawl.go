@@ -7,11 +7,13 @@ import (
 	"net"
 	"time"
 
+	"github.com/lthibault/log"
+
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
-	"github.com/lthibault/log"
-	"github.com/wetware/casm/pkg/vat"
+
+	netutil "github.com/wetware/casm/pkg/util/net"
 )
 
 type Dialer interface {
@@ -100,7 +102,7 @@ func (c Crawler) deadline(ctx context.Context, conn net.Conn) error {
 		return conn.SetDeadline(t)
 	}
 
-	return conn.SetDeadline(vat.Time().Add(time.Second))
+	return conn.SetDeadline(netutil.Time().Add(time.Second))
 }
 
 func (c Crawler) dialer() Dialer {

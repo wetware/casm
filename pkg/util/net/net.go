@@ -1,4 +1,5 @@
-package vat
+// Package netutil contains an assortment of network utilities.
+package netutil
 
 import (
 	"sync"

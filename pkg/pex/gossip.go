@@ -14,9 +14,9 @@ import (
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
 	syncutil "github.com/lthibault/util/sync"
+	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/boot"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
-	"github.com/wetware/casm/pkg/vat"
 )
 
 type StreamHandler interface {
@@ -79,9 +79,9 @@ func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
 	var (
 		ctx, cancel = context.WithCancel(px.ctx)
 		log         = px.log.WithField("ns", ns)
-		proto       = vat.Subprotocol(ns)
-		protoPacked = vat.Subprotocol(ns, "packed")
-		match       = vat.NewMatcher(ns)
+		proto       = casm.Subprotocol(ns)
+		protoPacked = casm.Subprotocol(ns, "packed")
+		match       = casm.NewMatcher(ns)
 		matchPacked = match.Then(protoutil.Exactly("packed"))
 	)
 
@@ -132,8 +132,8 @@ func (g *gossiper) NewGossipRound(ctx context.Context, h host.Host, info peer.Ad
 	}
 
 	return h.NewStream(ctx, info.ID,
-		vat.Subprotocol(g.String(), "packed"),
-		vat.Subprotocol(g.String()))
+		casm.Subprotocol(g.String(), "packed"),
+		casm.Subprotocol(g.String()))
 }
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {

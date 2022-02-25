@@ -9,16 +9,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	capnp "capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
+
 	"github.com/lthibault/log"
 	ctxutil "github.com/lthibault/util/ctx"
+
+	capnp "capnproto.org/go/capnp/v3"
+
 	"github.com/wetware/casm/internal/api/survey"
-	"github.com/wetware/casm/pkg/vat"
+	netutil "github.com/wetware/casm/pkg/util/net"
 )
 
 const (
@@ -92,7 +95,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	s := &Surveyor{
 		ctx:           ctx,
 		cancel:        cancel,
-		t:             vat.Time(),
+		t:             netutil.Time(),
 		thunk:         thunk,
 		mustFind:      make(map[string]map[listener]struct{}),
 		mustAdvertise: make(map[string]time.Time),
