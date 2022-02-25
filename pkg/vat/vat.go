@@ -2,31 +2,111 @@
 package vat
 
 import (
-	"sync"
-	"sync/atomic"
-	"time"
+	"context"
+
+	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/protocol"
+
+	"capnproto.org/go/capnp/v3"
+	"capnproto.org/go/capnp/v3/rpc"
 )
 
-const precision = time.Microsecond * 100
+type Capability interface {
+	// Protocols returns the IDs for the given capability.
+	// Implementations SHOULD order protocol identifiers in decreasing
+	// order of priority.
+	Protocols() []protocol.ID
 
-var (
-	once  sync.Once
-	clock atomic.Value
-)
+	// Upgrade a raw byte-stream to an RPC transport.  Implementations
+	// MAY select a Transport impmlementation based on the protocol ID
+	// returned by 'Stream.Protocol'.
+	Upgrade(Stream) rpc.Transport
 
-// Time returns the current time, as reported by a global process clock.
-// This is more efficient than calling time.Now(). The returned time has
-// a precision of 100µs.
-func Time() time.Time {
-	once.Do(func() {
-		clock.Store(time.Now())
+	// Client returns the client capability to be exported.  It is called
+	// once for each incoming Stream, so implementations may either share
+	// a single global object, or instantiate a new object for each call.
+	Client() *capnp.Client
+}
 
-		go func() {
-			for t := range time.NewTicker(precision).C {
-				clock.Store(t)
-			}
-		}()
-	})
+type Bootstrapper interface {
+	Bootstrap() *capnp.Client
+}
 
-	return clock.Load().(time.Time)
+type Stream interface {
+	Protocol() protocol.ID
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
+	Close() error
+}
+
+// Network wraps a libp2p Host and provides a high-level interface to
+// a capability-oriented network.
+type Network struct{ Host host.Host }
+
+// Connect to a capability hostend on vat.  The context is used only
+// when negotiating network connections and is safe to cancel when a
+// call to 'Connect' returns. The RPC connection is returned without
+// waiting for the remote capability to resolve.  Users MAY refer to
+// the 'Bootstrap' method on 'rpc.Conn' to resolve the connection.
+//
+// The 'Addrs' field of 'vat' MAY be empty, in which case the network
+// will will attempt to discover a valid address.
+//
+// If 'c' satisfies the 'Bootstrapper' interface, the client returned
+// by 'c.Bootstrap()' is provided to the RPC connection as a bootstrap
+// capability.
+func (n Network) Connect(ctx context.Context, vat peer.AddrInfo, c Capability) (*rpc.Conn, error) {
+	if len(vat.Addrs) > 0 {
+		if err := n.Host.Connect(ctx, vat); err != nil {
+			return nil, err
+		}
+	}
+
+	s, err := n.Host.NewStream(ctx, vat.ID, c.Protocols()...)
+	if err != nil {
+		return nil, err
+	}
+
+	return rpc.NewConn(c.Upgrade(s), &rpc.Options{
+		BootstrapClient: bootstrapper(c),
+	}), nil
+}
+
+// Export a capability, making it available to other vats in the network.
+func (n Network) Export(c Capability) {
+	for _, id := range c.Protocols() {
+		n.Host.SetStreamHandler(id, n.handle(c))
+	}
+}
+
+// Embargo ceases to export 'c'.  New calls to 'Connect' are guaranteed
+// to fail for 'c' after 'Embargo' returns. Existing RPC connections on
+// 'c' are unaffected.
+func (n Network) Embargo(c Capability) {
+	for _, id := range c.Protocols() {
+		n.Host.RemoveStreamHandler(id)
+	}
+}
+
+func (n Network) handle(c Capability) network.StreamHandler {
+	return func(s network.Stream) {
+		defer s.Close()
+
+		conn := rpc.NewConn(c.Upgrade(s), &rpc.Options{
+			BootstrapClient: c.Client(),
+		})
+		defer conn.Close()
+
+		<-conn.Done()
+	}
+}
+
+func bootstrapper(c Capability) *capnp.Client {
+	if b, ok := c.(Bootstrapper); ok {
+		return b.Bootstrap()
+	}
+
+	return nil
 }

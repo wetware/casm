@@ -12,7 +12,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
-	casm "github.com/wetware/casm/pkg"
 
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
@@ -257,18 +256,10 @@ func (px *PeerExchange) gossipRound(ctx context.Context, g *gossiper, info peer.
 	ctx, cancel := context.WithTimeout(ctx, g.config.Timeout)
 	defer cancel()
 
-	err := px.h.Connect(ctx, info)
+	s, err := g.NewGossipRound(ctx, px.h, info)
 	if err != nil {
 		return err
 	}
-
-	s, err := px.h.NewStream(ctx, info.ID,
-		casm.Subprotocol(g.String(), "packed"),
-		casm.Subprotocol(g.String()))
-	if err != nil {
-		return err
-	}
-
 	defer s.Close()
 
 	return g.PushPull(ctx, s)

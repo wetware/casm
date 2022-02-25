@@ -8,13 +8,15 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
 	syncutil "github.com/lthibault/util/sync"
-	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/boot"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
+	"github.com/wetware/casm/pkg/vat"
 )
 
 type StreamHandler interface {
@@ -77,9 +79,9 @@ func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
 	var (
 		ctx, cancel = context.WithCancel(px.ctx)
 		log         = px.log.WithField("ns", ns)
-		proto       = casm.Subprotocol(ns)
-		protoPacked = casm.Subprotocol(ns, "packed")
-		match       = casm.NewMatcher(ns)
+		proto       = vat.Subprotocol(ns)
+		protoPacked = vat.Subprotocol(ns, "packed")
+		match       = vat.NewMatcher(ns)
 		matchPacked = match.Then(protoutil.Exactly("packed"))
 	)
 
@@ -122,6 +124,16 @@ func (g *gossiper) GetCachedPeers() (boot.StaticAddrs, error) {
 	}
 
 	return info, err
+}
+
+func (g *gossiper) NewGossipRound(ctx context.Context, h host.Host, info peer.AddrInfo) (network.Stream, error) {
+	if err := h.Connect(ctx, info); err != nil {
+		return nil, err
+	}
+
+	return h.NewStream(ctx, info.ID,
+		vat.Subprotocol(g.String(), "packed"),
+		vat.Subprotocol(g.String()))
 }
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
