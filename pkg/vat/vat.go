@@ -23,11 +23,6 @@ type Capability interface {
 	// MAY select a Transport impmlementation based on the protocol ID
 	// returned by 'Stream.Protocol'.
 	Upgrade(Stream) rpc.Transport
-
-	// Client returns the client capability to be exported.  It is called
-	// once for each incoming Stream, so implementations may either share
-	// a single global object, or instantiate a new object for each call.
-	Client() *capnp.Client
 }
 
 type Bootstrapper interface {
@@ -39,6 +34,13 @@ type Stream interface {
 	Read([]byte) (int, error)
 	Write([]byte) (int, error)
 	Close() error
+}
+
+type ClientProvider interface {
+	// Client returns the client capability to be exported.  It is called
+	// once for each incoming Stream, so implementations may either share
+	// a single global object, or instantiate a new object for each call.
+	Client() *capnp.Client
 }
 
 // Network wraps a libp2p Host and provides a high-level interface to
@@ -75,9 +77,18 @@ func (n Network) Connect(ctx context.Context, vat peer.AddrInfo, c Capability) (
 }
 
 // Export a capability, making it available to other vats in the network.
-func (n Network) Export(c Capability) {
+func (n Network) Export(c Capability, boot ClientProvider) {
 	for _, id := range c.Protocols() {
-		n.Host.SetStreamHandler(id, n.handle(c))
+		n.Host.SetStreamHandler(id, func(s network.Stream) {
+			defer s.Close()
+
+			conn := rpc.NewConn(c.Upgrade(s), &rpc.Options{
+				BootstrapClient: boot.Client(),
+			})
+			defer conn.Close()
+
+			<-conn.Done()
+		})
 	}
 }
 
@@ -87,19 +98,6 @@ func (n Network) Export(c Capability) {
 func (n Network) Embargo(c Capability) {
 	for _, id := range c.Protocols() {
 		n.Host.RemoveStreamHandler(id)
-	}
-}
-
-func (n Network) handle(c Capability) network.StreamHandler {
-	return func(s network.Stream) {
-		defer s.Close()
-
-		conn := rpc.NewConn(c.Upgrade(s), &rpc.Options{
-			BootstrapClient: c.Client(),
-		})
-		defer conn.Close()
-
-		<-conn.Done()
 	}
 }
 
