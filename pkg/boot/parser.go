@@ -127,7 +127,7 @@ func parseLayer4(maddr ma.Multiaddr) (ma.Multiaddr, error) {
 func newCrawler(addr net.Addr, cidr int) (c crawl.Crawler, err error) {
 	switch a := addr.(type) {
 	case *net.TCPAddr:
-		c.Strategy = &crawl.ScanSubnet{
+		c.Strategy = &crawl.Subnet{
 			Net:  a.Network(),
 			Port: a.Port,
 			CIDR: fmt.Sprintf("%v/%v", a.IP, cidr), // e.g. '10.0.1.0/24'

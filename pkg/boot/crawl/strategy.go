@@ -12,11 +12,11 @@ import (
 	"github.com/lthibault/log"
 )
 
-var _ DialStrategy = (*ScanSubnet)(nil)
+var _ DialStrategy = (*Subnet)(nil)
 
-// ScanSubnet is a brute-force dial strategy that exhaustively searches an
+// Subnet is a brute-force dial strategy that exhaustively searches an
 // entire Subnet block in pseudorandom order.
-type ScanSubnet struct {
+type Subnet struct {
 	Logger log.Logger
 	Net    string
 	Port   int
@@ -32,7 +32,7 @@ type ScanSubnet struct {
 	once sync.Once
 }
 
-func (ss *ScanSubnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, error) {
+func (ss *Subnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, error) {
 	ss.once.Do(func() {
 		if ss.Logger == nil {
 			ss.Logger = log.New()
@@ -102,7 +102,7 @@ func (ss *ScanSubnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, erro
 	return out, nil
 }
 
-func (ss *ScanSubnet) dial(ctx context.Context, d Dialer, ip net.IP) (net.Conn, error) {
+func (ss *Subnet) dial(ctx context.Context, d Dialer, ip net.IP) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, ss.Timeout)
 	defer cancel()
 
