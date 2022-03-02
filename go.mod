@@ -9,7 +9,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/huin/goupnp v1.0.2 // indirect
-	github.com/ipfs/go-datastore v0.4.6
+	github.com/ipfs/go-datastore v0.5.1
 	github.com/jbenet/goprocess v0.1.4
 	github.com/jpillora/backoff v1.0.0
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
@@ -17,7 +17,7 @@ require (
 	github.com/libp2p/go-libp2p v0.15.0
 	github.com/libp2p/go-libp2p-core v0.9.0
 	github.com/libp2p/go-libp2p-discovery v0.5.1 // indirect
-	github.com/libp2p/go-libp2p-kad-dht v0.13.1
+	github.com/libp2p/go-libp2p-kad-dht v0.15.0
 	github.com/libp2p/go-libp2p-pubsub v0.5.4
 	github.com/lthibault/jitterbug/v2 v2.2.3-0.20210828000604-93d421a45630
 	github.com/lthibault/log v1.2.1
