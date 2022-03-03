@@ -168,7 +168,7 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 		Jitter(g.config.Tick)
 
 	// First, try cached peers
-	cache, err := g.GetCachedPeers()
+	cache, err := g.GetCachedPeers(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -207,7 +207,7 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 	}
 
 	// First, try cached peers
-	cache, err := g.GetCachedPeers()
+	cache, err := g.GetCachedPeers(ctx)
 	if err != nil {
 		return nil, err
 	}

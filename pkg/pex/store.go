@@ -1,6 +1,7 @@
 package pex
 
 import (
+	"context"
 	"math/rand"
 	"sort"
 	"time"
@@ -45,9 +46,9 @@ func (gs gossipStore) Loggable() map[string]interface{} {
 	}
 }
 
-func (gs gossipStore) LoadView() (View, error) {
+func (gs gossipStore) LoadView(ctx context.Context) (View, error) {
 	// return all entries under the local instance's key prefix
-	res, err := gs.store.Query(query.Query{
+	res, err := gs.store.Query(ctx, query.Query{
 		Prefix: "/",
 	})
 	if err != nil {
@@ -76,14 +77,14 @@ func (gs gossipStore) LoadView() (View, error) {
 	return recs, nil
 }
 
-func (gs gossipStore) StoreRecords(old, new View) error {
-	batch, err := gs.store.Batch()
+func (gs gossipStore) StoreRecords(ctx context.Context, old, new View) error {
+	batch, err := gs.store.Batch(ctx)
 	if err != nil {
 		return err
 	}
 
 	for _, g := range old.diff(new) { // elems in 'old', but not in 'new'.
-		if err = batch.Delete(g.Key()); err != nil {
+		if err = batch.Delete(ctx, g.Key()); err != nil {
 			return err
 		}
 	}
@@ -97,13 +98,13 @@ func (gs gossipStore) StoreRecords(old, new View) error {
 			return err
 		}
 
-		if err = batch.Put(g.Key(), b); err != nil {
+		if err = batch.Put(ctx, g.Key(), b); err != nil {
 			return err
 		}
 	}
 
-	if err = batch.Commit(); err != nil {
-		err = gs.store.Sync(ds.NewKey("/"))
+	if err = batch.Commit(ctx); err != nil {
+		err = gs.store.Sync(ctx, ds.NewKey("/"))
 	}
 
 	return err

@@ -111,8 +111,8 @@ func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
 
 func (g *gossiper) String() string { return g.store.ns }
 
-func (g *gossiper) GetCachedPeers() (boot.StaticAddrs, error) {
-	view, err := g.store.LoadView()
+func (g *gossiper) GetCachedPeers(ctx context.Context) (boot.StaticAddrs, error) {
+	view, err := g.store.LoadView(ctx)
 	if err != nil || view.Len() == 0 {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 		return err
 	}
 
-	local, err = g.mutexGetPushView()
+	local, err = g.mutexGetPushView(ctx)
 	if err != nil {
 		return err
 	}
@@ -197,7 +197,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 
 	if err = j.Wait(); err == nil {
 		if newLocal, err = g.mutexMerge(local, remote); err == nil {
-			if err = g.store.StoreRecords(local, newLocal); err == nil {
+			if err = g.store.StoreRecords(ctx, local, newLocal); err == nil {
 				g.e.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
 			}
 		}
@@ -246,11 +246,11 @@ func max(n1, n2 int) int {
 	return n1
 }
 
-func (g *gossiper) mutexGetPushView() (local View, err error) {
+func (g *gossiper) mutexGetPushView(ctx context.Context) (local View, err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	local, err = g.store.LoadView()
+	local, err = g.store.LoadView(ctx)
 	if err != nil {
 		return
 	}
