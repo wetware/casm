@@ -61,9 +61,6 @@ func init() {
 	}
 }
 
-func IsCrawler(maddr ma.Multiaddr) bool {
-	return hasBootProto(maddr, P_CIDR)
-}
 
 func ParseBeacon(log log.Logger, h host.Host, maddr ma.Multiaddr) (discovery.Advertiser, error) {
 	a, err := parseLayer4(maddr)
@@ -71,7 +68,7 @@ func ParseBeacon(log log.Logger, h host.Host, maddr ma.Multiaddr) (discovery.Adv
 		return nil, err
 	}
 
-	addr, err := manet.ToIP(a)
+	addr, err := manet.ToNetAddr(a)
 	if err != nil {
 		return nil, err
 	}
