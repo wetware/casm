@@ -6,9 +6,11 @@ import (
 	"net"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/lthibault/log"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/wetware/casm/pkg/boot/crawl"
@@ -61,6 +63,36 @@ func init() {
 
 func IsCrawler(maddr ma.Multiaddr) bool {
 	return hasBootProto(maddr, P_CIDR)
+}
+
+func ParseBeacon(log log.Logger, h host.Host, maddr ma.Multiaddr) (discovery.Advertiser, error) {
+	a, err := parseLayer4(maddr)
+	if err != nil {
+		return nil, err
+	}
+
+	addr, err := manet.ToIP(a)
+	if err != nil {
+		return nil, err
+	}
+
+	portStr := strings.Split(addr.String(), ":")[1]
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return crawl.Beacon{}, err
+	}
+
+	switch {
+	case hasBootProto(maddr, P_CIDR):
+		return crawl.Beacon{
+			Logger: log.WithField("beacon_port", port),
+			Addr:   &net.TCPAddr{Port: port},
+			Host:   h,
+		}, nil
+	case hasBootProto(maddr, P_SURVEY):
+		return survey.Beacon{Logger: log.WithField("beacon_port", port)}, nil
+	}
+	return nil, ErrUnknownBootProto
 }
 
 func Parse(h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
