@@ -59,6 +59,10 @@ func init() {
 	}
 }
 
+func IsCrawler(maddr ma.Multiaddr) bool {
+	return hasBootProto(maddr, P_CIDR)
+}
+
 func Parse(h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
 	a, err := parseLayer4(maddr)
 	if err != nil {
