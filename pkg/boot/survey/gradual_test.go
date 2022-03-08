@@ -10,7 +10,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/boot/survey"
-	mx "github.com/wetware/matrix/pkg"
 )
 
 func TestDiscoverGradual(t *testing.T) {
@@ -19,10 +18,9 @@ func TestDiscoverGradual(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sim := mx.New(ctx)
-	h1 := sim.MustHost(ctx)
+	h1 := newTestHost()
 	defer h1.Close()
-	h2 := sim.MustHost(ctx)
+	h2 := newTestHost()
 	defer h2.Close()
 
 	const multicastAddr = "228.8.8.8:8822"
