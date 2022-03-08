@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/huin/goupnp v1.0.2 // indirect
 	github.com/ipfs/go-datastore v0.5.1
-	github.com/jbenet/goprocess v0.1.4
+	github.com/jbenet/goprocess v0.1.4 // indirect
 	github.com/jpillora/backoff v1.0.0
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/koron/go-ssdp v0.0.2 // indirect
@@ -43,6 +43,7 @@ require (
 
 require (
 	github.com/coreos/go-semver v0.3.0
+	github.com/lthibault/go-libp2p-inproc-transport v0.0.1-alpha.7
 	go.uber.org/multierr v1.7.0
 )
 
@@ -108,7 +109,6 @@ require (
 	github.com/libp2p/go-tcp-transport v0.4.0 // indirect
 	github.com/libp2p/go-ws-transport v0.5.0 // indirect
 	github.com/libp2p/go-yamux/v2 v2.3.0 // indirect
-	github.com/lthibault/go-libp2p-inproc-transport v0.0.1-alpha.7 // indirect
 	github.com/lucas-clemente/quic-go v0.24.0 // indirect
 	github.com/marten-seemann/qtls-go1-16 v0.1.4 // indirect
 	github.com/marten-seemann/qtls-go1-17 v0.1.0 // indirect

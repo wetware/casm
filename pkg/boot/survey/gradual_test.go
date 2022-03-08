@@ -6,9 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"capnproto.org/go/capnp/v3"
+	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p-core/discovery"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/stretchr/testify/require"
+	api "github.com/wetware/casm/internal/api/survey"
+	mock_net "github.com/wetware/casm/internal/mock/net"
 	"github.com/wetware/casm/pkg/boot/survey"
 )
 
@@ -18,41 +23,109 @@ func TestDiscoverGradual(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	h1 := newTestHost()
-	defer h1.Close()
-	h2 := newTestHost()
-	defer h2.Close()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	const multicastAddr = "228.8.8.8:8822"
-	addr, _ := net.ResolveUDPAddr("udp4", multicastAddr)
+	h := newTestHost()
+	defer h.Close()
 
-	a1, err := survey.New(h1, addr)
-	require.NoError(t, err)
-	defer a1.Close()
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	require.NoError(t, err, "must subscribe to address updates")
+	defer sub.Close()
+	e := (<-sub.Out()).(event.EvtLocalAddressesUpdated).SignedPeerRecord
 
-	a2, err := survey.New(h2, addr)
-	require.NoError(t, err)
-	defer a2.Close()
+	resp := make(chan []byte, 1)
+	mockTransport := survey.Transport{
+		DialFunc: func(net.Addr) (net.PacketConn, error) {
+			conn := mock_net.NewMockPacketConn(ctrl)
+			// Expect a single call to Close
+			conn.EXPECT().
+				Close().
+				Return(error(nil)).
+				Times(1)
 
-	gradual := survey.GradualSurveyor{Surveyor: a1, Min: 50 * time.Millisecond, Max: 50 * time.Millisecond}
+			// Expect a multiple REQUEST packet to be issued with incrementing distance.
+			conn.EXPECT().
+				WriteTo(gomock.AssignableToTypeOf([]byte{}), gomock.AssignableToTypeOf(net.Addr(new(net.UDPAddr)))).
+				DoAndReturn(func(b []byte, _ net.Addr) (int, error) {
+					m, err := capnp.UnmarshalPacked(b)
+					if err != nil {
+						return 0, err
+					}
 
-	a1.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
-	a2.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+					p, err := api.ReadRootPacket(m)
+					if err != nil {
+						return 0, err
+					}
 
-	infos := make([]peer.AddrInfo, 0)
+					r, err := p.Request()
+					if err != nil {
+						return 0, err
+					}
 
-	ctxTtl, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+					if r.Distance() > 3 {
+						select {
+						case resp <- newResponsePayload(e):
+						default:
+						}
+					}
 
-	finder, err := gradual.FindPeers(ctxTtl, testNs)
-	require.NoError(t, err)
+					return len(b), nil
+				}).
+				AnyTimes()
 
-	for info := range finder {
-		infos = append(infos, info)
+			return conn, nil
+		},
+		ListenFunc: func(net.Addr) (net.PacketConn, error) {
+			conn := mock_net.NewMockPacketConn(ctrl)
+			// Expect a single call to Close
+			conn.EXPECT().
+				Close().
+				Return(error(nil)).
+				Times(1)
+
+				// Expect one RESPONSE message.
+			conn.EXPECT().
+				ReadFrom(gomock.AssignableToTypeOf([]byte{})).
+				DoAndReturn(func(b []byte) (int, net.Addr, error) {
+					select {
+					case raw := <-resp:
+						return copy(b, raw), new(net.UDPAddr), nil
+					case <-ctx.Done():
+						return 0, nil, ctx.Err()
+					}
+				}).
+				AnyTimes()
+
+			return conn, nil
+		},
 	}
 
-	require.True(t, 1 < len(infos))
-	for _, info := range infos {
-		require.Equal(t, info.ID, h2.ID())
+	s, err := survey.New(h, new(net.UDPAddr), survey.WithTransport(mockTransport))
+	require.NoError(t, err, "should open packet connections")
+	require.NotNil(t, s, "should return surveyor")
+	defer s.Close()
+
+	g := survey.GradualSurveyor{
+		Surveyor: s,
+		Min:      time.Millisecond,
+		Max:      time.Millisecond * 10,
+	}
+
+	// Advertise ...
+	ttl, err := g.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
+	require.NoError(t, err, "should advertise successfully")
+	require.Equal(t, advertiseTTL, ttl, "should return advertised TTL")
+
+	// FindPeers ...
+	finder, err := g.FindPeers(ctx, testNs)
+	require.NoError(t, err, "should issue request packet")
+
+	select {
+	case <-time.After(time.Second):
+		t.Error("should receive response")
+	case info := <-finder:
+		// NOTE: we advertised h's record to avoid creating a separate host
+		require.Equal(t, info, *host.InfoFromHost(h))
 	}
 }
