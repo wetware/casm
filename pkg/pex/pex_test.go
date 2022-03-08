@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/pex"
@@ -27,7 +28,7 @@ func TestPeX_Init(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		h := mx.New(ctx).MustHost(ctx)
+		h := newTestHost()
 
 		px, err := pex.New(ctx, h)
 		require.NoError(t, err)
@@ -43,7 +44,7 @@ func TestPeX_Init(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		h := mx.New(ctx).MustHost(ctx, libp2p.NoListenAddrs)
+		h := newTestHost()
 
 		_, err := pex.New(ctx, h)
 		require.EqualError(t, err, "host not accepting connections")
@@ -465,4 +466,17 @@ func TestPeX_Simulation(t *testing.T) {
 	timer := time.NewTimer(5 * time.Second)
 	<-timer.C
 	finished.Store(true)
+}
+
+func newTestHost() host.Host {
+	h, err := libp2p.New(
+		libp2p.NoListenAddrs,
+		libp2p.NoTransports,
+		libp2p.Transport(inproc.New()),
+		libp2p.ListenAddrStrings("/inproc/~"))
+	if err != nil {
+		panic(err)
+	}
+
+	return h
 }

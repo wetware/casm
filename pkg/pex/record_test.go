@@ -2,7 +2,6 @@ package pex_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"testing"
 
@@ -15,7 +14,6 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/pex"
-	mx "github.com/wetware/matrix/pkg"
 )
 
 func TestNewGossipRecord(t *testing.T) {
@@ -78,12 +76,7 @@ func TestView_validation(t *testing.T) {
 	t.Run("Succeed", func(t *testing.T) {
 		t.Parallel()
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		sim := mx.New(ctx)
-
-		hs := sim.MustHostSet(ctx, 2)
+		hs := []host.Host{newTestHost(), newTestHost()}
 		v := mustView(hs)
 
 		// records from peers other than the sender MUST have hop > 0 in
@@ -97,12 +90,7 @@ func TestView_validation(t *testing.T) {
 	t.Run("SenderOnly", func(t *testing.T) {
 		t.Parallel()
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		sim := mx.New(ctx)
-
-		hs := sim.MustHostSet(ctx, 1)
+		hs := []host.Host{newTestHost()}
 		v := mustView(hs)
 
 		/*
@@ -130,12 +118,7 @@ func TestView_validation(t *testing.T) {
 		t.Run("sender_invalid_hop_range", func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			sim := mx.New(ctx)
-
-			hs := sim.MustHostSet(ctx, 2)
+			hs := []host.Host{newTestHost(), newTestHost()}
 			v := mustView(hs)
 
 			/*
@@ -152,12 +135,7 @@ func TestView_validation(t *testing.T) {
 		t.Run("invalid_hop_range", func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			sim := mx.New(ctx)
-
-			hs := sim.MustHostSet(ctx, 2)
+			hs := []host.Host{newTestHost(), newTestHost()}
 
 			/*
 			 * N.B.:  we don't increment the hops here; this should be
@@ -197,11 +175,14 @@ func newTestRecord() (*peer.PeerRecord, *record.Envelope) {
 }
 
 func mustView(hs []host.Host) pex.View {
+	var err error
 	v := make([]*pex.GossipRecord, len(hs))
-	mx.Go(func(ctx context.Context, i int, h host.Host) (err error) {
-		v[i], err = pex.NewGossipRecord(waitReady(h))
-		return err
-	}).Must(context.Background(), hs)
+	for i, h := range hs {
+		if v[i], err = pex.NewGossipRecord(waitReady(h)); err != nil {
+			panic(err)
+		}
+
+	}
 	return v
 }
 
