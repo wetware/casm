@@ -108,19 +108,10 @@ func TestSurveyor(t *testing.T) {
 				Times(1)
 
 			// Expect one RESPONSE message.
-			read := conn.EXPECT().
+			conn.EXPECT().
 				ReadFrom(gomock.AssignableToTypeOf([]byte{})).
 				DoAndReturn(func(b []byte) (int, net.Addr, error) {
 					return copy(b, newResponsePayload(e)), new(net.UDPAddr), nil
-				}).
-				Times(1)
-
-			conn.EXPECT().
-				ReadFrom(gomock.AssignableToTypeOf([]byte{})).
-				After(read).
-				DoAndReturn(func(b []byte) (int, net.Addr, error) {
-					<-ctx.Done()
-					return 0, nil, survey.ErrClosed
 				}).
 				AnyTimes()
 

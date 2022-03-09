@@ -372,18 +372,15 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 
 		for {
 			select {
-			case rec, ok := <-recv:
-				if !ok {
-					return
-				}
-
+			case rec := <-recv:
 				select {
-				case <-ctx.Done():
-				case <-s.done:
 				case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
 					if opts.Limit--; opts.Limit == 0 {
 						return
 					}
+
+				case <-ctx.Done():
+				case <-s.done:
 				}
 
 			case <-ctx.Done():
