@@ -308,25 +308,11 @@ func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Op
 		return 0, err
 	}
 
-	sync := make(chan struct{})
-	advertise := func() {
-		defer close(sync)
-		s.mustAdvertise[ns] = s.t.Add(opts.Ttl)
-	}
-
 	select {
-	case s.thunk <- advertise:
-	case <-ctx.Done():
-		return 0, ctx.Err()
-
-	case <-s.done:
-		return 0, ErrClosed
-	}
-
-	select {
-	case <-sync:
+	case s.thunk <- func() { s.mustAdvertise[ns] = s.t.Add(opts.Ttl) }:
+		// No need to synchronize.  Thunk is guaranteed to happen
+		// before the next operation (e.g. FindPeers).
 		return opts.Ttl, nil
-
 	case <-ctx.Done():
 		return 0, ctx.Err()
 
