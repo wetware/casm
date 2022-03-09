@@ -18,7 +18,7 @@ require (
 	github.com/libp2p/go-libp2p-core v0.13.0
 	github.com/libp2p/go-libp2p-discovery v0.6.0 // indirect
 	github.com/libp2p/go-libp2p-kad-dht v0.15.0
-	github.com/libp2p/go-libp2p-pubsub v0.5.4
+	github.com/libp2p/go-libp2p-pubsub v0.6.1
 	github.com/lthibault/jitterbug/v2 v2.2.3-0.20210828000604-93d421a45630
 	github.com/lthibault/log v1.2.1
 	github.com/lthibault/treap v0.1.4
