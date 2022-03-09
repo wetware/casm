@@ -76,12 +76,7 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 	}
 
 	// ensure the local record is stored before processing anything else.
-	select {
-	case ev := <-sub.Out():
-		px.store.Consume((ev).(event.EvtLocalAddressesUpdated))
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	px.store.Consume((<-sub.Out()).(event.EvtLocalAddressesUpdated))
 
 	// Update
 	go func() {
