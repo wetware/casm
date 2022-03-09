@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	mock_libp2p "github.com/wetware/casm/internal/mock/libp2p"
-	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/pex"
 )
 
@@ -115,42 +114,6 @@ func TestPeX_Bootstrap(t *testing.T) {
 			return nil
 		})
 	require.NoError(t, err, "must compose")
-}
-
-func TestPeX_Advertise(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	hs := makeHosts(8)
-	defer closeAll(t, hs)
-
-	ps := make([]*pex.PeerExchange, len(hs))
-	as := make(boot.StaticAddrs, len(hs))
-
-	const ns = "advertise"
-
-	err := compose(hs,
-		func(i int, h host.Host) (err error) {
-			as[i] = *host.InfoFromHost(h)
-			return
-		},
-		func(i int, h host.Host) (err error) {
-			b := make(boot.StaticAddrs, 0, len(as)-1)
-			for _, info := range as {
-				if info.ID != h.ID() {
-					b = append(b, info)
-				}
-			}
-
-			ps[i], err = pex.New(ctx, h, pex.WithDiscovery(b))
-			return
-		})
-	require.NoError(t, err)
-
-	_, err = ps[0].Advertise(ctx, ns)
-	require.NoError(t, err)
 }
 
 func TestPeX_SingleNode(t *testing.T) {
