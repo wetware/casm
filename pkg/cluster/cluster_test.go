@@ -59,7 +59,7 @@ func TestModel(t *testing.T) {
 
 			return len(p0) == 2 && len(p1) == 2
 		},
-		time.Second*10, time.Millisecond*10,
+		time.Second*5, time.Millisecond*10,
 		"peers should eventually be found in each other's views")
 }
 
@@ -112,7 +112,7 @@ func TestModel_announce_join(t *testing.T) {
 			}
 			return false
 		},
-		time.Second*10,
+		time.Second*5,
 		time.Millisecond*10,
 		"peers should receive each other's bootstrap messages")
 }

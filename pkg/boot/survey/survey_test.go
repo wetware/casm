@@ -144,7 +144,7 @@ func TestSurveyor(t *testing.T) {
 		require.NoError(t, err, "should issue request packet")
 
 		select {
-		case <-time.After(time.Second * 10):
+		case <-time.After(time.Second):
 			t.Error("should receive response")
 		case info := <-finder:
 			// NOTE: we advertised h's record to avoid creating a separate host

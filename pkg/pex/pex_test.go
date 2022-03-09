@@ -212,7 +212,7 @@ func TestPeX_TwoNodes(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		infos, err := peers(ctx, ps[1], ns)
 		return assert.NoError(t, err) && len(infos) == 2 && infos[0].ID == hs[0].ID()
-	}, time.Second*10, time.Millisecond*10)
+	}, time.Second*5, time.Millisecond*10)
 }
 
 func TestPex_NNodes(t *testing.T) {
