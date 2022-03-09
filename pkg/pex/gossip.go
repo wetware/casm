@@ -140,10 +140,10 @@ func (g *gossiper) NewGossipRound(ctx context.Context, h host.Host, info peer.Ad
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	var (
-		j                       syncutil.Join
-		t, _                    = ctx.Deadline()
-		remote, local, newLocal View
-		err                     error
+		j             syncutil.Join
+		t, _          = ctx.Deadline()
+		remote, local View
+		err           error
 	)
 
 	if err := s.SetDeadline(t); err != nil {
@@ -198,11 +198,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	})
 
 	if err = j.Wait(); err == nil {
-		if newLocal, err = g.mutexMerge(local, remote); err == nil {
-			if err = g.store.StoreRecords(ctx, local, newLocal); err == nil {
-				g.peersUpdated.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
-			}
-		}
+		err = g.mutexMergeAndStore(ctx, local, remote)
 	}
 	return err
 }
@@ -268,10 +264,23 @@ func (g *gossiper) mutexGetPushView(ctx context.Context) (local View, err error)
 	return
 }
 
-func (g *gossiper) mutexMerge(local, remote View) (View, error) {
+func (g *gossiper) mutexMergeAndStore(ctx context.Context, local, remote View) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	newLocal, err := g.merge(local, remote)
+	if err != nil {
+		return err
+	}
+
+	if err = g.store.StoreRecords(ctx, local, newLocal); err == nil {
+		g.peersUpdated.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
+	}
+
+	return err
+}
+
+func (g *gossiper) merge(local, remote View) (View, error) {
 	if err := remote.Validate(); err != nil {
 		return nil, err
 	}
