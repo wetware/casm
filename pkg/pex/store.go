@@ -103,7 +103,7 @@ func (gs gossipStore) StoreRecords(ctx context.Context, old, new View) error {
 		}
 	}
 
-	if err = batch.Commit(ctx); err != nil {
+	if err = batch.Commit(ctx); err == nil {
 		err = gs.store.Sync(ctx, ds.NewKey("/"))
 	}
 
