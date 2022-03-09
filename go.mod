@@ -19,12 +19,12 @@ require (
 	github.com/libp2p/go-libp2p-discovery v0.6.0 // indirect
 	github.com/libp2p/go-libp2p-kad-dht v0.15.0
 	github.com/libp2p/go-libp2p-pubsub v0.6.1
-	github.com/lthibault/jitterbug/v2 v2.2.3-0.20210828000604-93d421a45630
+	github.com/lthibault/jitterbug/v2 v2.2.3-0.20220212020018-02864942d6e5
 	github.com/lthibault/log v1.2.1
 	github.com/lthibault/treap v0.1.4
 	github.com/lthibault/util v0.0.11
 	github.com/miekg/dns v1.1.43 // indirect
-	github.com/multiformats/go-multiaddr v0.4.0
+	github.com/multiformats/go-multiaddr v0.5.0
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/common v0.30.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
@@ -32,7 +32,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.3.0
 	go.uber.org/atomic v1.9.0 // indirect
-	go.uber.org/fx v1.14.2
+	go.uber.org/fx v1.17.0
 	go.uber.org/zap v1.19.1 // indirect
 	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5 // indirect
 	golang.org/x/net v0.0.0-20210908191846-a5e095526f91 // indirect
@@ -43,7 +43,7 @@ require (
 require (
 	github.com/coreos/go-semver v0.3.0
 	github.com/lthibault/go-libp2p-inproc-transport v0.0.1-alpha.7
-	go.uber.org/multierr v1.7.0
+	go.uber.org/multierr v1.8.0
 )
 
 require (
@@ -140,7 +140,7 @@ require (
 	github.com/whyrusleeping/multiaddr-filter v0.0.0-20160516205228-e903e4adabd7 // indirect
 	github.com/whyrusleeping/timecache v0.0.0-20160911033111-cfcb2f1abfee // indirect
 	go.opencensus.io v0.23.0 // indirect
-	go.uber.org/dig v1.12.0 // indirect
+	go.uber.org/dig v1.14.0 // indirect
 	golang.org/x/mod v0.4.2 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
 	golang.org/x/tools v0.1.5 // indirect
