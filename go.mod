@@ -12,7 +12,7 @@ require (
 	github.com/libp2p/go-libp2p-core v0.13.0
 	github.com/libp2p/go-libp2p-kad-dht v0.15.0
 	github.com/libp2p/go-libp2p-pubsub v0.6.1
-	github.com/lthibault/go-libp2p-inproc-transport v0.0.1-alpha.8
+	github.com/lthibault/go-libp2p-inproc-transport v0.1.0
 	github.com/lthibault/jitterbug/v2 v2.2.2
 	github.com/lthibault/log v1.2.1
 	github.com/lthibault/treap v0.1.4
