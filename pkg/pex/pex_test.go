@@ -3,7 +3,6 @@ package pex_test
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -96,19 +95,16 @@ func TestPeX_Bootstrap(t *testing.T) {
 			}
 			return nil
 		},
-		func(i int, h host.Host) error {
-			joinCtx, joinCtxCancel := context.WithTimeout(ctx, time.Second)
-			defer joinCtxCancel()
-
+		func(i int, h host.Host) (err error) {
 			if i == 0 {
-				return ps[i].Bootstrap(joinCtx, ns, is[i])
+				err = ps[i].Bootstrap(ctx, ns, is[i])
 			}
 
-			return nil
+			return
 		},
 		func(i int, h host.Host) error {
 			// TODO:  proper synchronization to ensure the 'Join()' call has completed
-			time.Sleep(time.Millisecond)
+			time.Sleep(time.Millisecond * 10)
 
 			ch, err := ps[i].FindPeers(ctx, ns)
 			require.NoError(t, err)
@@ -216,7 +212,7 @@ func TestPeX_TwoNodes(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		infos, err := peers(ctx, ps[1], ns)
 		return assert.NoError(t, err) && len(infos) == 2 && infos[0].ID == hs[0].ID()
-	}, time.Second, time.Millisecond*10)
+	}, time.Second*10, time.Millisecond*10)
 }
 
 func TestPex_NNodes(t *testing.T) {
@@ -226,7 +222,7 @@ func TestPex_NNodes(t *testing.T) {
 	defer cancel()
 
 	const (
-		n  = 10
+		n  = 8
 		ns = "n-nodes"
 	)
 
@@ -308,6 +304,8 @@ func TestPeX_DisconnectedNode(t *testing.T) {
 			return err
 		},
 		func(i int, h host.Host) error {
+			time.Sleep(time.Millisecond)
+
 			if i == 1 {
 				infos, err := peers(ctx, ps[i], ns)
 				require.NoError(t, err)
@@ -329,64 +327,6 @@ func TestPeX_DisconnectedNode(t *testing.T) {
 			return err
 		})
 	require.NoError(t, err)
-}
-
-func TestPeX_Simulation(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	const n = 8 // number of peers in cluster
-
-	hs := makeHosts(n)
-	defer closeAll(t, hs)
-
-	var (
-		ps       = make([]*pex.PeerExchange, len(hs))
-		b        = make(boot.StaticAddrs, len(hs))
-		finished atomic.Value
-	)
-
-	finished.Store(false)
-
-	const ns = "simulation"
-
-	err := compose(hs,
-		func(i int, h host.Host) (err error) {
-			b[i] = *host.InfoFromHost(h)
-			return
-		},
-		func(i int, h host.Host) (err error) {
-			ps[i], err = pex.New(ctx, h)
-			return
-		},
-		func(i int, h host.Host) error {
-			next, err := ps[i].Advertise(ctx, ns)
-			if err != nil {
-				return err
-			}
-			go func() {
-				for {
-					select {
-					case <-time.After(next):
-						next, err = ps[i].Advertise(ctx, ns)
-						if !finished.Load().(bool) {
-							require.NoError(t, err)
-						}
-					case <-ctx.Done():
-						return
-					}
-				}
-			}()
-
-			return nil
-		})
-	require.NoError(t, err)
-
-	timer := time.NewTimer(5 * time.Second)
-	<-timer.C
-	finished.Store(true)
 }
 
 func closeAll(t *testing.T, hs []host.Host) {
