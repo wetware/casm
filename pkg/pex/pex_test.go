@@ -19,8 +19,8 @@ import (
 )
 
 func init() {
-	pex.DefaultGossipConfig.Tick = time.Millisecond
-	pex.DefaultGossipConfig.Timeout = time.Millisecond * 10
+	pex.DefaultGossipConfig.Tick = time.Millisecond * 10
+	pex.DefaultGossipConfig.Timeout = time.Millisecond * 100
 }
 
 func TestPeX_Init(t *testing.T) {
@@ -34,8 +34,12 @@ func TestPeX_Init(t *testing.T) {
 
 		h := newTestHost()
 
-		px, err := pex.New(context.Background(), h)
+		px, err := pex.New(h)
 		require.NoError(t, err)
+		require.NotNil(t, px)
+		defer func() {
+			assert.NoError(t, px.Close(), "should close without error")
+		}()
 
 		peers, err := px.FindPeers(context.Background(), ns)
 		require.Error(t, err)
@@ -54,8 +58,9 @@ func TestPeX_Init(t *testing.T) {
 			Return([]ma.Multiaddr{}).
 			Times(1)
 
-		_, err := pex.New(context.Background(), h)
+		px, err := pex.New(h)
 		require.EqualError(t, err, "host not accepting connections")
+		require.Nil(t, px)
 	})
 }
 
@@ -76,7 +81,7 @@ func TestPeX_Bootstrap(t *testing.T) {
 	err := compose(hs,
 		func(i int, h host.Host) (err error) {
 			is[i] = *host.InfoFromHost(h)
-			ps[i], err = pex.New(ctx, h)
+			ps[i], err = pex.New(h)
 			return
 		},
 		func(i int, h host.Host) error {
@@ -126,9 +131,12 @@ func TestPeX_SingleNode(t *testing.T) {
 
 	h := newTestHost()
 
-	px, err := pex.New(ctx, h)
+	px, err := pex.New(h)
 	require.NoError(t, err, "should construct PeerExchange")
 	require.NotNil(t, px, "should return PeerExchange")
+	defer func() {
+		assert.NoError(t, px.Close(), "should close without error")
+	}()
 
 	ttl, err := px.Advertise(ctx, ns)
 	require.NoError(t, err)
@@ -142,40 +150,6 @@ func TestPeX_SingleNode(t *testing.T) {
 
 	_, ok := <-finder
 	require.False(t, ok, "shouldn't find any peer, the channel should close directly")
-}
-
-func TestPeX_TwoNodes(t *testing.T) {
-	t.Parallel()
-
-	const ns = "two-nodes"
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	hs := makeHosts(2)
-	defer closeAll(t, hs)
-
-	ps := make([]*pex.PeerExchange, len(hs))
-	err := compose(hs,
-		func(i int, h host.Host) (err error) {
-			if i == 0 {
-				ps[i], err = pex.New(ctx, h)
-			} else {
-				ps[i], err = pex.New(ctx, h, pex.WithBootstrapPeers(*host.InfoFromHost(hs[0])))
-			}
-
-			return
-		},
-		func(i int, h host.Host) error {
-			_, err := ps[i].Advertise(ctx, ns)
-			return err
-		})
-	require.NoError(t, err)
-
-	assert.Eventually(t, func() bool {
-		infos, err := peers(ctx, ps[1], ns)
-		return assert.NoError(t, err) && len(infos) == 2 && infos[0].ID == hs[0].ID()
-	}, time.Second*5, time.Millisecond*10)
 }
 
 func TestPex_NNodes(t *testing.T) {
@@ -195,45 +169,38 @@ func TestPex_NNodes(t *testing.T) {
 	ps := make([]*pex.PeerExchange, len(hs))
 
 	err := compose(hs,
+		// Arrange peers in a line topology
 		func(i int, h host.Host) (err error) {
-			ps[i], err = pex.New(ctx, h)
-			return
-		},
-		func(i int, h host.Host) error {
-			_, err := ps[i].Advertise(ctx, ns)
-			return err
-		},
-		func(i int, h host.Host) error {
-			if i != 0 {
-				err := ps[i].Bootstrap(ctx, ns, *host.InfoFromHost(hs[i-1]))
-				if err != nil {
-					return err
-				}
+			if i > 0 {
+				ps[i], err = pex.New(h, pex.WithBootstrapPeers(*host.InfoFromHost(hs[i-1])))
+			} else {
+				ps[i], err = pex.New(h)
 			}
 
+			return
+		},
+		// Advertise - TTL sampled in interval [5 10) ms
+		func(i int, h host.Host) error {
 			go func() {
-				var (
-					next = time.Duration(0)
-				)
+				var next = time.Duration(0)
 				for {
 					select {
 					case <-time.After(next):
-						next, _ = ps[i].Advertise(ctx, ns)
+						ps[i].Advertise(ctx, ns)
 					case <-ctx.Done():
 						return
 					}
 				}
 			}()
-
 			return nil
 		})
-	require.NoError(t, err)
+	require.NoError(t, err, "must set up initial topology")
 
 	require.Eventually(t, func() bool {
 		infos, err := peers(ctx, ps[0], ns)
 		require.NoError(t, err)
 		return len(infos) == min(pex.DefaultMaxView, n-1)
-	}, time.Second, time.Millisecond)
+	}, time.Second*5, time.Millisecond*10)
 }
 
 func TestPeX_DisconnectedNode(t *testing.T) {
@@ -252,9 +219,9 @@ func TestPeX_DisconnectedNode(t *testing.T) {
 	err := compose(hs,
 		func(i int, h host.Host) (err error) {
 			if i == 0 {
-				ps[i], err = pex.New(ctx, h)
+				ps[i], err = pex.New(h)
 			} else {
-				ps[i], err = pex.New(ctx, h,
+				ps[i], err = pex.New(h,
 					pex.WithBootstrapPeers(*host.InfoFromHost(hs[0])))
 			}
 			return

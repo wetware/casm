@@ -13,6 +13,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
+
+	ctxutil "github.com/lthibault/util/ctx"
 	syncutil "github.com/lthibault/util/sync"
 	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/boot"
@@ -66,18 +68,18 @@ func (g GossipConfig) newDecoder(r io.Reader) *capnp.Decoder {
 }
 
 type gossiper struct {
-	config GossipConfig
-	store  gossipStore
-	e      event.Emitter
+	config       GossipConfig
+	store        gossipStore
+	peersUpdated event.Emitter
 
 	mu sync.Mutex
 
 	Stop func()
 }
 
-func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
+func (px *PeerExchange) newGossiper(ns string) *gossiper {
 	var (
-		ctx, cancel = context.WithCancel(px.ctx)
+		ctx, cancel = context.WithCancel(ctxutil.C(px.done))
 		log         = px.log.WithField("ns", ns)
 		proto       = casm.Subprotocol(ns)
 		protoPacked = casm.Subprotocol(ns, "packed")
@@ -86,9 +88,9 @@ func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
 	)
 
 	g := &gossiper{
-		config: px.newParams(ns),
-		store:  px.store.New(ns),
-		e:      e,
+		config:       px.newParams(ns),
+		store:        px.store.New(ns),
+		peersUpdated: px.peersUpdated,
 		Stop: func() {
 			cancel()
 			px.h.RemoveStreamHandler(proto)
@@ -198,7 +200,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	if err = j.Wait(); err == nil {
 		if newLocal, err = g.mutexMerge(local, remote); err == nil {
 			if err = g.store.StoreRecords(ctx, local, newLocal); err == nil {
-				g.e.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
+				g.peersUpdated.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
 			}
 		}
 	}
