@@ -17,12 +17,12 @@ require (
 	github.com/lthibault/log v1.2.1
 	github.com/lthibault/treap v0.1.4
 	github.com/lthibault/util v0.0.11
-	github.com/multiformats/go-multiaddr v0.4.0
+	github.com/multiformats/go-multiaddr v0.5.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.3.0
 	go.uber.org/fx v1.17.0
-	go.uber.org/multierr v1.7.0
+	go.uber.org/multierr v1.8.0
 )
 
 require (
