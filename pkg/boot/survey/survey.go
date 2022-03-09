@@ -85,7 +85,7 @@ type Surveyor struct {
 func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	var (
 		done  = make(chan struct{})
-		cherr = make(chan error)
+		cherr = make(chan error, 1)
 		thunk = make(chan func())
 		recv  = make(chan *capnp.Message, 8)
 		send  = make(chan *capnp.Message, 8)

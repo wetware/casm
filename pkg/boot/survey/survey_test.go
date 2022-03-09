@@ -120,10 +120,7 @@ func TestSurveyor(t *testing.T) {
 				After(read).
 				DoAndReturn(func(b []byte) (int, net.Addr, error) {
 					<-ctx.Done()
-
-					// We only consume a single response, but ctx is racy.
-					// Ensure we don't provoke a failure if this ends up returning.
-					return copy(b, newResponsePayload(e)), new(net.UDPAddr), nil
+					return 0, nil, survey.ErrClosed
 				}).
 				AnyTimes()
 
@@ -147,7 +144,7 @@ func TestSurveyor(t *testing.T) {
 		require.NoError(t, err, "should issue request packet")
 
 		select {
-		case <-time.After(time.Second):
+		case <-time.After(time.Second * 10):
 			t.Error("should receive response")
 		case info := <-finder:
 			// NOTE: we advertised h's record to avoid creating a separate host
