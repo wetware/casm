@@ -302,31 +302,15 @@ func TestPeX_DisconnectedNode(t *testing.T) {
 				return validateTTL(ttl)
 			}
 			return err
-		},
-		func(i int, h host.Host) error {
-			time.Sleep(time.Millisecond)
-
-			if i == 1 {
-				infos, err := peers(ctx, ps[i], ns)
-				require.NoError(t, err)
-				require.Len(t, infos, 2)
-				require.Equal(t, infos[0].ID, hs[0].ID())
-			}
-			return nil
-		},
-		func(i int, h host.Host) error {
-			if i == 0 {
-				defer ps[i].Close()
-				return hs[i].Close()
-			}
-
-			ttl, err := ps[i].Advertise(ctx, ns)
-			if err == nil {
-				return validateTTL(ttl)
-			}
-			return err
 		})
 	require.NoError(t, err)
+
+	assert.Eventually(t, func() bool {
+		infos, err := peers(ctx, ps[1], ns)
+		return assert.NoError(t, err) &&
+			len(infos) == 2 &&
+			infos[0].ID == hs[0].ID()
+	}, time.Second*5, time.Millisecond*100)
 }
 
 func closeAll(t *testing.T, hs []host.Host) {
