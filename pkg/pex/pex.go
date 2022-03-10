@@ -42,10 +42,10 @@ type PeerExchange struct {
 	newParams func(ns string) GossipConfig
 
 	t            time.Time
-	as           map[string]advertiser
+	advertisers  map[string]advertiser
 	done         <-chan struct{}
 	thunk        chan<- func()
-	c            io.Closer
+	closer       io.Closer
 	peersUpdated event.Emitter
 
 	store rootStore
@@ -77,8 +77,8 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 		h:            h,
 		done:         done,
 		thunk:        thunks,
-		as:           make(map[string]advertiser),
-		c:            sub,
+		advertisers:  make(map[string]advertiser),
+		closer:       sub,
 		peersUpdated: e,
 	}
 
@@ -93,10 +93,10 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 	go func() {
 		defer func() {
 			close(done)
-			for ns, ad := range px.as {
+			for ns, ad := range px.advertisers {
 				ad.Gossiper.Stop()
 				//px.disc.StopTracking(ns)
-				delete(px.as, ns)
+				delete(px.advertisers, ns)
 			}
 		}()
 
@@ -106,11 +106,11 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 		for {
 			select {
 			case px.t = <-ticker.C:
-				for ns, ad := range px.as {
+				for ns, ad := range px.advertisers {
 					if ad.Expired(px.t) {
 						ad.Gossiper.Stop()
 						//px.disc.StopTracking(ns)
-						delete(px.as, ns)
+						delete(px.advertisers, ns)
 					}
 				}
 
@@ -130,7 +130,7 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 }
 
 func (px *PeerExchange) Close() error {
-	return px.c.Close()
+	return px.closer.Close()
 }
 
 func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peers ...peer.AddrInfo) error {
@@ -275,10 +275,10 @@ func (px *PeerExchange) getOrCreateGossiper(ctx context.Context, ns string) (*go
 	ch := make(chan *gossiper, 1) // TODO:  pool?
 
 	advertise := func() {
-		ad, ok := px.as[ns]
+		ad, ok := px.advertisers[ns]
 		if !ok {
 			ad.Gossiper = px.newGossiper(ns)
-			px.as[ns] = ad
+			px.advertisers[ns] = ad
 		}
 
 		ad.ResetTTL(px.t)
@@ -302,7 +302,7 @@ func (px *PeerExchange) getGossiper(ctx context.Context, ns string) (*gossiper, 
 
 	select {
 	case px.thunk <- func() {
-		ch <- px.as[ns].Gossiper
+		ch <- px.advertisers[ns].Gossiper
 	}:
 
 	case <-ctx.Done():
