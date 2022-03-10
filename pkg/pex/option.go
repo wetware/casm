@@ -22,17 +22,15 @@ const (
 	DefaultMaxMsgSize = 2048
 )
 
-var (
-	DefaultGossipConfig = GossipConfig{
-		MaxView:    DefaultMaxView,
-		Swap:       DefaultSwap,
-		Protect:    DefaultProtect,
-		Decay:      DefaultDecay,
-		Tick:       DefaultTick,
-		Timeout:    DefaultTimeout,
-		MaxMsgSize: DefaultMaxMsgSize,
-	}
-)
+var DefaultGossipConfig = GossipConfig{
+	MaxView:    DefaultMaxView,
+	Swap:       DefaultSwap,
+	Protect:    DefaultProtect,
+	Decay:      DefaultDecay,
+	Tick:       DefaultTick,
+	Timeout:    DefaultTimeout,
+	MaxMsgSize: DefaultMaxMsgSize,
+}
 
 type Option func(px *PeerExchange)
 

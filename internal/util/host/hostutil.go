@@ -19,7 +19,7 @@ type Module struct {
 }
 
 func New(c *cli.Context, lx fx.Lifecycle) (m Module, err error) {
-	m.Host, err = libp2p.New(c.Context)
+	m.Host, err = libp2p.New()
 	if err != nil {
 		return
 	}

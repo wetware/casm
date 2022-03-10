@@ -1,16 +1,17 @@
 package boot_test
 
 import (
-	"context"
 	"testing"
 
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/host"
+	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/boot/crawl"
 	"github.com/wetware/casm/pkg/boot/survey"
-	mx "github.com/wetware/matrix/pkg"
 )
 
 func TestMultiaddr(t *testing.T) {
@@ -94,11 +95,7 @@ func TestParse(t *testing.T) {
 		t.Run("Surveyor", func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			sim := mx.New(ctx)
-			h := sim.MustHost(ctx)
+			h := newTestHost()
 			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/udp/8820/survey")
@@ -112,11 +109,7 @@ func TestParse(t *testing.T) {
 		t.Run("GradualSurveyor", func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			sim := mx.New(ctx)
-			h := sim.MustHost(ctx)
+			h := newTestHost()
 			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/udp/8820/survey/gradual")
@@ -135,11 +128,7 @@ func TestParse(t *testing.T) {
 		t.Run("Succeed", func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			sim := mx.New(ctx)
-			h := sim.MustHost(ctx)
+			h := newTestHost()
 			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/tcp/8820/cidr/24")
@@ -153,11 +142,7 @@ func TestParse(t *testing.T) {
 		t.Run("Invalid", func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			sim := mx.New(ctx)
-			h := sim.MustHost(ctx)
+			h := newTestHost()
 			defer h.Close()
 
 			require.Panics(t, func() {
@@ -169,4 +154,17 @@ func TestParse(t *testing.T) {
 			})
 		})
 	})
+}
+
+func newTestHost() host.Host {
+	h, err := libp2p.New(
+		libp2p.NoListenAddrs,
+		libp2p.NoTransports,
+		libp2p.Transport(inproc.New()),
+		libp2p.ListenAddrStrings("/inproc/~"))
+	if err != nil {
+		panic(err)
+	}
+
+	return h
 }

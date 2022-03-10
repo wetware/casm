@@ -10,7 +10,6 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	goprocess "github.com/jbenet/goprocess"
 	connmgr "github.com/libp2p/go-libp2p-core/connmgr"
 	crypto "github.com/libp2p/go-libp2p-core/crypto"
 	discovery "github.com/libp2p/go-libp2p-core/discovery"
@@ -393,10 +392,10 @@ func (mr *MockConnMockRecorder) RemotePublicKey() *gomock.Call {
 }
 
 // Stat mocks base method.
-func (m *MockConn) Stat() network.Stat {
+func (m *MockConn) Stat() network.ConnStats {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Stat")
-	ret0, _ := ret[0].(network.Stat)
+	ret0, _ := ret[0].(network.ConnStats)
 	return ret0
 }
 
@@ -597,10 +596,10 @@ func (mr *MockStreamMockRecorder) SetWriteDeadline(arg0 interface{}) *gomock.Cal
 }
 
 // Stat mocks base method.
-func (m *MockStream) Stat() network.Stat {
+func (m *MockStream) Stat() network.Stats {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Stat")
-	ret0, _ := ret[0].(network.Stat)
+	ret0, _ := ret[0].(network.Stats)
 	return ret0
 }
 
@@ -847,32 +846,6 @@ func (m *MockNetwork) Peerstore() peerstore.Peerstore {
 func (mr *MockNetworkMockRecorder) Peerstore() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Peerstore", reflect.TypeOf((*MockNetwork)(nil).Peerstore))
-}
-
-// Process mocks base method.
-func (m *MockNetwork) Process() goprocess.Process {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Process")
-	ret0, _ := ret[0].(goprocess.Process)
-	return ret0
-}
-
-// Process indicates an expected call of Process.
-func (mr *MockNetworkMockRecorder) Process() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Process", reflect.TypeOf((*MockNetwork)(nil).Process))
-}
-
-// SetConnHandler mocks base method.
-func (m *MockNetwork) SetConnHandler(arg0 network.ConnHandler) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetConnHandler", arg0)
-}
-
-// SetConnHandler indicates an expected call of SetConnHandler.
-func (mr *MockNetworkMockRecorder) SetConnHandler(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetConnHandler", reflect.TypeOf((*MockNetwork)(nil).SetConnHandler), arg0)
 }
 
 // SetStreamHandler mocks base method.

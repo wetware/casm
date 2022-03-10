@@ -3,6 +3,7 @@ package pex
 import (
 	"context"
 	"errors"
+	"io"
 	"sync/atomic"
 
 	"time"
@@ -35,22 +36,24 @@ import (
 // these have been carefully selected to work in a broad range of applications
 // and micro-optimizations are likely to be counterproductive.
 type PeerExchange struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	log    log.Logger
+	log log.Logger
 
 	h         host.Host
 	newParams func(ns string) GossipConfig
 
-	t     time.Time
-	as    map[string]advertiser
-	thunk chan<- func()
+	t            time.Time
+	advertisers  map[string]advertiser
+	done         <-chan struct{}
+	thunk        chan<- func()
+	closer       io.Closer
+	peersUpdated event.Emitter
 
 	store rootStore
 	disc  discover
 }
 
-func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error) {
+// New PeerExchange.  Host MUST be lisening on at least one address.
+func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 	if len(h.Addrs()) == 0 {
 		return nil, errors.New("host not accepting connections")
 	}
@@ -60,15 +63,23 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 		return nil, err
 	}
 
-	var thunks = make(chan func(), 1)
+	e, err := h.EventBus().Emitter(new(EvtPeersUpdated))
+	if err != nil {
+		return nil, err
+	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	var (
+		done   = make(chan struct{})
+		thunks = make(chan func(), 1)
+	)
+
 	var px = PeerExchange{
-		ctx:    ctx,
-		cancel: cancel,
-		h:      h,
-		thunk:  thunks,
-		as:     make(map[string]advertiser),
+		h:            h,
+		done:         done,
+		thunk:        thunks,
+		advertisers:  make(map[string]advertiser),
+		closer:       sub,
+		peersUpdated: e,
 	}
 
 	for _, option := range withDefaults(opt) {
@@ -76,16 +87,18 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 	}
 
 	// ensure the local record is stored before processing anything else.
-	select {
-	case ev := <-sub.Out():
-		px.store.Consume((ev).(event.EvtLocalAddressesUpdated))
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	px.store.Consume((<-sub.Out()).(event.EvtLocalAddressesUpdated))
 
 	// Update
 	go func() {
-		defer sub.Close()
+		defer func() {
+			close(done)
+			for ns, ad := range px.advertisers {
+				ad.Gossiper.Stop()
+				//px.disc.StopTracking(ns)
+				delete(px.advertisers, ns)
+			}
+		}()
 
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -93,23 +106,22 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 		for {
 			select {
 			case px.t = <-ticker.C:
-				for ns, ad := range px.as {
+				for ns, ad := range px.advertisers {
 					if ad.Expired(px.t) {
 						ad.Gossiper.Stop()
 						//px.disc.StopTracking(ns)
-						delete(px.as, ns)
+						delete(px.advertisers, ns)
 					}
 				}
 
 			case f := <-thunks:
 				f() // f is free to access shared fields
 
-			case v := <-sub.Out():
+			case v, ok := <-sub.Out():
+				if !ok {
+					return
+				}
 				px.store.Consume(v.(event.EvtLocalAddressesUpdated))
-
-			case <-ctx.Done():
-				px.close()
-				return
 			}
 		}
 	}()
@@ -117,16 +129,8 @@ func New(ctx context.Context, h host.Host, opt ...Option) (*PeerExchange, error)
 	return &px, nil
 }
 
-func (px *PeerExchange) Close() {
-	px.cancel()
-}
-
-func (px *PeerExchange) close() {
-	for ns, ad := range px.as {
-		ad.Gossiper.Stop()
-		//px.disc.StopTracking(ns)
-		delete(px.as, ns)
-	}
+func (px *PeerExchange) Close() error {
+	return px.closer.Close()
 }
 
 func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peers ...peer.AddrInfo) error {
@@ -242,7 +246,7 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 				select {
 				case out <- info:
 				case <-ctx.Done():
-				case <-px.ctx.Done():
+				case <-px.done:
 					return
 				}
 			}
@@ -269,15 +273,12 @@ type EvtPeersUpdated []*peer.PeerRecord
 
 func (px *PeerExchange) getOrCreateGossiper(ctx context.Context, ns string) (*gossiper, error) {
 	ch := make(chan *gossiper, 1) // TODO:  pool?
-	e, err := px.h.EventBus().Emitter(new(EvtPeersUpdated))
-	if err != nil {
-		return nil, err
-	}
+
 	advertise := func() {
-		ad, ok := px.as[ns]
+		ad, ok := px.advertisers[ns]
 		if !ok {
-			ad.Gossiper = px.newGossiper(ns, e)
-			px.as[ns] = ad
+			ad.Gossiper = px.newGossiper(ns)
+			px.advertisers[ns] = ad
 		}
 
 		ad.ResetTTL(px.t)
@@ -291,7 +292,7 @@ func (px *PeerExchange) getOrCreateGossiper(ctx context.Context, ns string) (*go
 	case <-ctx.Done():
 		return nil, ctx.Err()
 
-	case <-px.ctx.Done():
+	case <-px.done:
 		return nil, ErrClosed
 	}
 }
@@ -301,13 +302,13 @@ func (px *PeerExchange) getGossiper(ctx context.Context, ns string) (*gossiper, 
 
 	select {
 	case px.thunk <- func() {
-		ch <- px.as[ns].Gossiper
+		ch <- px.advertisers[ns].Gossiper
 	}:
 
 	case <-ctx.Done():
 		return nil, ctx.Err()
 
-	case <-px.ctx.Done():
+	case <-px.done:
 		return nil, ErrClosed
 	}
 
@@ -320,7 +321,7 @@ func (px *PeerExchange) getGossiper(ctx context.Context, ns string) (*gossiper, 
 	case <-ctx.Done():
 		return nil, ctx.Err()
 
-	case <-px.ctx.Done():
+	case <-px.done:
 		return nil, ErrClosed
 	}
 

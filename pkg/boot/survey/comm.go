@@ -1,7 +1,6 @@
 package survey
 
 import (
-	"context"
 	"net"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 type comm struct {
 	log log.Logger
 
+	done  <-chan struct{}
 	cherr chan<- error
 	recv  chan<- *capnp.Message
 	send  chan *capnp.Message
@@ -22,18 +22,18 @@ type comm struct {
 	dconn net.PacketConn
 }
 
-func (c comm) Send(ctx context.Context, m *capnp.Message) (err error) {
+func (c comm) Send(m *capnp.Message) (err error) {
 	select {
 	case c.send <- m:
 
-	case <-ctx.Done():
-		err = ctx.Err()
+	case <-c.done:
+		err = ErrClosed
 	}
 
 	return
 }
 
-func (c comm) StartRecv(ctx context.Context, conn net.PacketConn) {
+func (c comm) StartRecv(conn net.PacketConn) {
 	var buf [maxDatagramSize]byte
 
 	b := backoff.Backoff{
@@ -54,7 +54,7 @@ func (c comm) StartRecv(ctx context.Context, conn net.PacketConn) {
 
 				select {
 				case <-time.After(b.Duration()):
-				case <-ctx.Done():
+				case <-c.done:
 				}
 
 				continue
@@ -77,13 +77,13 @@ func (c comm) StartRecv(ctx context.Context, conn net.PacketConn) {
 
 		select {
 		case c.recv <- m:
-		case <-ctx.Done():
+		case <-c.done:
 			return
 		}
 	}
 }
 
-func (c comm) StartSend(ctx context.Context, conn net.PacketConn) {
+func (c comm) StartSend(conn net.PacketConn) {
 	bo := backoff.Backoff{
 		Factor: 2,
 		Jitter: true,
@@ -108,7 +108,7 @@ func (c comm) StartSend(ctx context.Context, conn net.PacketConn) {
 
 					select {
 					case <-time.After(bo.Duration()):
-					case <-ctx.Done():
+					case <-c.done:
 					}
 
 					continue // TODO:  exponential backoff + logging
@@ -124,7 +124,7 @@ func (c comm) StartSend(ctx context.Context, conn net.PacketConn) {
 
 			bo.Reset()
 
-		case <-ctx.Done():
+		case <-c.done:
 			return
 		}
 	}

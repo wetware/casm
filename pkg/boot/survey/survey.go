@@ -16,7 +16,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/record"
 
 	"github.com/lthibault/log"
-	ctxutil "github.com/lthibault/util/ctx"
 
 	capnp "capnproto.org/go/capnp/v3"
 
@@ -28,6 +27,8 @@ const (
 	defaultTTL      = time.Minute
 	maxDatagramSize = 8192
 )
+
+var ErrClosed = errors.New("closed")
 
 type DialFunc func(net.Addr) (net.PacketConn, error)
 
@@ -63,9 +64,8 @@ type Transport struct {
 }
 
 type Surveyor struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	log    log.Logger
+	done <-chan struct{}
+	log  log.Logger
 
 	t     time.Time
 	thunk chan<- func()
@@ -76,27 +76,26 @@ type Surveyor struct {
 	mustFind      map[string]map[listener]struct{}
 	mustAdvertise map[string]time.Time
 
-	tp  Transport
-	c   comm
-	err atomic.Value
+	tp    Transport
+	c     comm
+	cherr chan<- error
+	err   atomic.Value
 }
 
 func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	var (
-		cq          = h.Network().Process().Closing()
-		ctx, cancel = context.WithCancel(ctxutil.C(cq))
-
-		cherr = make(chan error)
+		done  = make(chan struct{})
+		cherr = make(chan error, 1)
 		thunk = make(chan func())
 		recv  = make(chan *capnp.Message, 8)
 		send  = make(chan *capnp.Message, 8)
 	)
 
 	s := &Surveyor{
-		ctx:           ctx,
-		cancel:        cancel,
 		t:             netutil.Time(),
 		thunk:         thunk,
+		done:          done,
+		cherr:         cherr,
 		mustFind:      make(map[string]map[listener]struct{}),
 		mustAdvertise: make(map[string]time.Time),
 	}
@@ -111,13 +110,11 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	}
 
 	// Ensure the sync operation is run before anything else
-	select {
-	case v := <-sub.Out():
-		s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
-
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	v, ok := <-sub.Out()
+	if !ok {
+		return nil, fmt.Errorf("host %w", ErrClosed)
 	}
+	s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
 
 	lconn, err := s.tp.Listen(addr)
 	if err != nil {
@@ -132,6 +129,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 
 	s.c = comm{
 		log:   s.log,
+		done:  done,
 		cherr: cherr,
 		recv:  recv,
 		send:  send,
@@ -140,8 +138,8 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		dconn: dconn,
 	}
 
-	go s.c.StartRecv(ctx, lconn)
-	go s.c.StartSend(ctx, dconn)
+	go s.c.StartRecv(lconn)
+	go s.c.StartSend(dconn)
 
 	go func() {
 		for v := range sub.Out() {
@@ -153,7 +151,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 		defer lconn.Close()
 		defer dconn.Close()
 		defer sub.Close()
-		defer cancel()
+		defer close(done)
 
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -170,20 +168,13 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 			case f := <-thunk:
 				f()
 			case m := <-recv:
-				if err := s.handleMessage(ctx, m); err != nil {
+				if err := s.handleMessage(m); err != nil {
 					s.log.WithError(err).Debug("dropped message")
 				}
 
 			case err := <-cherr:
-				if err == nil {
-					err = errors.New("closed")
-				}
-
-				s.err.Store(err)
+				s.err.CompareAndSwap(error(nil), err)
 				return
-
-			case <-ctx.Done():
-				s.err.Store(errors.New("host closed"))
 			}
 		}
 	}()
@@ -192,9 +183,13 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 }
 
 func (s *Surveyor) Close() error {
-	defer s.cancel()
-	err, _ := s.err.Load().(error)
-	return err
+	select {
+	case s.cherr <- ErrClosed:
+	default:
+	}
+
+	<-s.done
+	return nil
 }
 
 func (s *Surveyor) setLocalRecord(ev event.EvtLocalAddressesUpdated) {
@@ -204,7 +199,7 @@ func (s *Surveyor) setLocalRecord(ev event.EvtLocalAddressesUpdated) {
 	s.rec.Store(rec)
 }
 
-func (s *Surveyor) handleMessage(ctx context.Context, m *capnp.Message) error {
+func (s *Surveyor) handleMessage(m *capnp.Message) error {
 	p, err := survey.ReadRootPacket(m)
 	if err != nil {
 		return err
@@ -212,16 +207,16 @@ func (s *Surveyor) handleMessage(ctx context.Context, m *capnp.Message) error {
 
 	switch p.Which() {
 	case survey.Packet_Which_request:
-		return s.handleRequest(ctx, p)
+		return s.handleRequest(p)
 
 	case survey.Packet_Which_response:
-		return s.handleResponse(ctx, p)
+		return s.handleResponse(p)
 	}
 
 	return fmt.Errorf("unrecognized packet type '%d'", p.Which())
 }
 
-func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
+func (s *Surveyor) handleRequest(p survey.Packet) error {
 	request, err := p.Request()
 	if err != nil {
 		return err
@@ -259,7 +254,7 @@ func (s *Surveyor) handleRequest(ctx context.Context, p survey.Packet) error {
 		return err
 	}
 
-	return s.c.Send(ctx, p.Message())
+	return s.c.Send(p.Message())
 }
 
 func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
@@ -279,7 +274,7 @@ func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
 	return p.SetResponse(b)
 }
 
-func (s *Surveyor) handleResponse(ctx context.Context, p survey.Packet) error {
+func (s *Surveyor) handleResponse(p survey.Packet) error {
 	ns, err := p.Namespace()
 	if err != nil {
 		return err
@@ -315,17 +310,22 @@ func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Op
 
 	select {
 	case s.thunk <- func() { s.mustAdvertise[ns] = s.t.Add(opts.Ttl) }:
+		// No need to synchronize.  Thunk is guaranteed to happen
+		// before the next operation (e.g. FindPeers).
 		return opts.Ttl, nil
-
 	case <-ctx.Done():
 		return 0, ctx.Err()
 
-	case <-s.ctx.Done():
-		return 0, s.ctx.Err()
+	case <-s.done:
+		return 0, ErrClosed
 	}
 }
 
 func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	if err := s.err.Load(); err != nil {
+		return nil, err.(error)
+	}
+
 	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
@@ -352,36 +352,33 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 				}
 				close(recv)
 			}:
-			case <-s.ctx.Done():
+			case <-s.done:
 			}
 		}()
 
 		for {
 			select {
-			case rec, ok := <-recv:
-				if !ok {
-					return
-				}
-
+			case rec := <-recv:
 				select {
-				case <-ctx.Done():
-				case <-s.ctx.Done():
 				case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
 					if opts.Limit--; opts.Limit == 0 {
 						return
 					}
+
+				case <-ctx.Done():
+				case <-s.done:
 				}
 
 			case <-ctx.Done():
 				return
-			case <-s.ctx.Done():
+			case <-s.done:
 				return
 			}
 		}
 	}
 
 	findPeers := func() {
-		if err := s.c.Send(ctx, m); err != nil {
+		if err := s.c.Send(m); err != nil {
 			cherr <- err
 			return
 		}
@@ -402,7 +399,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 	case <-ctx.Done():
 		return nil, ctx.Err()
 
-	case <-s.ctx.Done():
+	case <-s.done:
 		return nil, errors.New("closed")
 	}
 
@@ -413,7 +410,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 	case <-ctx.Done():
 		return nil, ctx.Err()
 
-	case <-s.ctx.Done():
+	case <-s.done:
 		return nil, errors.New("closed")
 	}
 }

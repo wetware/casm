@@ -8,6 +8,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	pulse "github.com/wetware/casm/pkg/cluster/pulse"
 	routing "github.com/wetware/casm/pkg/cluster/routing"
 )
 
@@ -46,4 +47,39 @@ func (m *MockRoutingTable) Upsert(arg0 routing.Record) bool {
 func (mr *MockRoutingTableMockRecorder) Upsert(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upsert", reflect.TypeOf((*MockRoutingTable)(nil).Upsert), arg0)
+}
+
+// MockPreparer is a mock of Preparer interface.
+type MockPreparer struct {
+	ctrl     *gomock.Controller
+	recorder *MockPreparerMockRecorder
+}
+
+// MockPreparerMockRecorder is the mock recorder for MockPreparer.
+type MockPreparerMockRecorder struct {
+	mock *MockPreparer
+}
+
+// NewMockPreparer creates a new mock instance.
+func NewMockPreparer(ctrl *gomock.Controller) *MockPreparer {
+	mock := &MockPreparer{ctrl: ctrl}
+	mock.recorder = &MockPreparerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPreparer) EXPECT() *MockPreparerMockRecorder {
+	return m.recorder
+}
+
+// Prepare mocks base method.
+func (m *MockPreparer) Prepare(arg0 pulse.Heartbeat) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Prepare", arg0)
+}
+
+// Prepare indicates an expected call of Prepare.
+func (mr *MockPreparerMockRecorder) Prepare(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Prepare", reflect.TypeOf((*MockPreparer)(nil).Prepare), arg0)
 }

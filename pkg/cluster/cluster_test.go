@@ -5,27 +5,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/cluster"
-	mx "github.com/wetware/matrix/pkg"
 )
 
 func TestModel(t *testing.T) {
 	t.Parallel()
 
-	t.Skip("TEST FAILING - TODO:  DEBUG")
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sim := mx.New(ctx)
-	h0 := sim.MustHost(ctx)
-	h1 := sim.MustHost(ctx)
+	h0 := newTestHost()
+	defer h0.Close()
+	h1 := newTestHost()
+	defer h1.Close()
 
 	// host 0
 	ps0, err := pubsub.NewGossipSub(ctx, h0,
@@ -59,47 +59,49 @@ func TestModel(t *testing.T) {
 
 			return len(p0) == 2 && len(p1) == 2
 		},
-		time.Second, time.Millisecond*10,
+		time.Second*5, time.Millisecond*10,
 		"peers should eventually be found in each other's views")
 }
 
 func TestModel_announce_join(t *testing.T) {
 	t.Parallel()
 
-	t.Skip("TEST FAILING - TODO:  DEBUG")
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	const n = 32
+	const n = 8
 	var (
-		hs = mx.New(ctx).MustHostSet(ctx, n)
+		hs = makeHosts(n)
 		as = make(boot.StaticAddrs, n)
 		ps = make([]cluster.PubSub, n)
 		ns = make([]*cluster.Node, n)
 	)
 
-	// Cluster setup
-	mx.Map(func(ctx context.Context, i int, h host.Host) error {
-		as[i] = *host.InfoFromHost(h)
-		return nil
-	}).Map(func(ctx context.Context, i int, h host.Host) (err error) {
-		ps[i], err = pubsub.NewGossipSub(ctx, h,
-			pubsub.WithDirectPeers(as.Filter(not(h))))
-		return
-	}).Map(func(ctx context.Context, i int, h host.Host) (err error) {
-		ns[i], err = cluster.New(ctx, ps[i],
-			// Ensure only the initial join heartbeat is emitted
-			cluster.WithTTL(time.Hour))
-		return
-	}).Go(func(ctx context.Context, i int, h host.Host) error {
-		return ns[i].Bootstrap(ctx)
-	}).Must(ctx, hs)
-
-	// Ensure shutdown does not return any errors
-	defer mx.Go(func(_ context.Context, i int, _ host.Host) error {
-		return ns[i].Close()
-	}).Must(ctx, hs)
+	err := compose(hs,
+		// Initialize static addresses
+		func(i int, h host.Host) error {
+			as[i] = *host.InfoFromHost(h)
+			return nil
+		},
+		// Initialize pubsub
+		func(i int, h host.Host) (err error) {
+			ps[i], err = pubsub.NewGossipSub(ctx, h,
+				pubsub.WithDirectPeers(as.Filter(not(h))))
+			return
+		},
+		// Initialize cluster
+		func(i int, h host.Host) (err error) {
+			ns[i], err = cluster.New(ctx, ps[i],
+				// Ensure only the initial join heartbeat is emitted
+				cluster.WithTTL(time.Hour))
+			return
+		},
+		// Bootstrap
+		func(i int, h host.Host) error {
+			return ns[i].Bootstrap(ctx)
+		})
+	require.NoError(t, err, "must set up cluster")
+	defer closeAll(t, hs)
 
 	assert.Eventually(t,
 		func() bool {
@@ -118,37 +120,35 @@ func TestModel_announce_join(t *testing.T) {
 func TestModel_announce_live(t *testing.T) {
 	t.Parallel()
 
-	t.Skip("TEST FAILING - TODO:  DEBUG")
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	const n = 32
+	const n = 8
 	var (
-		hs = mx.New(ctx).MustHostSet(ctx, n)
+		hs = makeHosts(n)
 		as = make(boot.StaticAddrs, n)
 		ps = make([]cluster.PubSub, n)
 		ns = make([]*cluster.Node, n)
 	)
 
 	// Cluster setup
-	mx.Map(func(ctx context.Context, i int, h host.Host) error {
-		as[i] = *host.InfoFromHost(h)
-		return nil
-	}).Map(func(ctx context.Context, i int, h host.Host) (err error) {
-		ps[i], err = pubsub.NewGossipSub(ctx, h,
-			pubsub.WithDirectPeers(as.Filter(not(h))))
-		return
-	}).Map(func(ctx context.Context, i int, h host.Host) (err error) {
-		ns[i], err = cluster.New(ctx, ps[i],
-			cluster.WithTTL(time.Millisecond*150))
-		return
-	}).Must(ctx, hs)
-
-	// Ensure shutdown does not return any errors
-	defer mx.Go(func(_ context.Context, i int, _ host.Host) error {
-		return ns[i].Close()
-	}).Must(ctx, hs)
+	err := compose(hs,
+		func(i int, h host.Host) error {
+			as[i] = *host.InfoFromHost(h)
+			return nil
+		},
+		func(i int, h host.Host) (err error) {
+			ps[i], err = pubsub.NewGossipSub(ctx, h,
+				pubsub.WithDirectPeers(as.Filter(not(h))))
+			return
+		},
+		func(i int, h host.Host) (err error) {
+			ns[i], err = cluster.New(ctx, ps[i],
+				cluster.WithTTL(time.Millisecond*150))
+			return
+		})
+	require.NoError(t, err, "must set up cluster")
+	defer closeAll(t, hs)
 
 	assert.Eventually(t,
 		func() bool {
@@ -176,4 +176,51 @@ func peers(n *cluster.Node) (ps peer.IDSlice) {
 	}
 
 	return
+}
+
+func closeAll(t *testing.T, hs []host.Host) {
+	hmap(hs, func(i int, h host.Host) error {
+		assert.NoError(t, h.Close(), "should shutdown gracefully (index=%d)", i)
+		return nil
+	})
+}
+
+func compose(hs []host.Host, fs ...func(int, host.Host) error) (err error) {
+	for _, f := range fs {
+		if err = hmap(hs, f); err != nil {
+			break
+		}
+	}
+
+	return
+}
+
+func hmap(hs []host.Host, f func(i int, h host.Host) error) (err error) {
+	for i, h := range hs {
+		if err = f(i, h); err != nil {
+			break
+		}
+	}
+	return
+}
+
+func makeHosts(n int) []host.Host {
+	hs := make([]host.Host, n)
+	for i := range hs {
+		hs[i] = newTestHost()
+	}
+	return hs
+}
+
+func newTestHost() host.Host {
+	h, err := libp2p.New(
+		libp2p.NoListenAddrs,
+		libp2p.NoTransports,
+		libp2p.Transport(inproc.New()),
+		libp2p.ListenAddrStrings("/inproc/~"))
+	if err != nil {
+		panic(err)
+	}
+
+	return h
 }

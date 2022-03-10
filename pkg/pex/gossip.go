@@ -13,6 +13,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
+
+	ctxutil "github.com/lthibault/util/ctx"
 	syncutil "github.com/lthibault/util/sync"
 	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/boot"
@@ -66,18 +68,18 @@ func (g GossipConfig) newDecoder(r io.Reader) *capnp.Decoder {
 }
 
 type gossiper struct {
-	config GossipConfig
-	store  gossipStore
-	e      event.Emitter
+	config       GossipConfig
+	store        gossipStore
+	peersUpdated event.Emitter
 
 	mu sync.Mutex
 
 	Stop func()
 }
 
-func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
+func (px *PeerExchange) newGossiper(ns string) *gossiper {
 	var (
-		ctx, cancel = context.WithCancel(px.ctx)
+		ctx, cancel = context.WithCancel(ctxutil.C(px.done))
 		log         = px.log.WithField("ns", ns)
 		proto       = casm.Subprotocol(ns)
 		protoPacked = casm.Subprotocol(ns, "packed")
@@ -86,9 +88,9 @@ func (px *PeerExchange) newGossiper(ns string, e event.Emitter) *gossiper {
 	)
 
 	g := &gossiper{
-		config: px.newParams(ns),
-		store:  px.store.New(ns),
-		e:      e,
+		config:       px.newParams(ns),
+		store:        px.store.New(ns),
+		peersUpdated: px.peersUpdated,
 		Stop: func() {
 			cancel()
 			px.h.RemoveStreamHandler(proto)
@@ -138,10 +140,10 @@ func (g *gossiper) NewGossipRound(ctx context.Context, h host.Host, info peer.Ad
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	var (
-		j                       syncutil.Join
-		t, _                    = ctx.Deadline()
-		remote, local, newLocal View
-		err                     error
+		j             syncutil.Join
+		t, _          = ctx.Deadline()
+		remote, local View
+		err           error
 	)
 
 	if err := s.SetDeadline(t); err != nil {
@@ -196,11 +198,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	})
 
 	if err = j.Wait(); err == nil {
-		if newLocal, err = g.mutexMerge(local, remote); err == nil {
-			if err = g.store.StoreRecords(ctx, local, newLocal); err == nil {
-				g.e.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
-			}
-		}
+		err = g.mutexMergeAndStore(ctx, local, remote)
 	}
 	return err
 }
@@ -266,10 +264,23 @@ func (g *gossiper) mutexGetPushView(ctx context.Context) (local View, err error)
 	return
 }
 
-func (g *gossiper) mutexMerge(local, remote View) (View, error) {
+func (g *gossiper) mutexMergeAndStore(ctx context.Context, local, remote View) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	newLocal, err := g.merge(local, remote)
+	if err != nil {
+		return err
+	}
+
+	if err = g.store.StoreRecords(ctx, local, newLocal); err == nil {
+		g.peersUpdated.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
+	}
+
+	return err
+}
+
+func (g *gossiper) merge(local, remote View) (View, error) {
 	if err := remote.Validate(); err != nil {
 		return nil, err
 	}
