@@ -75,19 +75,21 @@ func New(log log.Logger, h host.Host, maddr ma.Multiaddr) (discovery.Discoverer,
 		return nil, err
 	}
 
-	switch {
-	// CRAWL
-	case hasBootProto(maddr, P_CIDR):
+	log = log.WithField("net", addr.Network())
+
+	switch bootProto(maddr) {
+	case P_CIDR:
 		cidr, err := parseCIDR(maddr)
 		if err != nil {
 			return nil, err
 		}
 
-		return newCrawler(addr, cidr)
+		return newCrawler(log, addr, cidr)
 
-	// SURVEY
-	case hasBootProto(maddr, P_SURVEY):
-		s, err := survey.New(h, addr)
+	case P_SURVEY:
+		log = log.WithField("addr", addr.String())
+
+		s, err := survey.New(h, addr, survey.WithLogger(log))
 		if err != nil || !hasBootProto(maddr, P_GRADUAL) {
 			return s, err
 		}
@@ -129,16 +131,21 @@ func parseLayer4(maddr ma.Multiaddr) (ma.Multiaddr, error) {
 	return ma.Join(cs[0], cs[1]), nil
 }
 
-func newCrawler(addr net.Addr, cidr int) (c crawl.Crawler, err error) {
+func newCrawler(log log.Logger, addr net.Addr, cidr int) (c crawl.Crawler, err error) {
 	switch a := addr.(type) {
 	case *net.TCPAddr:
+		c.Logger = log.WithField("cidr", fmt.Sprintf("%s/%d", a.IP, cidr))
+
 		c.Strategy = &crawl.Subnet{
-			Net:  a.Network(),
-			Port: a.Port,
-			CIDR: fmt.Sprintf("%v/%v", a.IP, cidr), // e.g. '10.0.1.0/24'
+			Logger: c.Logger,
+			Net:    a.Network(),
+			Port:   a.Port,
+			CIDR:   fmt.Sprintf("%v/%v", a.IP, cidr), // e.g. '10.0.1.0/24'
 		}
 
 	case *net.UDPAddr:
+		c.Logger = log.WithField("cidr", fmt.Sprintf("%s/%d", a.IP, cidr))
+
 		err = fmt.Errorf("UDP crawler NOT IMPLEMENTED") // TODO
 
 	default:
@@ -146,6 +153,19 @@ func newCrawler(addr net.Addr, cidr int) (c crawl.Crawler, err error) {
 	}
 
 	return
+}
+
+func bootProto(maddr ma.Multiaddr) int {
+	for _, code := range []int{
+		P_CIDR,
+		P_SURVEY,
+	} {
+		if hasBootProto(maddr, code) {
+			return code
+		}
+	}
+
+	return -1
 }
 
 func hasBootProto(maddr ma.Multiaddr, code int) bool {
