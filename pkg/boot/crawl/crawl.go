@@ -60,8 +60,8 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 	go func() {
 		defer close(out)
 
-		c.Logger.Debug("crawl started")
-		defer c.Logger.Debugf("crawl finished")
+		c.Logger.Trace("crawl started")
+		defer c.Logger.Tracef("crawl finished")
 
 		var rec peer.PeerRecord
 		for conn := range conns {

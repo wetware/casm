@@ -89,7 +89,7 @@ func (b Beacon) Serve(ctx context.Context) error {
 					return
 				}
 
-				b.Logger.WithField("bytes", n).Debug("wrote payload")
+				b.Logger.WithField("bytes", n).Trace("wrote payload")
 
 			}(conn)
 
