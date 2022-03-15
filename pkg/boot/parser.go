@@ -9,6 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/lthibault/log"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/wetware/casm/pkg/boot/crawl"
@@ -59,7 +60,11 @@ func init() {
 	}
 }
 
-func Parse(h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
+// New configures a bootstrap discovery for h by parsing
+// the supplied multiaddr.  The logger may be nil, in which
+// case the resulting boostrap service will fall back on a
+// default logging configuration.
+func New(log log.Logger, h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
 	a, err := parseLayer4(maddr)
 	if err != nil {
 		return nil, err

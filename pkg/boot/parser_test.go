@@ -6,6 +6,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	"github.com/lthibault/log"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,6 +89,8 @@ func TestParse(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
+	logger := log.New(log.WithLevel(log.FatalLevel))
+
 	t.Run("Survey", func(t *testing.T) {
 		t.Parallel()
 		t.Helper()
@@ -99,7 +102,7 @@ func TestParse(t *testing.T) {
 			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/udp/8820/survey")
-			d, err := boot.Parse(h, maddr)
+			d, err := boot.New(logger, h, maddr)
 			require.NoError(t, err)
 
 			assert.IsType(t, new(survey.Surveyor), d,
@@ -113,7 +116,7 @@ func TestParse(t *testing.T) {
 			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/udp/8820/survey/gradual")
-			d, err := boot.Parse(h, maddr)
+			d, err := boot.New(logger, h, maddr)
 			require.NoError(t, err)
 
 			assert.IsType(t, survey.GradualSurveyor{}, d,
@@ -132,7 +135,7 @@ func TestParse(t *testing.T) {
 			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/tcp/8820/cidr/24")
-			disc, err := boot.Parse(h, maddr)
+			disc, err := boot.New(logger, h, maddr)
 			require.NoError(t, err)
 
 			_, ok := disc.(crawl.Crawler)
