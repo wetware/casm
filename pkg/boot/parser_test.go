@@ -132,10 +132,14 @@ func TestParse(t *testing.T) {
 			defer h.Close()
 
 			maddr := multiaddr.StringCast("/ip4/228.8.8.8/tcp/8820/cidr/24")
+			_, err := boot.Parse(h, maddr)
+			require.ErrorIs(t, err, boot.ErrInvalidProtocol)
+
+			maddr = multiaddr.StringCast("/ip4/228.8.8.8/udp/8820/cidr/24")
 			disc, err := boot.Parse(h, maddr)
 			require.NoError(t, err)
 
-			_, ok := disc.(crawl.Crawler)
+			_, ok := disc.(*crawl.Crawler)
 			require.True(t, ok)
 		})
 

@@ -20,7 +20,7 @@ func TestOne(t *testing.T) {
 
 	const (
 		cidr string = "127.0.1.10/24"
-		port uint16 = 8822
+		port        = 8822
 		ns   string = "one"
 	)
 
@@ -53,7 +53,7 @@ func TestTwo(t *testing.T) {
 	const (
 		cidr0 string = "127.0.2.10/24"
 		cidr1 string = "127.0.2.11/24"
-		port  uint16 = 8822
+		port         = 8822
 		ns    string = "two"
 		ttl          = time.Hour
 	)
@@ -95,7 +95,7 @@ func TestMultiple(t *testing.T) {
 
 	const (
 		N           = 20
-		port uint16 = 8822
+		port        = 8822
 		ns   string = "multiple"
 		ttl         = time.Hour
 	)

@@ -33,7 +33,7 @@ type advRequest struct {
 
 type Crawler struct {
 	cidr string
-	port uint16
+	port int
 
 	done  <-chan struct{}
 	cherr chan<- error
@@ -46,7 +46,7 @@ type Crawler struct {
 	rec atomic.Value
 }
 
-func New(h host.Host, cidr string, port uint16) (*Crawler, error) {
+func New(h host.Host, cidr string, port int) (*Crawler, error) {
 	var (
 		cherr          = make(chan error, 1)
 		done           = make(chan struct{})
@@ -68,7 +68,7 @@ func New(h host.Host, cidr string, port uint16) (*Crawler, error) {
 		return nil, err
 	}
 
-	comm, err := newCommFromCIDR(cidr, int(port))
+	comm, err := newCommFromCIDR(cidr, port)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() { // send requests
-		comm.sendToCIDR(c.cidr, int(c.port), []byte(ns))
+		comm.sendToCIDR(c.cidr, c.port, []byte(ns))
 		time.Sleep(defaultTimeout)
 		cancel()
 	}()

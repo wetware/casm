@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"reflect"
 	"strconv"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
@@ -31,6 +30,10 @@ var (
 
 	// ErrDistanceOverflow is returned when a peer-distance is too large.
 	ErrDistanceOverflow = errors.New("distance overflow")
+
+	// ErrInvalidProtocol is returned when a invalid protocol is used
+	// combined with a correct boot protocol. E.g., tcp + crawler
+	ErrInvalidProtocol = errors.New("invalid protocol")
 )
 
 func init() {
@@ -73,12 +76,17 @@ func Parse(h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
 	switch {
 	// CRAWL
 	case hasBootProto(maddr, P_CIDR):
-		cidr, err := parseCIDR(maddr)
+		mask, err := parseSubnetMask(maddr)
 		if err != nil {
 			return nil, err
 		}
 
-		return newCrawler(addr, cidr)
+		a, ok := addr.(*net.UDPAddr)
+		if !ok {
+			return nil, ErrInvalidProtocol
+		}
+		cidr := fmt.Sprintf("%v/%v", a.IP, mask) // e.g. '10.0.1.0/24'
+		return crawl.New(h, cidr, a.Port)
 
 	// SURVEY
 	case hasBootProto(maddr, P_SURVEY):
@@ -124,25 +132,6 @@ func parseLayer4(maddr ma.Multiaddr) (ma.Multiaddr, error) {
 	return ma.Join(cs[0], cs[1]), nil
 }
 
-func newCrawler(addr net.Addr, cidr int) (c crawl.Crawler, err error) {
-	switch a := addr.(type) {
-	case *net.TCPAddr:
-		c.Strategy = &crawl.Subnet{
-			Net:  a.Network(),
-			Port: a.Port,
-			CIDR: fmt.Sprintf("%v/%v", a.IP, cidr), // e.g. '10.0.1.0/24'
-		}
-
-	case *net.UDPAddr:
-		err = fmt.Errorf("UDP crawler NOT IMPLEMENTED") // TODO
-
-	default:
-		err = fmt.Errorf("crawler not implemented for %s", reflect.TypeOf(addr))
-	}
-
-	return
-}
-
 func hasBootProto(maddr ma.Multiaddr, code int) bool {
 	for _, p := range maddr.Protocols() {
 		if p.Code == code {
@@ -153,7 +142,7 @@ func hasBootProto(maddr ma.Multiaddr, code int) bool {
 	return false
 }
 
-func parseCIDR(maddr ma.Multiaddr) (cidr int, err error) {
+func parseSubnetMask(maddr ma.Multiaddr) (mask int, err error) {
 	ma.ForEach(maddr, func(c ma.Component) bool {
 		if c.Protocol().Code != P_CIDR {
 			return true // continue ...
@@ -161,7 +150,7 @@ func parseCIDR(maddr ma.Multiaddr) (cidr int, err error) {
 
 		b := c.RawValue()
 		if err = c.Protocol().Transcoder.ValidateBytes(b); err == nil {
-			cidr = int(c.RawValue()[0])
+			mask = int(c.RawValue()[0])
 		}
 
 		return false
