@@ -20,6 +20,7 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 
 	"github.com/wetware/casm/internal/api/survey"
+	"github.com/wetware/casm/pkg/boot/util"
 	netutil "github.com/wetware/casm/pkg/util/net"
 )
 
@@ -29,39 +30,6 @@ const (
 )
 
 var ErrClosed = errors.New("closed")
-
-type DialFunc func(net.Addr) (net.PacketConn, error)
-
-func (dial DialFunc) Dial(addr net.Addr) (net.PacketConn, error) {
-	if dial != nil {
-		return dial(addr)
-	}
-
-	udpAddr, err := net.ResolveUDPAddr(addr.Network(), addr.String())
-	if err != nil {
-		return nil, err
-	}
-	return net.ListenUDP(addr.Network(), udpAddr)
-}
-
-type ListenFunc func(net.Addr) (net.PacketConn, error)
-
-func (listen ListenFunc) Listen(addr net.Addr) (net.PacketConn, error) {
-	if listen != nil {
-		return listen(addr)
-	}
-
-	udpAddr, err := net.ResolveUDPAddr(addr.Network(), addr.String())
-	if err != nil {
-		return nil, err
-	}
-	return net.ListenMulticastUDP(addr.Network(), nil, udpAddr)
-}
-
-type Transport struct {
-	DialFunc
-	ListenFunc
-}
 
 type Surveyor struct {
 	done <-chan struct{}
@@ -76,7 +44,7 @@ type Surveyor struct {
 	mustFind      map[string]map[listener]struct{}
 	mustAdvertise map[string]time.Time
 
-	tp    Transport
+	tp    util.Transport
 	c     comm
 	cherr chan<- error
 	err   atomic.Value

@@ -8,12 +8,12 @@ import (
 )
 
 type comm struct {
-	conn *net.UDPConn
+	conn net.PacketConn
 	done chan struct{}
 }
 
 type request struct {
-	addr *net.UDPAddr
+	addr net.Addr
 	ns   string
 }
 
@@ -26,39 +26,22 @@ func newComm() (comm, error) {
 	return comm{conn: conn, done: make(chan struct{})}, nil
 }
 
-func newCommFromCIDR(cidr string, port int) (comm, error) {
-	ip, _, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return comm{}, err
-	}
-
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: ip, Port: int(port)})
-	if err != nil {
-		return comm{}, err
-	}
-	return comm{conn: conn, done: make(chan struct{})}, nil
+func newCommFromConn(conn net.PacketConn) comm {
+	return comm{conn: conn, done: make(chan struct{})}
 }
 
-func (c comm) sendTo(data []byte, addr *net.UDPAddr) error {
-	_, err := c.conn.WriteToUDP(data, addr)
+func (c comm) sendTo(data []byte, addr net.Addr) error {
+	_, err := c.conn.WriteTo(data, addr)
 	return err
 }
 
-func (c comm) sendToCIDR(cidr string, port int, data []byte) error {
-	iter, err := newSubnetIter(cidr)
-	if err != nil {
-		return err
-	}
-
-	ip := make(net.IP, 4)
-	for ; iter.More(); iter.Next() {
-		if iter.Skip() {
+func (c comm) sendToMultiple(s Strategy, data []byte) error {
+	for ; s.More(); s.Next() {
+		if s.Skip() {
 			continue
 		}
 
-		iter.Scan(ip)
-
-		if _, err := c.conn.WriteTo(data, &net.UDPAddr{IP: ip, Port: port}); err != nil {
+		if _, err := c.conn.WriteTo(data, s.Addr()); err != nil {
 			if e, ok := err.(net.Error); ok && !e.Temporary() {
 				return e
 			}
@@ -73,7 +56,7 @@ func (c comm) receiveRequests(resquests chan request) error {
 	var buf [maxDatagramSize]byte
 
 	for {
-		n, addr, err := c.conn.ReadFromUDP(buf[:])
+		n, addr, err := c.conn.ReadFrom(buf[:])
 		if err != nil {
 			if e, ok := err.(net.Error); ok && !e.Temporary() {
 				return e

@@ -15,6 +15,7 @@ import (
 	api "github.com/wetware/casm/internal/api/survey"
 	mock_net "github.com/wetware/casm/internal/mock/net"
 	"github.com/wetware/casm/pkg/boot/survey"
+	"github.com/wetware/casm/pkg/boot/util"
 )
 
 func TestDiscoverGradual(t *testing.T) {
@@ -35,8 +36,8 @@ func TestDiscoverGradual(t *testing.T) {
 	e := (<-sub.Out()).(event.EvtLocalAddressesUpdated).SignedPeerRecord
 
 	resp := make(chan []byte, 1)
-	mockTransport := survey.Transport{
-		DialFunc: func(net.Addr) (net.PacketConn, error) {
+	mockTransport := util.Transport{
+		Dial: func(net.Addr) (net.PacketConn, error) {
 			conn := mock_net.NewMockPacketConn(ctrl)
 			// Expect a single call to Close
 			conn.EXPECT().
@@ -76,7 +77,7 @@ func TestDiscoverGradual(t *testing.T) {
 
 			return conn, nil
 		},
-		ListenFunc: func(net.Addr) (net.PacketConn, error) {
+		Listen: func(net.Addr) (net.PacketConn, error) {
 			conn := mock_net.NewMockPacketConn(ctrl)
 			// Expect a single call to Close
 			conn.EXPECT().

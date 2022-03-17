@@ -85,8 +85,13 @@ func Parse(h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
 		if !ok {
 			return nil, ErrInvalidProtocol
 		}
-		cidr := fmt.Sprintf("%v/%v", a.IP, mask) // e.g. '10.0.1.0/24'
-		return crawl.New(h, cidr, a.Port)
+
+		iter, err := crawl.NewCIDR(fmt.Sprintf("%v/%v", a.IP, mask), a.Port)
+		if err != nil {
+			return nil, err
+		}
+
+		return crawl.New(h, a, iter)
 
 	// SURVEY
 	case hasBootProto(maddr, P_SURVEY):

@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/wetware/casm/pkg/boot/util"
 	netutil "github.com/wetware/casm/pkg/util/net"
 )
 
@@ -32,8 +33,7 @@ type advRequest struct {
 }
 
 type Crawler struct {
-	cidr string
-	port int
+	scanner Strategy
 
 	done  <-chan struct{}
 	cherr chan<- error
@@ -44,9 +44,11 @@ type Crawler struct {
 	mustAdvertise  map[string]time.Time
 
 	rec atomic.Value
+
+	transport util.Transport
 }
 
-func New(h host.Host, cidr string, port int) (*Crawler, error) {
+func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler, error) {
 	var (
 		cherr          = make(chan error, 1)
 		done           = make(chan struct{})
@@ -55,8 +57,7 @@ func New(h host.Host, cidr string, port int) (*Crawler, error) {
 	)
 
 	c := &Crawler{
-		cidr:           cidr,
-		port:           port,
+		scanner:        scanner,
 		done:           done,
 		t:              netutil.Time(),
 		advertisements: advertisements,
@@ -68,10 +69,15 @@ func New(h host.Host, cidr string, port int) (*Crawler, error) {
 		return nil, err
 	}
 
-	comm, err := newCommFromCIDR(cidr, port)
+	for _, option := range withDefaults(opt) {
+		option(c)
+	}
+
+	conn, err := c.transport.Listen(addr)
 	if err != nil {
 		return nil, err
 	}
+	comm := newCommFromConn(conn)
 
 	go func() {
 		defer close(done)
@@ -149,15 +155,16 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		out = make(chan peer.AddrInfo, 8)
 	)
 
-	comm, err := newComm()
+	conn, err := c.transport.Dial(nil)
 	if err != nil {
 		return nil, err
 	}
+	comm := newCommFromConn(conn)
 
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() { // send requests
-		comm.sendToCIDR(c.cidr, c.port, []byte(ns))
+		comm.sendToMultiple(c.scanner, []byte(ns))
 		time.Sleep(defaultTimeout)
 		cancel()
 	}()
@@ -184,19 +191,28 @@ func (c *Crawler) Close() {
 	<-c.done
 }
 
+type Strategy interface {
+	More() bool
+	Skip() bool
+	Next()
+	Addr() net.Addr
+}
+
 // iterates through a CIDR range in pseudorandom order.
 type cidrIter struct {
-	ip     net.IP
+	ip   net.IP
+	port int
+
 	subnet *net.IPNet
 
 	mask, begin, end, i, rand uint32
 }
 
-func newSubnetIter(cidr string) (it *cidrIter, err error) {
+func NewCIDR(cidr string, port int) (it *cidrIter, err error) {
 	it = new(cidrIter)
 
 	it.ip, it.subnet, err = net.ParseCIDR(cidr)
-
+	it.port = port
 	// Convert IPNet struct mask and address to uint32.
 	// Network is BigEndian.
 	it.mask = binary.BigEndian.Uint32(it.subnet.Mask)
@@ -226,9 +242,10 @@ func (c *cidrIter) Next() {
 	binary.BigEndian.PutUint32(c.ip, c.i^c.rand)
 }
 
-func (c *cidrIter) Scan(ip net.IP) {
-	if len(ip) != 4 {
-		panic(ip)
-	}
+func (c *cidrIter) Addr() net.Addr {
+	ip := make(net.IP, 4)
+
 	binary.BigEndian.PutUint32(ip, c.i^c.rand)
+
+	return &net.UDPAddr{IP: ip, Port: c.port}
 }

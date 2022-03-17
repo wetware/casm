@@ -4,6 +4,7 @@ import (
 	"github.com/lthibault/log"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/wetware/casm/pkg/boot/util"
 )
 
 type Option func(*Surveyor)
@@ -18,7 +19,7 @@ func WithLogger(l log.Logger) Option {
 	}
 }
 
-func WithTransport(t Transport) Option {
+func WithTransport(t util.Transport) Option {
 	return func(s *Surveyor) {
 		s.tp = t
 	}
@@ -27,7 +28,7 @@ func WithTransport(t Transport) Option {
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
 		WithLogger(nil),
-		WithTransport(Transport{}),
+		WithTransport(util.UdpTransport),
 	}, opt...)
 }
 

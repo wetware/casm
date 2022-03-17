@@ -3,6 +3,7 @@ package crawl_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -18,9 +19,11 @@ func TestOne(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	const (
-		cidr string = "127.0.1.10/24"
+	var (
+		ip          = net.ParseIP("127.0.1.10")
+		cidr string = fmt.Sprintf("%v/24", ip.String())
 		port        = 8822
+		addr        = &net.UDPAddr{IP: ip, Port: port}
 		ns   string = "one"
 	)
 
@@ -29,7 +32,11 @@ func TestOne(t *testing.T) {
 
 	h := newTestHost()
 
-	c, err := crawl.New(h, cidr, port)
+	iter, err := crawl.NewCIDR(cidr, port)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+
+	c, err := crawl.New(h, addr, iter)
 	require.Nil(t, err)
 	require.NotNil(t, c)
 	defer c.Close()
@@ -50,10 +57,12 @@ func TestTwo(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	const (
-		cidr0 string = "127.0.2.10/24"
-		cidr1 string = "127.0.2.11/24"
+	var (
+		ip0          = net.ParseIP("127.0.2.10")
+		ip1          = net.ParseIP("127.0.2.11")
 		port         = 8822
+		addr0        = &net.UDPAddr{IP: ip0, Port: port}
+		addr1        = &net.UDPAddr{IP: ip1, Port: port}
 		ns    string = "two"
 		ttl          = time.Hour
 	)
@@ -64,12 +73,18 @@ func TestTwo(t *testing.T) {
 	h0 := newTestHost()
 	h1 := newTestHost()
 
-	c0, err := crawl.New(h0, cidr0, port)
+	iter0, err := crawl.NewCIDR("127.0.2.0/24", port)
+	require.NoError(t, err)
+
+	c0, err := crawl.New(h0, addr0, iter0)
 	require.Nil(t, err)
 	require.NotNil(t, c0)
 	defer c0.Close()
 
-	c1, err := crawl.New(h1, cidr1, port)
+	iter1, err := crawl.NewCIDR("127.0.2.0/24", port)
+	require.NoError(t, err)
+
+	c1, err := crawl.New(h1, addr1, iter1)
 	require.Nil(t, err)
 	require.NotNil(t, c0)
 	defer c1.Close()
@@ -113,7 +128,10 @@ func TestMultiple(t *testing.T) {
 		hs[i] = newTestHost()
 		defer hs[i].Close()
 
-		cs[i], err = crawl.New(hs[i], fmt.Sprintf("127.0.3.%v/24", i), port)
+		iter, err := crawl.NewCIDR("127.0.3.0/24", port)
+		require.NoError(t, err)
+
+		cs[i], err = crawl.New(hs[i], &net.UDPAddr{IP: net.ParseIP(fmt.Sprintf("127.0.3.%v", i+10)), Port: port}, iter)
 		require.Nil(t, err)
 		require.NotNil(t, cs[i])
 		defer cs[i].Close()
@@ -130,7 +148,7 @@ func TestMultiple(t *testing.T) {
 	for range finder {
 		n++
 	}
-	require.Equal(t, N-1, n)
+	require.Equal(t, N, n)
 }
 
 func newTestHost() host.Host {
