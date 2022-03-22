@@ -39,6 +39,17 @@ func TestMatchers(t *testing.T) {
 			expectNoMatch: true,
 		},
 		{
+			name:  "Suffix/Match",
+			match: Suffix("/baz/qux"),
+			input: "/foo/bar/baz/qux",
+		},
+		{
+			name:          "Suffix/reject",
+			match:         Suffix("/baz/qux/"),
+			input:         "/foo/bar/qux/baz/",
+			expectNoMatch: true,
+		},
+		{
 			name:  "SemVer/match",
 			match: SemVer("1.1.0-beta.1"),
 			input: "/1.1.5/",

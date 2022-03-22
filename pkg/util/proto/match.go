@@ -45,6 +45,13 @@ func Prefix(prefix protocol.ID) MatchFunc {
 	})
 }
 
+func Suffix(suffix protocol.ID) (f MatchFunc) {
+	p := clean(string(suffix))
+	return match(func(s string) bool {
+		return strings.HasSuffix(s, p)
+	})
+}
+
 func SemVer(version string) MatchFunc {
 	v := semver.New(clean(version))
 
