@@ -9,11 +9,8 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
-
-var Proto = casm.Subprotocol("pulse")
 
 type RoutingTable interface {
 	Upsert(routing.Record) bool
