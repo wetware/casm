@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
-	"github.com/wetware/casm/pkg/boot/util"
 	netutil "github.com/wetware/casm/pkg/util/net"
 )
 
@@ -45,7 +45,10 @@ type Crawler struct {
 
 	rec atomic.Value
 
-	transport util.Transport
+	transport Transport
+
+	host host.Host
+	once sync.Once
 }
 
 func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler, error) {
@@ -63,10 +66,7 @@ func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler,
 		advertisements: advertisements,
 		mustAdvertise:  make(map[string]time.Time),
 		cherr:          cherr,
-	}
-
-	if err := c.trackHostAddr(h); err != nil {
-		return nil, err
+		host:           h,
 	}
 
 	for _, option := range withDefaults(opt) {
@@ -113,6 +113,26 @@ func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler,
 	return c, nil
 }
 
+func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+	c.once.Do(func() {
+		c.trackHostAddr(c.host)
+	})
+
+	var opts = discovery.Options{Ttl: defaultTTL}
+	if err := opts.Apply(opt...); err != nil {
+		return 0, err
+	}
+
+	select {
+	case c.advertisements <- advRequest{ns: ns, ttl: opts.Ttl}:
+		return opts.Ttl, nil
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-c.done:
+		return 0, ErrClosed
+	}
+}
+
 func (c *Crawler) trackHostAddr(h host.Host) error {
 	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
 	if err != nil {
@@ -132,22 +152,6 @@ func (c *Crawler) trackHostAddr(h host.Host) error {
 		}
 	}()
 	return nil
-}
-
-func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	var opts = discovery.Options{Ttl: defaultTTL}
-	if err := opts.Apply(opt...); err != nil {
-		return 0, err
-	}
-
-	select {
-	case c.advertisements <- advRequest{ns: ns, ttl: opts.Ttl}:
-		return opts.Ttl, nil
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	case <-c.done:
-		return 0, ErrClosed
-	}
 }
 
 func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {

@@ -1,12 +1,8 @@
 package crawl
 
-import (
-	"github.com/wetware/casm/pkg/boot/util"
-)
-
 type Option func(*Crawler)
 
-func WithTransport(t util.Transport) Option {
+func WithTransport(t Transport) Option {
 	return func(c *Crawler) {
 		c.transport = t
 	}
@@ -14,6 +10,6 @@ func WithTransport(t util.Transport) Option {
 
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
-		WithTransport(util.UdpTransport),
+		WithTransport(Transport{}),
 	}, opt...)
 }

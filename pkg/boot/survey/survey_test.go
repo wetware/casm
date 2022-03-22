@@ -21,7 +21,6 @@ import (
 
 	api "github.com/wetware/casm/internal/api/survey"
 	"github.com/wetware/casm/pkg/boot/survey"
-	"github.com/wetware/casm/pkg/boot/util"
 )
 
 const (
@@ -32,7 +31,7 @@ const (
 func TestTransport(t *testing.T) {
 	t.Parallel()
 
-	var tpt = util.MulticastTransport
+	var tpt survey.MulticastTransport
 
 	// Change port in order to avoid conflicts between parallel tests.
 	const multicastAddr = "228.8.8.8:8823"
@@ -83,8 +82,8 @@ func TestSurveyor(t *testing.T) {
 	defer sub.Close()
 	e := (<-sub.Out()).(event.EvtLocalAddressesUpdated).SignedPeerRecord
 
-	mockTransport := util.Transport{
-		Dial: func(net.Addr) (net.PacketConn, error) {
+	mockTransport := survey.MulticastTransport{
+		DialFunc: func(net.Addr) (net.PacketConn, error) {
 			conn := mock_net.NewMockPacketConn(ctrl)
 			// Expect a single call to Close
 			conn.EXPECT().
@@ -100,7 +99,7 @@ func TestSurveyor(t *testing.T) {
 
 			return conn, nil
 		},
-		Listen: func(net.Addr) (net.PacketConn, error) {
+		ListenFunc: func(net.Addr) (net.PacketConn, error) {
 			conn := mock_net.NewMockPacketConn(ctrl)
 			// Expect a single call to Close
 			conn.EXPECT().

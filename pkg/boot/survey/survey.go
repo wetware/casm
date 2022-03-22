@@ -20,7 +20,6 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 
 	"github.com/wetware/casm/internal/api/survey"
-	"github.com/wetware/casm/pkg/boot/util"
 	netutil "github.com/wetware/casm/pkg/util/net"
 )
 
@@ -44,7 +43,7 @@ type Surveyor struct {
 	mustFind      map[string]map[listener]struct{}
 	mustAdvertise map[string]time.Time
 
-	tp    util.Transport
+	tp    MulticastTransport
 	c     comm
 	cherr chan<- error
 	err   atomic.Value
