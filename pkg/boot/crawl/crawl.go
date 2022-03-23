@@ -35,7 +35,7 @@ type advRequest struct {
 type Crawler struct {
 	scanner Strategy
 
-	done  <-chan struct{}
+	done  chan struct{}
 	cherr chan<- error
 	err   atomic.Value
 
@@ -43,10 +43,9 @@ type Crawler struct {
 	advertisements chan<- advRequest
 	mustAdvertise  map[string]time.Time
 
-	rec atomic.Value
-
 	transport Transport
 
+	rec  atomic.Value
 	host host.Host
 	once sync.Once
 }
@@ -56,7 +55,6 @@ func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler,
 		cherr          = make(chan error, 1)
 		done           = make(chan struct{})
 		advertisements = make(chan advRequest)
-		requests       = make(chan request)
 	)
 
 	c := &Crawler{
@@ -77,13 +75,17 @@ func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler,
 	if err != nil {
 		return nil, err
 	}
-	comm := newCommFromConn(conn)
+
+	var (
+		remoteRequests = make(chan request)
+		comm           = newComm(conn)
+	)
 
 	go func() {
-		defer close(done)
+		defer close(c.done)
 		defer comm.close()
 
-		go comm.receiveRequests(requests)
+		go comm.receiveRequests(remoteRequests)
 
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -98,10 +100,10 @@ func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler,
 				}
 			case adv := <-advertisements:
 				c.mustAdvertise[adv.ns] = c.t.Add(adv.ttl)
-			case r := <-requests:
-				if _, ok := c.mustAdvertise[r.ns]; ok {
+			case request := <-remoteRequests:
+				if _, ok := c.mustAdvertise[request.ns]; ok {
 					envelope, _ := c.rec.Load().(*record.Envelope).Marshal()
-					go comm.sendTo(envelope, r.addr)
+					go comm.sendTo(envelope, request.addr)
 				}
 			case err := <-cherr:
 				c.err.CompareAndSwap(error(nil), err)
@@ -112,6 +114,8 @@ func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler,
 
 	return c, nil
 }
+
+func (c *Crawler) run() {}
 
 func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
 	c.once.Do(func() {
@@ -139,7 +143,6 @@ func (c *Crawler) trackHostAddr(h host.Host) error {
 		return err
 	}
 
-	// Ensure the sync operation is run before anything else
 	v, ok := <-sub.Out()
 	if !ok {
 		return fmt.Errorf("host %w", ErrClosed)
@@ -147,8 +150,15 @@ func (c *Crawler) trackHostAddr(h host.Host) error {
 	c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
 
 	go func() {
-		for v := range sub.Out() {
-			c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
+		defer sub.Close()
+
+		for {
+			select {
+			case v := <-sub.Out():
+				c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
+			case <-c.done:
+				return
+			}
 		}
 	}()
 	return nil
@@ -163,7 +173,7 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 	if err != nil {
 		return nil, err
 	}
-	comm := newCommFromConn(conn)
+	comm := newComm(conn)
 
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -173,7 +183,8 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		cancel()
 	}()
 	go comm.receiveResponses(out) // receive responses
-	go func() {                   // stop finder
+
+	go func() { // stop finder
 		select {
 		case <-ctx.Done():
 		case <-c.done:

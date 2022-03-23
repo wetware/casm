@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -47,6 +48,9 @@ type Surveyor struct {
 	c     comm
 	cherr chan<- error
 	err   atomic.Value
+
+	once sync.Once
+	h    host.Host
 }
 
 func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
@@ -59,6 +63,7 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	)
 
 	s := &Surveyor{
+		h:             h,
 		t:             netutil.Time(),
 		thunk:         thunk,
 		done:          done,
@@ -70,18 +75,6 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	for _, option := range withDefaults(opt) {
 		option(s)
 	}
-
-	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-	if err != nil {
-		return nil, err
-	}
-
-	// Ensure the sync operation is run before anything else
-	v, ok := <-sub.Out()
-	if !ok {
-		return nil, fmt.Errorf("host %w", ErrClosed)
-	}
-	s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
 
 	lconn, err := s.tp.Listen(addr)
 	if err != nil {
@@ -109,15 +102,8 @@ func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
 	go s.c.StartSend(dconn)
 
 	go func() {
-		for v := range sub.Out() {
-			s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
-		}
-	}()
-
-	go func() {
 		defer lconn.Close()
 		defer dconn.Close()
-		defer sub.Close()
 		defer close(done)
 
 		ticker := time.NewTicker(time.Second)
@@ -270,6 +256,8 @@ func (s *Surveyor) handleResponse(p survey.Packet) error {
 }
 
 func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+	s.once.Do(func() { s.trackHostAddr(s.h) })
+
 	var opts = discovery.Options{Ttl: defaultTTL}
 	if err := opts.Apply(opt...); err != nil {
 		return 0, err
@@ -286,6 +274,33 @@ func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Op
 	case <-s.done:
 		return 0, ErrClosed
 	}
+}
+
+func (s *Surveyor) trackHostAddr(h host.Host) error {
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		return err
+	}
+
+	v, ok := <-sub.Out()
+	if !ok {
+		return fmt.Errorf("host %w", ErrClosed)
+	}
+	s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
+
+	go func() {
+		defer sub.Close()
+
+		for {
+			select {
+			case v := <-sub.Out():
+				s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
+			case <-s.done:
+				return
+			}
+		}
+	}()
+	return nil
 }
 
 func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {

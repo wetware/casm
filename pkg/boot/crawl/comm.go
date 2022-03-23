@@ -17,16 +17,7 @@ type request struct {
 	ns   string
 }
 
-func newComm() (comm, error) {
-	conn, err := net.ListenUDP("udp4", nil)
-	if err != nil {
-		return comm{}, err
-	}
-
-	return comm{conn: conn, done: make(chan struct{})}, nil
-}
-
-func newCommFromConn(conn net.PacketConn) comm {
+func newComm(conn net.PacketConn) comm {
 	return comm{conn: conn, done: make(chan struct{})}
 }
 
