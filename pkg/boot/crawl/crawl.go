@@ -115,12 +115,10 @@ func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler,
 	return c, nil
 }
 
-func (c *Crawler) run() {}
-
 func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	c.once.Do(func() {
-		c.trackHostAddr(c.host)
-	})
+	if err := c.ensureTrackHostAddr(); err != nil {
+		return 0, err
+	}
 
 	var opts = discovery.Options{Ttl: defaultTTL}
 	if err := opts.Apply(opt...); err != nil {
@@ -137,31 +135,50 @@ func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Opt
 	}
 }
 
-func (c *Crawler) trackHostAddr(h host.Host) error {
-	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-	if err != nil {
-		return err
+func (c *Crawler) ensureTrackHostAddr() error {
+	// client host?  (best-effort)
+	//
+	// The caller may not have set addresses on the host yet, so
+	// we should allow them to retry. Therefore, we perform this
+	// check outside of sync.Once.
+	if len(c.host.Addrs()) == 0 {
+		return errors.New("host not accepting connections")
 	}
 
-	v, ok := <-sub.Out()
-	if !ok {
-		return fmt.Errorf("host %w", ErrClosed)
-	}
-	c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
+	var err error
 
-	go func() {
-		defer sub.Close()
+	c.once.Do(func() {
+		var sub event.Subscription
 
-		for {
-			select {
-			case v := <-sub.Out():
-				c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
-			case <-c.done:
-				return
-			}
+		sub, err = c.host.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+		if err != nil {
+			return
 		}
-	}()
-	return nil
+
+		// Ensure the sync operation is run before anything else.
+		v, ok := <-sub.Out()
+		if !ok {
+			err = fmt.Errorf("host %w", ErrClosed)
+			return
+		}
+
+		c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
+
+		go func() {
+			defer sub.Close()
+
+			for {
+				select {
+				case v := <-sub.Out():
+					c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
+				case <-c.done:
+					return
+				}
+			}
+		}()
+	})
+
+	return err
 }
 
 func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
