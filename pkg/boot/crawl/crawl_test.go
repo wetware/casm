@@ -37,13 +37,13 @@ func TestOne(t *testing.T) {
 	require.NotNil(t, iter)
 
 	c, err := crawl.New(h, addr, iter)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, c)
 	defer c.Close()
 
 	require.NotNil(t, c)
 	finder, err := c.FindPeers(ctx, ns)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, finder)
 
 	n := 0
@@ -77,7 +77,7 @@ func TestTwo(t *testing.T) {
 	require.NoError(t, err)
 
 	c0, err := crawl.New(h0, addr0, iter0)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, c0)
 	defer c0.Close()
 
@@ -85,15 +85,15 @@ func TestTwo(t *testing.T) {
 	require.NoError(t, err)
 
 	c1, err := crawl.New(h1, addr1, iter1)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, c0)
 	defer c1.Close()
 
 	_, err = c1.Advertise(ctx, ns, discovery.TTL(ttl))
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	finder, err := c0.FindPeers(ctx, ns)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, finder)
 
 	n := 0
@@ -132,16 +132,16 @@ func TestMultiple(t *testing.T) {
 		require.NoError(t, err)
 
 		cs[i], err = crawl.New(hs[i], &net.UDPAddr{IP: net.ParseIP(fmt.Sprintf("127.0.3.%v", i+10)), Port: port}, iter)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		require.NotNil(t, cs[i])
 		defer cs[i].Close()
 
 		_, err = cs[i].Advertise(ctx, ns, discovery.TTL(ttl))
-		require.Nil(t, err)
+		require.NoError(t, err)
 	}
 
 	finder, err := cs[0].FindPeers(ctx, ns)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, finder)
 
 	n := 0
