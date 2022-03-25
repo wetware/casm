@@ -1,165 +1,234 @@
 package crawl_test
 
 import (
-	"context"
-	"fmt"
-	"net"
+	// "context"
+	// "fmt"
+	// "net"
 	"testing"
-	"time"
+	// "time"
 
-	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/discovery"
-	"github.com/libp2p/go-libp2p-core/host"
-	inproc "github.com/lthibault/go-libp2p-inproc-transport"
-	"github.com/stretchr/testify/require"
+	// "github.com/libp2p/go-libp2p"
+	// "github.com/libp2p/go-libp2p-core/discovery"
+	// "github.com/libp2p/go-libp2p-core/host"
+	// inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	ma "github.com/multiformats/go-multiaddr"
+	"github.com/stretchr/testify/assert"
 	"github.com/wetware/casm/pkg/boot/crawl"
 )
 
-func TestOne(t *testing.T) {
+func TestMultiaddr(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		addr string
+		fail bool
+	}{
+		{"/ip4/228.8.8.8/udp/8822/cidr/32", false},
+		{"/ip4/228.8.8.8/udp/8822/cidr/129", true},
+	} {
+		_, err := ma.NewMultiaddr(tt.addr)
+		if tt.fail {
+			assert.Error(t, err, "should fail to parse %s", tt.addr)
+		} else {
+			assert.NoError(t, err, "should parse %s", tt.addr)
+		}
+	}
+}
+
+func TestTranscoderCIDR(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	var (
-		ip          = net.ParseIP("127.0.1.10")
-		cidr string = fmt.Sprintf("%v/24", ip.String())
-		port        = 8822
-		addr        = &net.UDPAddr{IP: ip, Port: port}
-		ns   string = "one"
-	)
+	t.Run("StringToBytes", func(t *testing.T) {
+		t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		s, err := crawl.TranscoderCIDR{}.BytesToString([]byte{0x00, 0x00})
+		assert.ErrorIs(t, err, crawl.ErrCIDROverflow,
+			"should not parse byte arrays of length > 1")
+		assert.Empty(t, s)
 
-	h := newTestHost()
+		s, err = crawl.TranscoderCIDR{}.BytesToString([]byte{0xFF})
+		assert.ErrorIs(t, err, crawl.ErrCIDROverflow,
+			"should not validate CIDR greater than 128")
+		assert.Empty(t, s)
 
-	iter, err := crawl.NewCIDR(cidr, port)
-	require.NoError(t, err)
-	require.NotNil(t, iter)
+		s, err = crawl.TranscoderCIDR{}.BytesToString([]byte{0x01})
+		assert.NoError(t, err, "should parse CIDR of 1")
+		assert.Equal(t, "1", s, "should return \"1\"")
+	})
 
-	c, err := crawl.New(h, addr, iter)
-	require.NoError(t, err)
-	require.NotNil(t, c)
-	defer c.Close()
+	t.Run("BytesToString", func(t *testing.T) {
+		t.Parallel()
 
-	require.NotNil(t, c)
-	finder, err := c.FindPeers(ctx, ns)
-	require.NoError(t, err)
-	require.NotNil(t, finder)
+		b, err := crawl.TranscoderCIDR{}.StringToBytes("fail")
+		assert.Error(t, err,
+			"should not validate non-numerical strings")
+		assert.Nil(t, b)
 
-	n := 0
-	for range finder {
-		n++
-	}
-	require.Equal(t, 0, n)
+		b, err = crawl.TranscoderCIDR{}.StringToBytes("255")
+		assert.ErrorIs(t, err, crawl.ErrCIDROverflow,
+			"should not validate string '255'")
+		assert.Nil(t, b)
+	})
+
+	t.Run("ValidateBytes", func(t *testing.T) {
+		t.Parallel()
+
+		err := crawl.TranscoderCIDR{}.ValidateBytes([]byte{0x00})
+		assert.NoError(t, err,
+			"should validate CIDR block of 0")
+
+		err = crawl.TranscoderCIDR{}.ValidateBytes([]byte{0xFF})
+		assert.ErrorIs(t, err, crawl.ErrCIDROverflow,
+			"should not validate CIDR blocks greater than 128")
+	})
 }
 
-func TestTwo(t *testing.T) {
-	t.Parallel()
-	t.Helper()
+// func TestOne(t *testing.T) {
+// 	t.Parallel()
+// 	t.Helper()
 
-	var (
-		ip0          = net.ParseIP("127.0.2.10")
-		ip1          = net.ParseIP("127.0.2.11")
-		port         = 8822
-		addr0        = &net.UDPAddr{IP: ip0, Port: port}
-		addr1        = &net.UDPAddr{IP: ip1, Port: port}
-		ns    string = "two"
-		ttl          = time.Hour
-	)
+// 	var (
+// 		ip          = net.ParseIP("127.0.1.10")
+// 		cidr string = fmt.Sprintf("%v/24", ip.String())
+// 		port        = 8822
+// 		addr        = &net.UDPAddr{IP: ip, Port: port}
+// 		ns   string = "one"
+// 	)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
 
-	h0 := newTestHost()
-	h1 := newTestHost()
+// 	h := newTestHost()
 
-	iter0, err := crawl.NewCIDR("127.0.2.0/24", port)
-	require.NoError(t, err)
+// 	iter, err := crawl.NewCIDR(cidr, port)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, iter)
 
-	c0, err := crawl.New(h0, addr0, iter0)
-	require.NoError(t, err)
-	require.NotNil(t, c0)
-	defer c0.Close()
+// 	c, err := crawl.New(h, addr, iter)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, c)
+// 	defer c.Close()
 
-	iter1, err := crawl.NewCIDR("127.0.2.0/24", port)
-	require.NoError(t, err)
+// 	require.NotNil(t, c)
+// 	finder, err := c.FindPeers(ctx, ns)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, finder)
 
-	c1, err := crawl.New(h1, addr1, iter1)
-	require.NoError(t, err)
-	require.NotNil(t, c0)
-	defer c1.Close()
+// 	n := 0
+// 	for range finder {
+// 		n++
+// 	}
+// 	require.Equal(t, 0, n)
+// }
 
-	_, err = c1.Advertise(ctx, ns, discovery.TTL(ttl))
-	require.NoError(t, err)
+// func TestTwo(t *testing.T) {
+// 	t.Parallel()
+// 	t.Helper()
 
-	finder, err := c0.FindPeers(ctx, ns)
-	require.NoError(t, err)
-	require.NotNil(t, finder)
+// 	var (
+// 		ip0          = net.ParseIP("127.0.2.10")
+// 		ip1          = net.ParseIP("127.0.2.11")
+// 		port         = 8822
+// 		addr0        = &net.UDPAddr{IP: ip0, Port: port}
+// 		addr1        = &net.UDPAddr{IP: ip1, Port: port}
+// 		ns    string = "two"
+// 		ttl          = time.Hour
+// 	)
 
-	n := 0
-	for info := range finder {
-		require.EqualValues(t, h1.ID(), info.ID)
-		n++
-	}
-	require.Equal(t, 1, n)
-}
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
 
-func TestMultiple(t *testing.T) {
-	t.Parallel()
-	t.Helper()
+// 	h0 := newTestHost()
+// 	h1 := newTestHost()
 
-	const (
-		N           = 20
-		port        = 8822
-		ns   string = "multiple"
-		ttl         = time.Hour
-	)
+// 	iter0, err := crawl.NewCIDR("127.0.2.0/24", port)
+// 	require.NoError(t, err)
 
-	var (
-		hs  = make([]host.Host, N)
-		cs  = make([]*crawl.Crawler, N)
-		err error
-	)
+// 	c0, err := crawl.New(h0, addr0, iter0)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, c0)
+// 	defer c0.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// 	iter1, err := crawl.NewCIDR("127.0.2.0/24", port)
+// 	require.NoError(t, err)
 
-	for i := 0; i < N; i++ {
-		hs[i] = newTestHost()
-		defer hs[i].Close()
+// 	c1, err := crawl.New(h1, addr1, iter1)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, c0)
+// 	defer c1.Close()
 
-		iter, err := crawl.NewCIDR("127.0.3.0/24", port)
-		require.NoError(t, err)
+// 	_, err = c1.Advertise(ctx, ns, discovery.TTL(ttl))
+// 	require.NoError(t, err)
 
-		cs[i], err = crawl.New(hs[i], &net.UDPAddr{IP: net.ParseIP(fmt.Sprintf("127.0.3.%v", i+10)), Port: port}, iter)
-		require.NoError(t, err)
-		require.NotNil(t, cs[i])
-		defer cs[i].Close()
+// 	finder, err := c0.FindPeers(ctx, ns)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, finder)
 
-		_, err = cs[i].Advertise(ctx, ns, discovery.TTL(ttl))
-		require.NoError(t, err)
-	}
+// 	n := 0
+// 	for info := range finder {
+// 		require.EqualValues(t, h1.ID(), info.ID)
+// 		n++
+// 	}
+// 	require.Equal(t, 1, n)
+// }
 
-	finder, err := cs[0].FindPeers(ctx, ns)
-	require.NoError(t, err)
-	require.NotNil(t, finder)
+// func TestMultiple(t *testing.T) {
+// 	t.Parallel()
+// 	t.Helper()
 
-	n := 0
-	for range finder {
-		n++
-	}
-	require.Equal(t, N, n)
-}
+// 	const (
+// 		N           = 20
+// 		port        = 8822
+// 		ns   string = "multiple"
+// 		ttl         = time.Hour
+// 	)
 
-func newTestHost() host.Host {
-	h, err := libp2p.New(
-		libp2p.NoListenAddrs,
-		libp2p.NoTransports,
-		libp2p.Transport(inproc.New()),
-		libp2p.ListenAddrStrings("/inproc/~"))
-	if err != nil {
-		panic(err)
-	}
+// 	var (
+// 		hs  = make([]host.Host, N)
+// 		cs  = make([]*crawl.Crawler, N)
+// 		err error
+// 	)
 
-	return h
-}
+// 	ctx, cancel := context.WithCancel(context.Background())
+// 	defer cancel()
+
+// 	for i := 0; i < N; i++ {
+// 		hs[i] = newTestHost()
+// 		defer hs[i].Close()
+
+// 		iter, err := crawl.NewCIDR("127.0.3.0/24", port)
+// 		require.NoError(t, err)
+
+// 		cs[i], err = crawl.New(hs[i], &net.UDPAddr{IP: net.ParseIP(fmt.Sprintf("127.0.3.%v", i+10)), Port: port}, iter)
+// 		require.NoError(t, err)
+// 		require.NotNil(t, cs[i])
+// 		defer cs[i].Close()
+
+// 		_, err = cs[i].Advertise(ctx, ns, discovery.TTL(ttl))
+// 		require.NoError(t, err)
+// 	}
+
+// 	finder, err := cs[0].FindPeers(ctx, ns)
+// 	require.NoError(t, err)
+// 	require.NotNil(t, finder)
+
+// 	n := 0
+// 	for range finder {
+// 		n++
+// 	}
+// 	require.Equal(t, N, n)
+// }
+
+// func newTestHost() host.Host {
+// 	h, err := libp2p.New(
+// 		libp2p.NoListenAddrs,
+// 		libp2p.NoTransports,
+// 		libp2p.Transport(inproc.New()),
+// 		libp2p.ListenAddrStrings("/inproc/~"))
+// 	if err != nil {
+// 		panic(err)
+// 	}
+
+// 	return h
+// }

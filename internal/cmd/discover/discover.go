@@ -1,148 +1,213 @@
 package discover
 
-// import (
-// 	"context"
-// 	"encoding/json"
-// 	"fmt"
-// 	"io"
+import (
+	"fmt"
+	"io/ioutil"
+	"net"
+	"text/template"
 
-// 	"github.com/libp2p/go-libp2p-core/discovery"
-// 	ma "github.com/multiformats/go-multiaddr"
-// 	"github.com/urfave/cli/v2"
-// 	"go.uber.org/fx"
+	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/lthibault/log"
+	ma "github.com/multiformats/go-multiaddr"
+	"github.com/urfave/cli/v2"
+	logutil "github.com/wetware/casm/internal/util/log"
+	"github.com/wetware/casm/pkg/boot/crawl"
+	"github.com/wetware/casm/pkg/boot/socket"
+	"github.com/wetware/casm/pkg/boot/survey"
+	"golang.org/x/sync/errgroup"
+)
 
-// 	logutil "github.com/wetware/casm/internal/util/log"
-// 	"github.com/wetware/casm/pkg/boot"
-// )
+const templ = `{{.Type}} from {{.From}}`
 
-// var (
-// 	app *fx.App
-// 	enc *json.Encoder
-// 	d   discovery.Discoverer
-// )
+var t = template.Must(template.New("boot").Parse(templ))
 
-// var flags = []cli.Flag{
-// 	&cli.StringFlag{
-// 		Name:    "ns",
-// 		Usage:   "cluster namespace",
-// 		Value:   "casm",
-// 		EnvVars: []string{"CASM_NS"},
-// 	},
-// 	&cli.StringFlag{
-// 		Name:    "discover",
-// 		Aliases: []string{"d"},
-// 		Usage:   "discovery service multiaddress",
-// 		Value:   "/multicast/ip4/228.8.8.8/udp/8822",
-// 	},
-// 	&cli.DurationFlag{
-// 		Name:    "timeout",
-// 		Aliases: []string{"t"},
-// 		Usage:   "stop after t seconds",
-// 	},
-// 	&cli.IntFlag{
-// 		Name:    "number",
-// 		Aliases: []string{"n"},
-// 		Usage:   "number of records to return (0 = stream)",
-// 		Value:   1,
-// 	},
-// }
+var (
+	sock   *socket.Socket
+	sync   = make(chan struct{})
+	maddr  ma.Multiaddr
+	logger log.Logger
+	addr   *net.UDPAddr
+	ifi    *net.Interface
+)
 
-// // Command constructor
-// func Command() *cli.Command {
-// 	return &cli.Command{
-// 		Name:   "discover",
-// 		Usage:  "discover peers on the network",
-// 		Flags:  flags,
-// 		Before: before(),
-// 		After:  after(),
-// 		Action: run(),
-// 	}
-// }
+var flags = []cli.Flag{
+	&cli.StringFlag{
+		Name:    "ns",
+		Usage:   "cluster namespace",
+		Value:   "casm",
+		EnvVars: []string{"CASM_NS"},
+	},
+	&cli.StringFlag{
+		Name:    "discover",
+		Aliases: []string{"d"},
+		Usage:   "discovery service multiaddress",
+		Value:   "/ip4/228.8.8.8/udp/8822/multicast/lo0",
+	},
+	&cli.BoolFlag{
+		Name:    "emit",
+		Aliases: []string{"e"},
+		Usage:   "emit auto-generated discovery packet",
+	},
+}
 
-// func before() cli.BeforeFunc {
-// 	return func(c *cli.Context) error {
-// 		app = fx.New(fx.NopLogger,
-// 			fx.Supply(c),
-// 			fx.Populate(&d, &enc),
-// 			fx.Provide(
-// 				newEncoder,
-// 				newTransport,
-// 				newDiscoveryClient))
-// 		return app.Start(c.Context)
-// 	}
-// }
+var commands = []*cli.Command{
+	genpayload(),
+}
 
-// func after() cli.AfterFunc {
-// 	return func(c *cli.Context) error {
-// 		return app.Stop(c.Context)
-// 	}
-// }
+// Command constructor
+func Command() *cli.Command {
+	return &cli.Command{
+		Name:        "discover",
+		Usage:       "discover peers on the network",
+		Flags:       flags,
+		Subcommands: commands,
+		Before:      parse(),
+		After:       shutdown(),
+		Action:      discover(),
+	}
+}
 
-// func run() cli.ActionFunc {
-// 	return func(c *cli.Context) error {
-// 		ctx, cancel := maybeTimeout(c)
-// 		defer cancel()
+func parse() cli.BeforeFunc {
+	return func(c *cli.Context) (err error) {
+		logger = logutil.New(c)
 
-// 		if c.Duration("t") > 0 {
-// 			ctx, cancel = context.WithTimeout(c.Context, c.Duration("t"))
-// 			defer cancel()
-// 		}
+		if maddr, err = ma.NewMultiaddr(c.String("discover")); err != nil {
+			return
+		}
 
-// 		ps, err := d.FindPeers(ctx, c.String("ns"), discovery.Limit(c.Int("n")))
-// 		if err != nil {
-// 			return err
-// 		}
+		switch proto() {
+		case crawl.P_CIDR:
+			return fmt.Errorf("NOT IMPLEMENTED")
 
-// 		for info := range ps {
-// 			if err := enc.Encode(info); err != nil {
-// 				return err
-// 			}
-// 		}
+		case survey.P_MULTICAST:
+			if addr, ifi, err = survey.ResolveMulticast(maddr); err == nil {
+				logger = logger.WithField("group", addr)
+			}
 
-// 		return nil
-// 	}
-// }
+		default:
+			return fmt.Errorf("unknown protocol")
+		}
 
-// func maybeTimeout(c *cli.Context) (context.Context, context.CancelFunc) {
-// 	if c.Duration("t") > 0 {
-// 		return context.WithTimeout(c.Context, c.Duration("t"))
-// 	}
+		return
+	}
+}
 
-// 	return c.Context, func() {}
-// }
+func shutdown() cli.AfterFunc {
+	return func(ctx *cli.Context) (err error) {
+		if sock != nil {
+			err = sock.Close()
+		}
 
-// func newEncoder(c *cli.Context) *json.Encoder {
-// 	enc := json.NewEncoder(c.App.Writer)
-// 	if c.Bool("prettyprint") {
-// 		enc.SetIndent("", "  ")
-// 	}
+		return
+	}
+}
 
-// 	return enc
-// }
+func discover() cli.ActionFunc {
+	return func(c *cli.Context) error {
+		var g *errgroup.Group
+		g, c.Context = errgroup.WithContext(c.Context)
 
-// func newDiscoveryClient(c *cli.Context, t boot.Transport, lx fx.Lifecycle) (discovery.Discoverer, error) {
-// 	d, err := boot.NewMulticastClient(
-// 		boot.WithTransport(t),
-// 		boot.WithLogger(logutil.New(c)))
+		g.Go(listen(c))
+		g.Go(dial(c))
 
-// 	if err == nil {
-// 		lx.Append(closer(d))
-// 	}
+		return g.Wait()
+	}
+}
 
-// 	return d, err
-// }
+func listen(c *cli.Context) func() error {
+	return func() error {
+		switch proto() {
+		case crawl.P_CIDR:
+			return unicast(c)
 
-// func newTransport(c *cli.Context) (boot.Transport, error) {
-// 	m, err := ma.NewMultiaddr(c.String("d"))
-// 	if err != nil {
-// 		return nil, fmt.Errorf("%w:  %s", err, m)
-// 	}
+		case survey.P_MULTICAST:
+			return multicast(c)
 
-// 	return boot.NewTransport(m)
-// }
+		default:
+			return fmt.Errorf("unknown protocol")
+		}
+	}
+}
 
-// func closer(c io.Closer) fx.Hook {
-// 	return fx.Hook{
-// 		OnStop: func(context.Context) error { return c.Close() },
-// 	}
-// }
+func dial(c *cli.Context) func() error {
+	return func() error {
+		e, err := payload(c)
+		if err != nil {
+			return err
+		}
+
+		select {
+		case <-sync:
+		case <-c.Done():
+			return c.Err()
+		}
+
+		if err = sock.Send(e, addr); err == nil {
+			logger.Info("send payload")
+		}
+
+		return err
+	}
+}
+
+func payload(c *cli.Context) (*record.Envelope, error) {
+	if c.IsSet("emit") {
+		return generate(c)
+	}
+
+	// Read signed envelope at the command line
+	b, err := ioutil.ReadAll(c.App.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	return record.UnmarshalEnvelope(b)
+}
+
+func unicast(c *cli.Context) error {
+	return fmt.Errorf("NOT IMPLEMENTED")
+}
+
+func multicast(c *cli.Context) error {
+	conn, err := survey.JoinMulticastGroup(addr.Network(), ifi, addr)
+	if err != nil {
+		return fmt.Errorf("join multicast: %w", err)
+	}
+	defer conn.Close()
+
+	logger.Infof("listening for multicast traffic on interface %s", ifi.Name)
+
+	sock = socket.New(conn, socket.Protocol{
+		HandleError:   onError,
+		HandleRequest: func(socket.Request, net.Addr) {},
+		Validate:      render(c),
+	})
+
+	close(sync)
+	<-c.Done()
+
+	return nil
+}
+
+func render(c *cli.Context) func(*record.Envelope, *socket.Record) error {
+	return func(e *record.Envelope, r *socket.Record) error {
+		return t.Execute(c.App.Writer, r)
+	}
+}
+
+func onError(err error) {
+	logger.WithError(err).Error("socket error")
+}
+
+func proto() (proto int) {
+	ma.ForEach(maddr, func(c ma.Component) bool {
+		switch proto = c.Protocol().Code; proto {
+		case crawl.P_CIDR, survey.P_MULTICAST:
+			return false
+		}
+
+		return true
+	})
+
+	return
+}

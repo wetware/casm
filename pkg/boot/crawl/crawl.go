@@ -2,282 +2,206 @@ package crawl
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
-	"fmt"
-	"math/rand"
 	"net"
-	"sync"
-	"sync/atomic"
+	"strconv"
 	"time"
 
+	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/discovery"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/record"
-	netutil "github.com/wetware/casm/pkg/util/net"
+	"github.com/libp2p/go-libp2p-core/peerstore"
+
+	"github.com/lthibault/log"
+	ma "github.com/multiformats/go-multiaddr"
+
+	"github.com/wetware/casm/pkg/boot/socket"
 )
 
-const (
-	maxDatagramSize = 8192
-	defaultTTL      = time.Minute
-	defaultTimeout  = time.Second
-)
+const P_CIDR = 103
 
-var ErrClosed = errors.New("closed")
-
-type advRequest struct {
-	ns  string
-	ttl time.Duration
+func init() {
+	if err := ma.AddProtocol(ma.Protocol{
+		Name:       "cidr",
+		Code:       P_CIDR,
+		VCode:      ma.CodeToVarint(P_CIDR),
+		Size:       8, // bits
+		Transcoder: TranscoderCIDR{},
+	}); err != nil {
+		panic(err)
+	}
 }
+
+var (
+	ErrClosed = errors.New("closed")
+
+	// ErrCIDROverflow is returned when a CIDR block is too large.
+	ErrCIDROverflow = errors.New("CIDR overflow")
+)
 
 type Crawler struct {
-	scanner Strategy
-
-	done  chan struct{}
-	cherr chan<- error
-	err   atomic.Value
-
-	t              time.Time
-	advertisements chan<- advRequest
-	mustAdvertise  map[string]time.Time
-
-	transport Transport
-
-	rec  atomic.Value
-	host host.Host
-	once sync.Once
+	log    log.Logger
+	sock   *socket.Socket
+	host   host.Host
+	iter   Strategy
+	cache  *socket.RecordCache
+	done   <-chan struct{}
+	cancel context.CancelFunc
 }
 
-func New(h host.Host, addr net.Addr, scanner Strategy, opt ...Option) (*Crawler, error) {
-	var (
-		cherr          = make(chan error, 1)
-		done           = make(chan struct{})
-		advertisements = make(chan advRequest)
-	)
+func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
+	ctx, cancel := context.WithCancel(context.Background())
 
 	c := &Crawler{
-		scanner:        scanner,
-		done:           done,
-		t:              netutil.Time(),
-		advertisements: advertisements,
-		mustAdvertise:  make(map[string]time.Time),
-		cherr:          cherr,
-		host:           h,
+		host:   h,
+		done:   ctx.Done(),
+		cancel: cancel,
 	}
 
 	for _, option := range withDefaults(opt) {
 		option(c)
 	}
 
-	conn, err := c.transport.Listen(addr)
-	if err != nil {
-		return nil, err
+	c.sock = socket.New(conn, socket.Protocol{
+		HandleError:   c.socketErrHandler(ctx),
+		HandleRequest: c.requestHandler(ctx),
+		Validate:      socket.BasicValidator(h.ID()),
+		Cache:         c.cache,
+	})
+
+	return c
+}
+
+func (c *Crawler) Close() error {
+	c.cancel()
+	return c.sock.Close()
+}
+
+func running(ctx context.Context) func() bool {
+	return func() bool {
+		return ctx.Err() == nil
 	}
+}
 
-	var (
-		remoteRequests = make(chan request)
-		comm           = newComm(conn)
-	)
+func (c *Crawler) socketErrHandler(ctx context.Context) func(err error) {
+	return func(err error) {
+		if ctx.Err() == nil {
+			c.log.WithError(err).Debug("socket error")
+		}
+	}
+}
 
-	go func() {
-		defer close(c.done)
-		defer comm.close()
+func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {
+	return func(r socket.Request, addr net.Addr) {
+		ns, err := r.Namespace()
+		if err != nil {
+			c.log.WithError(err).Debug("error reading request namespace")
+			return
+		}
 
-		go comm.receiveRequests(remoteRequests)
-
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case t := <-ticker.C:
-				for ns, deadline := range c.mustAdvertise {
-					if t.After(deadline) {
-						delete(c.mustAdvertise, ns)
-					}
-				}
-			case adv := <-advertisements:
-				c.mustAdvertise[adv.ns] = c.t.Add(adv.ttl)
-			case request := <-remoteRequests:
-				if _, ok := c.mustAdvertise[request.ns]; ok {
-					envelope, _ := c.rec.Load().(*record.Envelope).Marshal()
-					go comm.sendTo(envelope, request.addr)
-				}
-			case err := <-cherr:
-				c.err.CompareAndSwap(error(nil), err)
+		if c.sock.Tracking(ns) {
+			e, err := c.cache.LoadResponse(c.privkey(), ns)
+			if err != nil {
+				c.log.WithError(err).Error("error loading response from cache")
 				return
 			}
-		}
-	}()
 
-	return c, nil
+			if err = c.sock.Send(e, addr); err != nil {
+				c.log.WithError(err).Debug("error sending response")
+			}
+		}
+	}
 }
 
 func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	if err := c.ensureTrackHostAddr(); err != nil {
-		return 0, err
-	}
-
-	var opts = discovery.Options{Ttl: defaultTTL}
+	var opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
 	if err := opts.Apply(opt...); err != nil {
 		return 0, err
 	}
 
-	select {
-	case c.advertisements <- advRequest{ns: ns, ttl: opts.Ttl}:
-		return opts.Ttl, nil
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	case <-c.done:
-		return 0, ErrClosed
-	}
-}
-
-func (c *Crawler) ensureTrackHostAddr() error {
-	// client host?  (best-effort)
-	//
-	// The caller may not have set addresses on the host yet, so
-	// we should allow them to retry. Therefore, we perform this
-	// check outside of sync.Once.
-	if len(c.host.Addrs()) == 0 {
-		return errors.New("host not accepting connections")
-	}
-
-	var err error
-
-	c.once.Do(func() {
-		var sub event.Subscription
-
-		sub, err = c.host.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-		if err != nil {
-			return
-		}
-
-		// Ensure the sync operation is run before anything else.
-		v, ok := <-sub.Out()
-		if !ok {
-			err = fmt.Errorf("host %w", ErrClosed)
-			return
-		}
-
-		c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
-
-		go func() {
-			defer sub.Close()
-
-			for {
-				select {
-				case v := <-sub.Out():
-					c.rec.Store(v.(event.EvtLocalAddressesUpdated).SignedPeerRecord)
-				case <-c.done:
-					return
-				}
-			}
-		}()
-	})
-
-	return err
+	return opts.Ttl, c.sock.Track(ctx, c.host, ns, opts.Ttl)
 }
 
 func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	var (
-		out = make(chan peer.AddrInfo, 8)
-	)
+	opts := discovery.Options{Limit: 1}
+	if err := opts.Apply(opt...); err != nil {
+		return nil, err
+	}
 
-	conn, err := c.transport.Dial(nil)
+	e, err := c.cache.LoadRequest(c.privkey(), ns)
 	if err != nil {
 		return nil, err
 	}
-	comm := newComm(conn)
 
-	ctx, cancel := context.WithCancel(ctx)
+	out, cancel := c.sock.Subscribe(ns, opts.Limit)
+	go func() {
+		defer cancel()
 
-	go func() { // send requests
-		comm.sendToMultiple(c.scanner, []byte(ns))
-		time.Sleep(defaultTimeout)
-		cancel()
-	}()
-	go comm.receiveResponses(out) // receive responses
+		var addr net.UDPAddr
+		for iter := c.iter(); iter.Next(&addr); {
+			if err := c.sock.Send(e, &addr); err != nil {
+				c.log.
+					WithError(err).
+					WithField("to", &addr).
+					Debug("failed to send request packet")
+				return
+			}
 
-	go func() { // stop finder
+			// TODO:  rate-limiting & flow-control goes here
+			select {
+			case <-c.done:
+				return
+
+			case <-ctx.Done():
+				return
+
+			default:
+			}
+		}
+
+		// Wait for response
 		select {
 		case <-ctx.Done():
 		case <-c.done:
 		}
-
-		comm.close()
-		close(out)
 	}()
 
 	return out, nil
 }
 
-func (c *Crawler) Close() {
-	select {
-	case c.cherr <- ErrClosed:
-	default:
+func (c *Crawler) privkey() crypto.PrivKey {
+	return c.host.Peerstore().PrivKey(c.host.ID())
+}
+
+// TranscoderCIDR decodes a uint8 CIDR block
+type TranscoderCIDR struct{}
+
+func (ct TranscoderCIDR) StringToBytes(cidrBlock string) ([]byte, error) {
+	num, err := strconv.ParseUint(cidrBlock, 10, 8)
+	if err != nil {
+		return nil, err
 	}
 
-	<-c.done
+	if num > 128 {
+		return nil, ErrCIDROverflow
+	}
+
+	return []byte{uint8(num)}, err
 }
 
-type Strategy interface {
-	More() bool
-	Skip() bool
-	Next()
-	Addr() net.Addr
+func (ct TranscoderCIDR) BytesToString(b []byte) (string, error) {
+	if len(b) > 1 || b[0] > 128 {
+		return "", ErrCIDROverflow
+	}
+
+	return strconv.FormatUint(uint64(b[0]), 10), nil
 }
 
-// iterates through a CIDR range in pseudorandom order.
-type cidrIter struct {
-	ip   net.IP
-	port int
+func (ct TranscoderCIDR) ValidateBytes(b []byte) error {
+	if uint8(b[0]) > 128 { // 128 is maximum CIDR block for IPv6
+		return ErrCIDROverflow
+	}
 
-	subnet *net.IPNet
-
-	mask, begin, end, i, rand uint32
-}
-
-func NewCIDR(cidr string, port int) (it *cidrIter, err error) {
-	it = new(cidrIter)
-
-	it.ip, it.subnet, err = net.ParseCIDR(cidr)
-	it.port = port
-	// Convert IPNet struct mask and address to uint32.
-	// Network is BigEndian.
-	it.mask = binary.BigEndian.Uint32(it.subnet.Mask)
-	it.begin = binary.BigEndian.Uint32(it.subnet.IP)
-	it.end = (it.begin & it.mask) | (it.mask ^ 0xffffffff) // final address
-
-	// Each IP will be masked with the nonce before knocking.
-	// This effectively randomizes the search.
-	it.rand = rand.Uint32() & (it.mask ^ 0xffffffff)
-
-	it.i = it.begin
-	return
-}
-
-func (c *cidrIter) More() bool {
-	return c.i <= c.end
-}
-
-func (c *cidrIter) Skip() bool {
-	// Skip X.X.X.0 and X.X.X.255
-	return c.i^c.rand == c.begin || c.i^c.rand == c.end
-}
-
-func (c *cidrIter) Next() {
-	// Populate the current IP address.
-	c.i++
-	binary.BigEndian.PutUint32(c.ip, c.i^c.rand)
-}
-
-func (c *cidrIter) Addr() net.Addr {
-	ip := make(net.IP, 4)
-
-	binary.BigEndian.PutUint32(ip, c.i^c.rand)
-
-	return &net.UDPAddr{IP: ip, Port: c.port}
+	return nil
 }

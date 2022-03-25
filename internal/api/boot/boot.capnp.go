@@ -9,248 +9,257 @@ import (
 	strconv "strconv"
 )
 
-type MulticastPacket struct{ capnp.Struct }
-type MulticastPacket_Which uint16
+type Packet struct{ capnp.Struct }
+type Packet_gradualRequest Packet
+type Packet_response Packet
+type Packet_Which uint16
 
 const (
-	MulticastPacket_Which_query    MulticastPacket_Which = 0
-	MulticastPacket_Which_response MulticastPacket_Which = 1
+	Packet_Which_request        Packet_Which = 0
+	Packet_Which_gradualRequest Packet_Which = 1
+	Packet_Which_response       Packet_Which = 2
 )
 
-func (w MulticastPacket_Which) String() string {
-	const s = "queryresponse"
+func (w Packet_Which) String() string {
+	const s = "requestgradualRequestresponse"
 	switch w {
-	case MulticastPacket_Which_query:
-		return s[0:5]
-	case MulticastPacket_Which_response:
-		return s[5:13]
+	case Packet_Which_request:
+		return s[0:7]
+	case Packet_Which_gradualRequest:
+		return s[7:21]
+	case Packet_Which_response:
+		return s[21:29]
 
 	}
-	return "MulticastPacket_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
+	return "Packet_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
 }
 
-// MulticastPacket_TypeID is the unique identifier for the type MulticastPacket.
-const MulticastPacket_TypeID = 0xf859740361623722
+// Packet_TypeID is the unique identifier for the type Packet.
+const Packet_TypeID = 0xe12a1e555ca80e30
 
-func NewMulticastPacket(s *capnp.Segment) (MulticastPacket, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return MulticastPacket{st}, err
+func NewPacket(s *capnp.Segment) (Packet, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
+	return Packet{st}, err
 }
 
-func NewRootMulticastPacket(s *capnp.Segment) (MulticastPacket, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return MulticastPacket{st}, err
+func NewRootPacket(s *capnp.Segment) (Packet, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
+	return Packet{st}, err
 }
 
-func ReadRootMulticastPacket(msg *capnp.Message) (MulticastPacket, error) {
+func ReadRootPacket(msg *capnp.Message) (Packet, error) {
 	root, err := msg.Root()
-	return MulticastPacket{root.Struct()}, err
+	return Packet{root.Struct()}, err
 }
 
-func (s MulticastPacket) String() string {
-	str, _ := text.Marshal(0xf859740361623722, s.Struct)
+func (s Packet) String() string {
+	str, _ := text.Marshal(0xe12a1e555ca80e30, s.Struct)
 	return str
 }
 
-func (s MulticastPacket) Which() MulticastPacket_Which {
-	return MulticastPacket_Which(s.Struct.Uint16(0))
+func (s Packet) Which() Packet_Which {
+	return Packet_Which(s.Struct.Uint16(0))
 }
-func (s MulticastPacket) Query() (string, error) {
-	if s.Struct.Uint16(0) != 0 {
-		panic("Which() != query")
-	}
+func (s Packet) Namespace() (string, error) {
 	p, err := s.Struct.Ptr(0)
 	return p.Text(), err
 }
 
-func (s MulticastPacket) HasQuery() bool {
+func (s Packet) HasNamespace() bool {
+	return s.Struct.HasPtr(0)
+}
+
+func (s Packet) NamespaceBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Packet) SetNamespace(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s Packet) Request() (string, error) {
 	if s.Struct.Uint16(0) != 0 {
-		return false
+		panic("Which() != request")
 	}
-	return s.Struct.HasPtr(0)
-}
-
-func (s MulticastPacket) QueryBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(0)
-	return p.TextBytes(), err
-}
-
-func (s MulticastPacket) SetQuery(v string) error {
-	s.Struct.SetUint16(0, 0)
-	return s.Struct.SetText(0, v)
-}
-
-func (s MulticastPacket) Response() (MulticastPacket_Response, error) {
-	if s.Struct.Uint16(0) != 1 {
-		panic("Which() != response")
-	}
-	p, err := s.Struct.Ptr(0)
-	return MulticastPacket_Response{Struct: p.Struct()}, err
-}
-
-func (s MulticastPacket) HasResponse() bool {
-	if s.Struct.Uint16(0) != 1 {
-		return false
-	}
-	return s.Struct.HasPtr(0)
-}
-
-func (s MulticastPacket) SetResponse(v MulticastPacket_Response) error {
-	s.Struct.SetUint16(0, 1)
-	return s.Struct.SetPtr(0, v.Struct.ToPtr())
-}
-
-// NewResponse sets the response field to a newly
-// allocated MulticastPacket_Response struct, preferring placement in s's segment.
-func (s MulticastPacket) NewResponse() (MulticastPacket_Response, error) {
-	s.Struct.SetUint16(0, 1)
-	ss, err := NewMulticastPacket_Response(s.Struct.Segment())
-	if err != nil {
-		return MulticastPacket_Response{}, err
-	}
-	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
-	return ss, err
-}
-
-// MulticastPacket_List is a list of MulticastPacket.
-type MulticastPacket_List struct{ capnp.List }
-
-// NewMulticastPacket creates a new list of MulticastPacket.
-func NewMulticastPacket_List(s *capnp.Segment, sz int32) (MulticastPacket_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
-	return MulticastPacket_List{l}, err
-}
-
-func (s MulticastPacket_List) At(i int) MulticastPacket { return MulticastPacket{s.List.Struct(i)} }
-
-func (s MulticastPacket_List) Set(i int, v MulticastPacket) error {
-	return s.List.SetStruct(i, v.Struct)
-}
-
-func (s MulticastPacket_List) String() string {
-	str, _ := text.MarshalList(0xf859740361623722, s.List)
-	return str
-}
-
-// MulticastPacket_Future is a wrapper for a MulticastPacket promised by a client call.
-type MulticastPacket_Future struct{ *capnp.Future }
-
-func (p MulticastPacket_Future) Struct() (MulticastPacket, error) {
-	s, err := p.Future.Struct()
-	return MulticastPacket{s}, err
-}
-
-func (p MulticastPacket_Future) Response() MulticastPacket_Response_Future {
-	return MulticastPacket_Response_Future{Future: p.Future.Field(0, nil)}
-}
-
-type MulticastPacket_Response struct{ capnp.Struct }
-
-// MulticastPacket_Response_TypeID is the unique identifier for the type MulticastPacket_Response.
-const MulticastPacket_Response_TypeID = 0xb998800b6731ad22
-
-func NewMulticastPacket_Response(s *capnp.Segment) (MulticastPacket_Response, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return MulticastPacket_Response{st}, err
-}
-
-func NewRootMulticastPacket_Response(s *capnp.Segment) (MulticastPacket_Response, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return MulticastPacket_Response{st}, err
-}
-
-func ReadRootMulticastPacket_Response(msg *capnp.Message) (MulticastPacket_Response, error) {
-	root, err := msg.Root()
-	return MulticastPacket_Response{root.Struct()}, err
-}
-
-func (s MulticastPacket_Response) String() string {
-	str, _ := text.Marshal(0xb998800b6731ad22, s.Struct)
-	return str
-}
-
-func (s MulticastPacket_Response) Ns() (string, error) {
-	p, err := s.Struct.Ptr(0)
-	return p.Text(), err
-}
-
-func (s MulticastPacket_Response) HasNs() bool {
-	return s.Struct.HasPtr(0)
-}
-
-func (s MulticastPacket_Response) NsBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(0)
-	return p.TextBytes(), err
-}
-
-func (s MulticastPacket_Response) SetNs(v string) error {
-	return s.Struct.SetText(0, v)
-}
-
-func (s MulticastPacket_Response) SignedEnvelope() ([]byte, error) {
 	p, err := s.Struct.Ptr(1)
-	return []byte(p.Data()), err
+	return p.Text(), err
 }
 
-func (s MulticastPacket_Response) HasSignedEnvelope() bool {
+func (s Packet) HasRequest() bool {
+	if s.Struct.Uint16(0) != 0 {
+		return false
+	}
 	return s.Struct.HasPtr(1)
 }
 
-func (s MulticastPacket_Response) SetSignedEnvelope(v []byte) error {
-	return s.Struct.SetData(1, v)
+func (s Packet) RequestBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.TextBytes(), err
 }
 
-// MulticastPacket_Response_List is a list of MulticastPacket_Response.
-type MulticastPacket_Response_List struct{ capnp.List }
-
-// NewMulticastPacket_Response creates a new list of MulticastPacket_Response.
-func NewMulticastPacket_Response_List(s *capnp.Segment, sz int32) (MulticastPacket_Response_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
-	return MulticastPacket_Response_List{l}, err
+func (s Packet) SetRequest(v string) error {
+	s.Struct.SetUint16(0, 0)
+	return s.Struct.SetText(1, v)
 }
 
-func (s MulticastPacket_Response_List) At(i int) MulticastPacket_Response {
-	return MulticastPacket_Response{s.List.Struct(i)}
+func (s Packet) GradualRequest() Packet_gradualRequest { return Packet_gradualRequest(s) }
+
+func (s Packet) SetGradualRequest() {
+	s.Struct.SetUint16(0, 1)
 }
 
-func (s MulticastPacket_Response_List) Set(i int, v MulticastPacket_Response) error {
-	return s.List.SetStruct(i, v.Struct)
+func (s Packet_gradualRequest) From() (string, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.Text(), err
 }
 
-func (s MulticastPacket_Response_List) String() string {
-	str, _ := text.MarshalList(0xb998800b6731ad22, s.List)
+func (s Packet_gradualRequest) HasFrom() bool {
+	return s.Struct.HasPtr(1)
+}
+
+func (s Packet_gradualRequest) FromBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Packet_gradualRequest) SetFrom(v string) error {
+	return s.Struct.SetText(1, v)
+}
+
+func (s Packet_gradualRequest) Distance() uint8 {
+	return s.Struct.Uint8(2)
+}
+
+func (s Packet_gradualRequest) SetDistance(v uint8) {
+	s.Struct.SetUint8(2, v)
+}
+
+func (s Packet) Response() Packet_response { return Packet_response(s) }
+
+func (s Packet) SetResponse() {
+	s.Struct.SetUint16(0, 2)
+}
+
+func (s Packet_response) Peer() (string, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.Text(), err
+}
+
+func (s Packet_response) HasPeer() bool {
+	return s.Struct.HasPtr(1)
+}
+
+func (s Packet_response) PeerBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Packet_response) SetPeer(v string) error {
+	return s.Struct.SetText(1, v)
+}
+
+func (s Packet_response) Addrs() (capnp.DataList, error) {
+	p, err := s.Struct.Ptr(2)
+	return capnp.DataList{List: p.List()}, err
+}
+
+func (s Packet_response) HasAddrs() bool {
+	return s.Struct.HasPtr(2)
+}
+
+func (s Packet_response) SetAddrs(v capnp.DataList) error {
+	return s.Struct.SetPtr(2, v.List.ToPtr())
+}
+
+// NewAddrs sets the addrs field to a newly
+// allocated capnp.DataList, preferring placement in s's segment.
+func (s Packet_response) NewAddrs(n int32) (capnp.DataList, error) {
+	l, err := capnp.NewDataList(s.Struct.Segment(), n)
+	if err != nil {
+		return capnp.DataList{}, err
+	}
+	err = s.Struct.SetPtr(2, l.List.ToPtr())
+	return l, err
+}
+
+// Packet_List is a list of Packet.
+type Packet_List struct{ capnp.List }
+
+// NewPacket creates a new list of Packet.
+func NewPacket_List(s *capnp.Segment, sz int32) (Packet_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3}, sz)
+	return Packet_List{l}, err
+}
+
+func (s Packet_List) At(i int) Packet { return Packet{s.List.Struct(i)} }
+
+func (s Packet_List) Set(i int, v Packet) error { return s.List.SetStruct(i, v.Struct) }
+
+func (s Packet_List) String() string {
+	str, _ := text.MarshalList(0xe12a1e555ca80e30, s.List)
 	return str
 }
 
-// MulticastPacket_Response_Future is a wrapper for a MulticastPacket_Response promised by a client call.
-type MulticastPacket_Response_Future struct{ *capnp.Future }
+// Packet_Future is a wrapper for a Packet promised by a client call.
+type Packet_Future struct{ *capnp.Future }
 
-func (p MulticastPacket_Response_Future) Struct() (MulticastPacket_Response, error) {
+func (p Packet_Future) Struct() (Packet, error) {
 	s, err := p.Future.Struct()
-	return MulticastPacket_Response{s}, err
+	return Packet{s}, err
 }
 
-const schema_fa005a3c690f4a62 = "x\xda\\\xcf\xb1J+A\x14\xc6\xf1\xef\x9bI\xee^" +
-	"H\x82YV\x88h!\x04\x1b\xc1\x04c\xa3\x88\xa0M" +
-	"\x9a\x80\x90\xb1S\xb0\xd8\xc4!,\x86\xd953k\xd0" +
-	"\xca\x97\x10|\x09\x1f\xc0\xca\xf7\xf0-\xecD\xd0\x91\xa8" +
-	"d\x83\xed9p\xfe\xbfS\xbf?\x12\x9drC\x00j" +
-	"\xa5\xfc\xcf7\x1f;\xa3\xca\xdd\xc3\x13\xc25\xfa\xe6\xee" +
-	" \x96\xee\xf4\x0de\x11\x00\x9d\xd7&#2\x00\xc2\x8f" +
-	")\x16\xb6\xaaB>\x0fzK\xc9\xc1\xd9{\x97\x81\x00" +
-	"\xa2s\xbeD\x09\x1b@\x94s\x8a\x96\x1f\xa4\xa9k\x0f" +
-	"\xe3L\x9al\xff8\x1f\xbbd\x18[\xd7\x8f\x87\x97\xda" +
-	"\xb5O\xb4\xcd\xd2\xc0X\xdd'\xd5\x7fY\x02J\x04\xc2" +
-	"\xcdU@mH\xaam\xc1\x90\\\xe6l\xd8\xba\x05\xd4" +
-	"\x96\xa4\xda\x13\x94\xc6\xb2\x0a\xc1*\xe8m22\xfa\xa2" +
-	"kpx\xad\xc7i\xa6Y\x83`\x0d\x9c\x87\xc5\xdf\xb0" +
-	"\xd4N\x95\xc8\x85\x87\xd9\xf3\xdf\x14c5\x80\x99\xa4\xea" +
-	"\xfd\x0fe\xa7\xa0\xd4\xf8\xe9\x7f-\xbd\xc2\xb2~\x95\xeb" +
-	"\xc9\xcd\x9c3)\xee\xb0^$@\xd6\xc1\xaf\x00\x00\x00" +
-	"\xff\xff\xeb\xc6Z&"
+func (p Packet_Future) GradualRequest() Packet_gradualRequest_Future {
+	return Packet_gradualRequest_Future{p.Future}
+}
+
+// Packet_gradualRequest_Future is a wrapper for a Packet_gradualRequest promised by a client call.
+type Packet_gradualRequest_Future struct{ *capnp.Future }
+
+func (p Packet_gradualRequest_Future) Struct() (Packet_gradualRequest, error) {
+	s, err := p.Future.Struct()
+	return Packet_gradualRequest{s}, err
+}
+
+func (p Packet_Future) Response() Packet_response_Future { return Packet_response_Future{p.Future} }
+
+// Packet_response_Future is a wrapper for a Packet_response promised by a client call.
+type Packet_response_Future struct{ *capnp.Future }
+
+func (p Packet_response_Future) Struct() (Packet_response, error) {
+	s, err := p.Future.Struct()
+	return Packet_response{s}, err
+}
+
+const schema_fa005a3c690f4a62 = "x\xdal\xd11\x8b\x13A\x14\x07\xf0\xff\xff\xcd&9" +
+	"\xf4r\xc9\xba\x11\x1bO\x1b\x05=\xee\x8e\xa8\x8d\x88\xa0" +
+	"\x886\x01%\x13\xb0P,\x9c\xec\x8e\x12Lv\xd7\xdd" +
+	"\x0d\x82\x8d X\xd8\xfa\x19,\x04\x0b?\x82\x8d\x85\x85" +
+	"\x9d\x85`g\xe5'\xb0\x88\x10G\xf6\xc2n\x9at\xc3" +
+	"{\x0f~\xf3\xfe\xaf\xfb\xfd\xa6\\j$\x02\xe8\xd3\x8d" +
+	"\xa6\xfb\xf2\xe3\xe3\xa7\xad\xf7\xdf^C\x9f ]\x7f\xe7" +
+	"\xc3\xa3\xfbg\xf6~\xe1\xa4j\x11\xb8\xb2\xcbc\x04\x83" +
+	"\xf3|\x01\xba{\xfb\x8bS\x89\xbd\xfbu\xe3h\xf0\x86" +
+	"?\xc1\xe0\xed\xd1d\xdd\xd3\xc7\xc9\xcf\xe3Agr\xfd" +
+	"\xe1\xdf;\xaa\xa5\x80\xe0\x0f\xdf\x05K\xb6\x80`\xc1\xdf" +
+	"8p\xe3$)\x0eC\x93\xaa8\xbd64\xe13[" +
+	"\x1c>\xcdL47\xd3\x91}>\xb7y\x01\xe8-\xe5" +
+	"u\xd9\xa3\x00\xfe\xc5=@\x9fS\xd4}\xa1O\xe9Q" +
+	"\x01\xfe\xc1\x00\xd0\xfb\x8a\xfa\xaa\xb0\xf3$Kf\xdc\x86" +
+	"p\x1bt\xd1$/L\x1cZ\x00lB\xd8\x04kQ" +
+	"\xd6bf\xf34\x89Un+\xca\xdbD5J\xea2" +
+	"\xa0/(\xea\xdb\xc2NjmVQgM\x14e9" +
+	"w\xc0\xa1\"\xdb\x90\xf2Y[\xac,\x16CRw\x95" +
+	"\x07x\x04|3\x02\xf4cE=\x15\xee\xd29\xf6X" +
+	"\x96'\xb7\x00\x1d)\xeaT\xd8\x96\x7f\x8e\\_\xca\x9f" +
+	"\xbd\x84\xb4\xd5\xb2,\xd67\xf1\x1f\x0c .63\x9b" +
+	"\xa7&\x04m\xf5\xafW\xd9*\xc6:\x92*]\xdcX" +
+	"5\xdcj\xf9\xbc\xcc\xe8\x7f\x00\x00\x00\xff\xff\xa5\x8c\x83" +
+	"'"
 
 func init() {
 	schemas.Register(schema_fa005a3c690f4a62,
-		0xb998800b6731ad22,
-		0xf859740361623722)
+		0x82cca408afabd7c4,
+		0xc84d656f17f92c4e,
+		0xe12a1e555ca80e30)
 }
