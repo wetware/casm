@@ -8,13 +8,13 @@ import (
 
 type Request struct{ Record }
 
-func (r Request) IsGradual() bool {
-	return r.asPacket().Which() == boot.Packet_Which_gradualRequest
+func (r Request) IsSurvey() bool {
+	return r.asPacket().Which() == boot.Packet_Which_survey
 }
 
 func (r Request) Distance() (dist uint8) {
-	if r.IsGradual() {
-		dist = r.asPacket().GradualRequest().Distance()
+	if r.IsSurvey() {
+		dist = r.asPacket().Survey().Distance()
 	}
 
 	return
@@ -22,8 +22,8 @@ func (r Request) Distance() (dist uint8) {
 
 func (r Request) From() (id peer.ID, err error) {
 	var s string
-	if r.IsGradual() {
-		s, err = r.asPacket().GradualRequest().From()
+	if r.IsSurvey() {
+		s, err = r.asPacket().Survey().From()
 	} else {
 		s, err = r.asPacket().Request()
 	}

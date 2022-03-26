@@ -14,7 +14,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
-	"github.com/wetware/casm/internal/api/boot"
 	"go.uber.org/multierr"
 )
 
@@ -121,14 +120,22 @@ func (s *Socket) Subscribe(ns string, limit int) (<-chan peer.AddrInfo, func()) 
 		s.subs[ns] = ss
 	}
 
-	ch := make(chan peer.AddrInfo, bufsize(limit))
-	cancel := func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
+	var (
+		once sync.Once
+		ch   = make(chan peer.AddrInfo, bufsize(limit))
+	)
 
-		if ss.Remove(ch) {
-			delete(s.subs, ns)
-		}
+	cancel := func() {
+		once.Do(func() {
+			defer close(ch)
+
+			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			if ss.Remove(ch) {
+				delete(s.subs, ns)
+			}
+		})
 	}
 
 	ss.Add(ch, limiter(limit, cancel))
@@ -224,14 +231,17 @@ func (s *Socket) scanloop(p Protocol) {
 
 		// Packet is already validated.  It's either a response, or
 		// some sort of request.
-		switch boot.Packet(r).Which() {
-		case boot.Packet_Which_request:
-			p.HandleRequest(Request{r}, addr)
-
-		default:
+		switch r.Type() {
+		case TypeResponse:
 			if err := s.dispatch(Response{r}, addr); err != nil {
 				p.HandleError(err)
 			}
+
+		case TypeRequest, TypeSurvey:
+			p.HandleRequest(Request{r}, addr)
+
+		default:
+			p.HandleError(fmt.Errorf("%s: invalid packet type", r.Type()))
 		}
 	}
 }
@@ -247,6 +257,14 @@ func (s *Socket) dispatch(r Response, addr net.Addr) error {
 		return err
 	}
 
+	// release any subscriptions that have reached their limit.
+	var done []func()
+	defer func() {
+		for _, release := range done {
+			release()
+		}
+	}()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -254,7 +272,9 @@ func (s *Socket) dispatch(r Response, addr net.Addr) error {
 		for sub, lim := range ss {
 			select {
 			case sub.Out <- info:
-				lim.Decr()
+				if lim.Decr() {
+					done = append(done, lim.cancel)
+				}
 
 			default:
 			}
@@ -307,10 +327,8 @@ func limiter(limit int, cancel func()) (l *resultLimiter) {
 	return
 }
 
-func (l *resultLimiter) Decr() {
-	if l != nil && atomic.AddInt32(&l.remaining, -1) == 0 {
-		go l.cancel()
-	}
+func (l *resultLimiter) Decr() bool {
+	return l != nil && atomic.AddInt32(&l.remaining, -1) == 0
 }
 
 func bufsize(limit int) int {

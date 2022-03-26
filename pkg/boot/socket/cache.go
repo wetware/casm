@@ -122,9 +122,9 @@ func request(from peer.ID) func(boot.Packet) error {
 
 func surveyRequest(from peer.ID, dist uint8) bindFunc {
 	return func(p boot.Packet) error {
-		p.SetGradualRequest()
-		p.GradualRequest().SetDistance(dist)
-		return p.GradualRequest().SetFrom(string(from))
+		p.SetSurvey()
+		p.Survey().SetDistance(dist)
+		return p.Survey().SetFrom(string(from))
 	}
 }
 

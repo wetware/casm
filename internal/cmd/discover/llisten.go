@@ -117,7 +117,7 @@ func render(c *cli.Context, proto string) func(*record.Envelope, *socket.Record)
 
 	return func(e *record.Envelope, r *socket.Record) (err error) {
 		switch r.Type() {
-		case socket.TypeRequest, socket.TypeGradualRequest:
+		case socket.TypeRequest, socket.TypeSurvey:
 			return t.Execute(c.App.Writer, request{
 				Proto:    proto,
 				Err:      validate(e, r),

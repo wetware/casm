@@ -12,7 +12,7 @@ struct Packet {
     union {
         request       @1 :PeerID;  # from
 
-        gradualRequest   :group {
+        survey           :group {
             from      @2 :PeerID;
             distance  @3 :UInt8;
         }

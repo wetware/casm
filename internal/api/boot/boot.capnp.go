@@ -10,25 +10,25 @@ import (
 )
 
 type Packet struct{ capnp.Struct }
-type Packet_gradualRequest Packet
+type Packet_survey Packet
 type Packet_response Packet
 type Packet_Which uint16
 
 const (
-	Packet_Which_request        Packet_Which = 0
-	Packet_Which_gradualRequest Packet_Which = 1
-	Packet_Which_response       Packet_Which = 2
+	Packet_Which_request  Packet_Which = 0
+	Packet_Which_survey   Packet_Which = 1
+	Packet_Which_response Packet_Which = 2
 )
 
 func (w Packet_Which) String() string {
-	const s = "requestgradualRequestresponse"
+	const s = "requestsurveyresponse"
 	switch w {
 	case Packet_Which_request:
 		return s[0:7]
-	case Packet_Which_gradualRequest:
-		return s[7:21]
+	case Packet_Which_survey:
+		return s[7:13]
 	case Packet_Which_response:
-		return s[21:29]
+		return s[13:21]
 
 	}
 	return "Packet_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
@@ -103,35 +103,35 @@ func (s Packet) SetRequest(v string) error {
 	return s.Struct.SetText(1, v)
 }
 
-func (s Packet) GradualRequest() Packet_gradualRequest { return Packet_gradualRequest(s) }
+func (s Packet) Survey() Packet_survey { return Packet_survey(s) }
 
-func (s Packet) SetGradualRequest() {
+func (s Packet) SetSurvey() {
 	s.Struct.SetUint16(0, 1)
 }
 
-func (s Packet_gradualRequest) From() (string, error) {
+func (s Packet_survey) From() (string, error) {
 	p, err := s.Struct.Ptr(1)
 	return p.Text(), err
 }
 
-func (s Packet_gradualRequest) HasFrom() bool {
+func (s Packet_survey) HasFrom() bool {
 	return s.Struct.HasPtr(1)
 }
 
-func (s Packet_gradualRequest) FromBytes() ([]byte, error) {
+func (s Packet_survey) FromBytes() ([]byte, error) {
 	p, err := s.Struct.Ptr(1)
 	return p.TextBytes(), err
 }
 
-func (s Packet_gradualRequest) SetFrom(v string) error {
+func (s Packet_survey) SetFrom(v string) error {
 	return s.Struct.SetText(1, v)
 }
 
-func (s Packet_gradualRequest) Distance() uint8 {
+func (s Packet_survey) Distance() uint8 {
 	return s.Struct.Uint8(2)
 }
 
-func (s Packet_gradualRequest) SetDistance(v uint8) {
+func (s Packet_survey) SetDistance(v uint8) {
 	s.Struct.SetUint8(2, v)
 }
 
@@ -209,16 +209,14 @@ func (p Packet_Future) Struct() (Packet, error) {
 	return Packet{s}, err
 }
 
-func (p Packet_Future) GradualRequest() Packet_gradualRequest_Future {
-	return Packet_gradualRequest_Future{p.Future}
-}
+func (p Packet_Future) Survey() Packet_survey_Future { return Packet_survey_Future{p.Future} }
 
-// Packet_gradualRequest_Future is a wrapper for a Packet_gradualRequest promised by a client call.
-type Packet_gradualRequest_Future struct{ *capnp.Future }
+// Packet_survey_Future is a wrapper for a Packet_survey promised by a client call.
+type Packet_survey_Future struct{ *capnp.Future }
 
-func (p Packet_gradualRequest_Future) Struct() (Packet_gradualRequest, error) {
+func (p Packet_survey_Future) Struct() (Packet_survey, error) {
 	s, err := p.Future.Struct()
-	return Packet_gradualRequest{s}, err
+	return Packet_survey{s}, err
 }
 
 func (p Packet_Future) Response() Packet_response_Future { return Packet_response_Future{p.Future} }
@@ -231,31 +229,30 @@ func (p Packet_response_Future) Struct() (Packet_response, error) {
 	return Packet_response{s}, err
 }
 
-const schema_fa005a3c690f4a62 = "x\xdal\xd11\x8b\x13A\x14\x07\xf0\xff\xff\xcd&9" +
-	"\xf4r\xc9\xba\x11\x1bO\x1b\x05=\xee\x8e\xa8\x8d\x88\xa0" +
-	"\x886\x01%\x13\xb0P,\x9c\xec\x8e\x12Lv\xd7\xdd" +
-	"\x0d\x82\x8d X\xd8\xfa\x19,\x04\x0b?\x82\x8d\x85\x85" +
-	"\x9d\x85`g\xe5'\xb0\x88\x10G\xf6\xc2n\x9at\xc3" +
-	"{\x0f~\xf3\xfe\xaf\xfb\xfd\xa6\\j$\x02\xe8\xd3\x8d" +
-	"\xa6\xfb\xf2\xe3\xe3\xa7\xad\xf7\xdf^C\x9f ]\x7f\xe7" +
-	"\xc3\xa3\xfbg\xf6~\xe1\xa4j\x11\xb8\xb2\xcbc\x04\x83" +
-	"\xf3|\x01\xba{\xfb\x8bS\x89\xbd\xfbu\xe3h\xf0\x86" +
-	"?\xc1\xe0\xed\xd1d\xdd\xd3\xc7\xc9\xcf\xe3Agr\xfd" +
-	"\xe1\xdf;\xaa\xa5\x80\xe0\x0f\xdf\x05K\xb6\x80`\xc1\xdf" +
-	"8p\xe3$)\x0eC\x93\xaa8\xbd64\xe13[" +
-	"\x1c>\xcdL47\xd3\x91}>\xb7y\x01\xe8-\xe5" +
-	"u\xd9\xa3\x00\xfe\xc5=@\x9fS\xd4}\xa1O\xe9Q" +
-	"\x01\xfe\xc1\x00\xd0\xfb\x8a\xfa\xaa\xb0\xf3$Kf\xdc\x86" +
-	"p\x1bt\xd1$/L\x1cZ\x00lB\xd8\x04kQ" +
-	"\xd6bf\xf34\x89Un+\xca\xdbD5J\xea2" +
-	"\xa0/(\xea\xdb\xc2NjmVQgM\x14e9" +
-	"w\xc0\xa1\"\xdb\x90\xf2Y[\xac,\x16CRw\x95" +
-	"\x07x\x04|3\x02\xf4cE=\x15\xee\xd29\xf6X" +
-	"\x96'\xb7\x00\x1d)\xeaT\xd8\x96\x7f\x8e\\_\xca\x9f" +
-	"\xbd\x84\xb4\xd5\xb2,\xd67\xf1\x1f\x0c .63\x9b" +
-	"\xa7&\x04m\xf5\xafW\xd9*\xc6:\x92*]\xdcX" +
-	"5\xdcj\xf9\xbc\xcc\xe8\x7f\x00\x00\x00\xff\xff\xa5\x8c\x83" +
-	"'"
+const schema_fa005a3c690f4a62 = "x\xdal\x91\xbf\xca\x13A\x14\xc5\xcf\xb9\xb3I>\xf0" +
+	"\xcb\x9fu#6F\x11,4$!ZI\x10\x14\xd1" +
+	"&\xa0d\x844b\xe1fw\x84\xa0\xd9]w6\x8a" +
+	"\x95(\xf8\x02>\x83\x85`\xe1#\xd8X\x88\xd8X\x09" +
+	"vV\xd6\x16\x16\x11td\x0d\x1b\x9bt3\xe7\x1e\xf8" +
+	"\xdd{N\xe7\xf3\x159_K\x05\xd0'ju\xf7\xfe" +
+	"\xcb\x9b\xb7\x07\xaf>=\x87>J\xbaq\xeb\xf5\x9d\xf9" +
+	"\xc9\xfe7\x1cS\x0d\x02A\x8f\x1f\xc1\xe04\x1f\x83\xee" +
+	"\xe6`s<57>\xecw>\xe3W0x\xf1\xcf" +
+	"\xb9\x9b\xe9#\xe4\xbb\xc5\xb4\xbd\xbct\xfb\xd7u\xd5P" +
+	"@\xf0\x83/\x83\x0d\x1b@\xf0\x93\xdf1t\x8b4-" +
+	"FQ\x98I\x92Mfat\xdf\x14#\xbb\xce\x1f\x99" +
+	"'\x80>P^\x87]\x0a\xe0\x9f\xeb\x03\xfa\x8c\xa2\x1e" +
+	"\x0b}J\x97\x0a\xf0\x87S@\x0f\x14\xf5Ea\xfb^" +
+	"\x9e\xaex\x08\xe1!\xe8\xe2\xa5-\xc2$2\x00X\x87" +
+	"\xb0\x0e\xee#\xe5\xc6fi\xa2\xac\xa9P\xde>T\xad" +
+	"D]\x00\xf4YE}M\xd8\xce\x8c\xc9+\xd4\xa90" +
+	"\x8es\xcb\x168Sd\x13R>w,V,\x163" +
+	"Rw\x94\x07x\x04\xfc\xf0\x16\xa0\xef*\xea\x07\xc2\x1e" +
+	"\x9dc\x97\xa5\xbc\xbc\x0a\xe8XQg\xc2\xa6\xfcq\xe4" +
+	"\xff\x82\xfc\xd5\x04\xd2T\xbfKq\xd7\x85?\x9fB\\" +
+	"\x12\xae\x8c\xcd\xc2\x084\xd5^Os\xf3pmlQ" +
+	"\xfd/oSu\xdb\x93m\x99\xcc\xdf\x00\x00\x00\xff\xff" +
+	"\x90Q|2"
 
 func init() {
 	schemas.Register(schema_fa005a3c690f4a62,

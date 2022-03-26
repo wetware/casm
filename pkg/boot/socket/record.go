@@ -12,9 +12,9 @@ type RecordType = boot.Packet_Which
 const (
 	EnvelopeDomain = "casm-boot-record"
 
-	TypeRequest        RecordType = boot.Packet_Which_request
-	TypeGradualRequest RecordType = boot.Packet_Which_gradualRequest
-	TypeResponse       RecordType = boot.Packet_Which_response
+	TypeRequest  RecordType = boot.Packet_Which_request
+	TypeSurvey   RecordType = boot.Packet_Which_survey
+	TypeResponse RecordType = boot.Packet_Which_response
 )
 
 // TODO:  register this once stable.
