@@ -392,7 +392,7 @@ func newTestHost() host.Host {
 		libp2p.NoListenAddrs,
 		libp2p.NoTransports,
 		libp2p.Transport(inproc.New()),
-		libp2p.ListenAddrStrings("/inproc/test"))
+		libp2p.ListenAddrStrings("/inproc/~"))
 	if err != nil {
 		panic(err)
 	}
