@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
+	"github.com/libp2p/go-libp2p-core/record"
 
 	"github.com/lthibault/log"
 
@@ -100,7 +101,7 @@ func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.
 		}
 
 		if s.sock.Tracking(ns) {
-			e, err := s.cache.LoadResponse(s.privkey(), ns)
+			e, err := s.cache.LoadResponse(s.sealer(), ns)
 			if err != nil {
 				s.log.WithError(err).Error("error loading response from cache")
 				return
@@ -133,7 +134,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 		return nil, err
 	}
 
-	e, err := s.cache.LoadGradualRequest(s.privkey(), ns, distance(opts))
+	e, err := s.cache.LoadSurveyRequest(s.sealer(), s.host.ID(), ns, distance(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -157,8 +158,14 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 	return out, nil
 }
 
-func (s *Surveyor) privkey() crypto.PrivKey {
-	return s.host.Peerstore().PrivKey(s.host.ID())
+func (s *Surveyor) sealer() socket.Sealer {
+	return func(r record.Record) (*record.Envelope, error) {
+		return record.Seal(r, privkey(s.host))
+	}
+}
+
+func privkey(h host.Host) crypto.PrivKey {
+	return h.Peerstore().PrivKey(h.ID())
 }
 
 func xor(id1, id2 peer.ID) uint32 {

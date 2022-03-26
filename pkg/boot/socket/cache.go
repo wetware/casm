@@ -5,11 +5,15 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	lru "github.com/hashicorp/golang-lru"
-	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/wetware/casm/internal/api/boot"
 )
+
+// Sealer is a higher-order function capable of sealing a
+// record for a specific peer. It prevents the cache from
+// having to manage private keys.
+type Sealer func(record.Record) (*record.Envelope, error)
 
 type RecordCache struct {
 	rec   atomic.Value
@@ -38,43 +42,38 @@ func (c *RecordCache) Reset(e *record.Envelope) error {
 	return e.TypedRecord(&rec)
 }
 
-func (c *RecordCache) LoadRequest(pk crypto.PrivKey, ns string) (*record.Envelope, error) {
+func (c *RecordCache) LoadRequest(seal Sealer, id peer.ID, ns string) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyRequest(ns)); ok {
 		return v.(*record.Envelope), nil
 	}
 
-	return c.bind(pk, ns, bindRequest(pk))
+	return c.bind(request(id), seal, ns)
 }
 
-func (c *RecordCache) LoadGradualRequest(pk crypto.PrivKey, ns string, dist uint8) (*record.Envelope, error) {
+func (c *RecordCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist uint8) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyGradual(ns, dist)); ok {
 		return v.(*record.Envelope), nil
 	}
 
-	return c.bind(pk, ns, bindGradualRequest(pk, dist))
+	return c.bind(surveyRequest(id, dist), seal, ns)
 }
 
-func (c *RecordCache) LoadResponse(pk crypto.PrivKey, ns string) (*record.Envelope, error) {
+func (c *RecordCache) LoadResponse(seal Sealer, ns string) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyResponse(ns)); ok {
 		return v.(*record.Envelope), nil
 	}
 
-	return c.bind(pk, ns, bindResponse)
+	return c.bind(response(c.rec.Load().(*peer.PeerRecord)), seal, ns)
 }
 
-func (c *RecordCache) bind(pk crypto.PrivKey, ns string, bind func(*peer.PeerRecord) func(boot.Packet) error) (*record.Envelope, error) {
-	pr := c.rec.Load().(*peer.PeerRecord)
-	rec, err := newCacheEntry(ns, bind(pr))
-	if err != nil {
-		return nil, err
-	}
+type bindFunc func(boot.Packet) error
 
-	e, err := record.Seal(&rec, pk)
-	if err == nil {
+func (c *RecordCache) bind(bind bindFunc, seal Sealer, ns string) (e *record.Envelope, err error) {
+	if e, err = newCacheEntry(bind, seal, ns); err == nil {
 		c.cache.Add(ns, e)
 	}
 
-	return e, err
+	return
 }
 
 type (
@@ -90,38 +89,34 @@ func keyGradual(ns string, dist uint8) keyGradualRequest {
 	return keyGradualRequest{ns: ns, dist: dist}
 }
 
-func newCacheEntry(ns string, bind func(boot.Packet) error) (Record, error) {
-	p, _ := newPacket(capnp.SingleSegment(nil), ns)
-	return Record(p), bind(p)
+func newCacheEntry(bind bindFunc, seal Sealer, ns string) (*record.Envelope, error) {
+	p, err := newPacket(capnp.SingleSegment(nil), ns)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = bind(p); err != nil {
+		return nil, err
+	}
+
+	return seal((*Record)(&p))
 }
 
-func bindRequest(pk crypto.PrivKey) func(*peer.PeerRecord) func(boot.Packet) error {
-	return func(_ *peer.PeerRecord) func(boot.Packet) error {
-		return func(p boot.Packet) error {
-			return bindID(p.SetRequest, pk)
-		}
+func request(from peer.ID) func(boot.Packet) error {
+	return func(p boot.Packet) error {
+		return p.SetRequest(string(from))
 	}
 }
 
-func bindGradualRequest(pk crypto.PrivKey, dist uint8) func(*peer.PeerRecord) func(boot.Packet) error {
-	return func(_ *peer.PeerRecord) func(boot.Packet) error {
-		return func(p boot.Packet) error {
-			p.SetGradualRequest()
-			p.GradualRequest().SetDistance(dist)
-			return bindID(p.GradualRequest().SetFrom, pk)
-		}
+func surveyRequest(from peer.ID, dist uint8) bindFunc {
+	return func(p boot.Packet) error {
+		p.SetGradualRequest()
+		p.GradualRequest().SetDistance(dist)
+		return p.GradualRequest().SetFrom(string(from))
 	}
 }
 
-func bindID(bind func(s string) error, pk crypto.PrivKey) error {
-	id, err := peer.IDFromPrivateKey(pk)
-	if err == nil {
-		err = bind(string(id))
-	}
-	return err
-}
-
-func bindResponse(r *peer.PeerRecord) func(boot.Packet) error {
+func response(r *peer.PeerRecord) bindFunc {
 	return func(p boot.Packet) error {
 		p.SetResponse()
 

@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
+	"github.com/libp2p/go-libp2p-core/record"
 
 	"github.com/lthibault/log"
 	ma "github.com/multiformats/go-multiaddr"
@@ -102,7 +103,7 @@ func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.A
 		}
 
 		if c.sock.Tracking(ns) {
-			e, err := c.cache.LoadResponse(c.privkey(), ns)
+			e, err := c.cache.LoadResponse(c.sealer(), ns)
 			if err != nil {
 				c.log.WithError(err).Error("error loading response from cache")
 				return
@@ -135,7 +136,7 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		return nil, err
 	}
 
-	e, err := c.cache.LoadRequest(c.privkey(), ns)
+	e, err := c.cache.LoadRequest(c.sealer(), c.host.ID(), ns)
 	if err != nil {
 		return nil, err
 	}
@@ -176,8 +177,14 @@ func (c *Crawler) active(ctx context.Context) (ok bool) {
 	return
 }
 
-func (c *Crawler) privkey() crypto.PrivKey {
-	return c.host.Peerstore().PrivKey(c.host.ID())
+func (c *Crawler) sealer() socket.Sealer {
+	return func(r record.Record) (*record.Envelope, error) {
+		return record.Seal(r, privkey(c.host))
+	}
+}
+
+func privkey(h host.Host) crypto.PrivKey {
+	return h.Peerstore().PrivKey(h.ID())
 }
 
 // TranscoderCIDR decodes a uint8 CIDR block
