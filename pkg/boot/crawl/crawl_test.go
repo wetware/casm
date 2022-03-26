@@ -92,7 +92,7 @@ func TestTranscoderCIDR(t *testing.T) {
 	})
 }
 
-func TestCrawl_request_noadvert(t *testing.T) {
+func TestCrawler_request_noadvert(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
@@ -130,7 +130,7 @@ func TestCrawl_request_noadvert(t *testing.T) {
 	assert.NoError(t, err, "should close gracefully")
 }
 
-func TestCrawl_advertise(t *testing.T) {
+func TestCrawler_advertise(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
@@ -193,7 +193,7 @@ func TestCrawl_advertise(t *testing.T) {
 	assert.NoError(t, err, "should close gracefully")
 }
 
-func TestCrawl_find_peers(t *testing.T) {
+func TestCrawler_find_peers(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
