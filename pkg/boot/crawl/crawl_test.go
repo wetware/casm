@@ -8,14 +8,16 @@ import (
 	"reflect"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	logtest "github.com/lthibault/log/test"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,6 +109,8 @@ func TestCrawler_request_noadvert(t *testing.T) {
 	h := newTestHost()
 	defer h.Close()
 
+	logger := logtest.NewMockLogger(ctrl)
+
 	conn := mock_net.NewMockPacketConn(ctrl)
 	conn.EXPECT().
 		Close().
@@ -124,10 +128,10 @@ func TestCrawler_request_noadvert(t *testing.T) {
 		DoAndReturn(blockUntilClosed(sync)).
 		AnyTimes()
 
-	c := crawl.New(h, conn, crawl.WithStrategy(rangeUDP()))
-
-	err := c.Close()
-	assert.NoError(t, err, "should close gracefully")
+	c := crawl.New(h, conn,
+		crawl.WithLogger(logger),
+		crawl.WithStrategy(rangeUDP()))
+	assert.NoError(t, c.Close(), "should close gracefully")
 }
 
 func TestCrawler_advertise(t *testing.T) {
@@ -152,6 +156,8 @@ func TestCrawler_advertise(t *testing.T) {
 
 	h := newTestHost()
 	defer h.Close()
+
+	logger := logtest.NewMockLogger(ctrl)
 
 	conn := mock_net.NewMockPacketConn(ctrl)
 	conn.EXPECT().
@@ -180,7 +186,10 @@ func TestCrawler_advertise(t *testing.T) {
 		DoAndReturn(blockUntilClosed(syncClose)).
 		AnyTimes()
 
-	c := crawl.New(h, conn, crawl.WithStrategy(rangeUDP()))
+	c := crawl.New(h, conn,
+		crawl.WithLogger(logger),
+		crawl.WithStrategy(rangeUDP()))
+	defer c.Close()
 
 	ttl, err := c.Advertise(ctx, "casm")
 	require.NoError(t, err, "advertise should succeed")
@@ -188,9 +197,6 @@ func TestCrawler_advertise(t *testing.T) {
 	close(syncAdvert)
 
 	<-syncReply
-
-	err = c.Close()
-	assert.NoError(t, err, "should close gracefully")
 }
 
 func TestCrawler_find_peers(t *testing.T) {
@@ -198,9 +204,6 @@ func TestCrawler_find_peers(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	var (
 		syncClose = make(chan struct{})
@@ -214,6 +217,8 @@ func TestCrawler_find_peers(t *testing.T) {
 
 	h := newTestHost()
 	defer h.Close()
+
+	logger := logtest.NewMockLogger(ctrl)
 
 	conn := mock_net.NewMockPacketConn(ctrl)
 	conn.EXPECT().
@@ -229,31 +234,34 @@ func TestCrawler_find_peers(t *testing.T) {
 		}).
 		Times(1)
 
-	readResp := conn.EXPECT().
+	conn.EXPECT().
 		ReadFrom(gomock.Any()).
 		DoAndReturn(readIncomingResponseAfter(addr, syncReq)).
-		Times(1)
+		MinTimes(1)
 
 	conn.EXPECT().
 		ReadFrom(gomock.Any()).
-		After(readResp).
 		DoAndReturn(blockUntilClosed(syncClose)).
 		AnyTimes()
 
-	c := crawl.New(h, conn, crawl.WithStrategy(rangeUDP(addr)))
+	c := crawl.New(h, conn,
+		crawl.WithLogger(logger),
+		crawl.WithStrategy(rangeUDP(addr)))
+	defer c.Close()
 
-	peers, err := c.FindPeers(ctx, "casm")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	peers, err := c.FindPeers(ctx, "casm", discovery.Limit(3))
 	require.NoError(t, err, "should not return error")
 
-	select {
-	case _, ok := <-peers:
-		assert.True(t, ok, "should return peer")
-	case <-time.After(time.Second):
-		t.Error("should return peer within 1s")
+	var ps []peer.AddrInfo
+	for info := range peers {
+		ps = append(ps, info)
+		break
 	}
 
-	err = c.Close()
-	assert.NoError(t, err, "should close gracefully")
+	assert.NotEmpty(t, ps, "should find one peer")
 }
 
 func bindClose(sync chan<- struct{}) func() error {
