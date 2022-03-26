@@ -57,6 +57,7 @@ func New(conn net.PacketConn, r *RateLimiter, p Protocol) *Socket {
 		sock:  newPacketConn(conn, r),
 		subs:  make(map[string]subscriberSet),
 		advt:  make(map[string]time.Time),
+		time:  time.Now(),
 		tick:  time.NewTicker(time.Millisecond * 500),
 		cache: p.Cache,
 	}
@@ -92,7 +93,7 @@ func (s *Socket) Track(ctx context.Context, h host.Host, ns string, ttl time.Dur
 	defer s.mu.Unlock()
 
 	err := s.ensureTrackHostAddr(ctx, h)
-	if err != nil {
+	if err == nil {
 		s.advt[ns] = s.time.Add(ttl)
 	}
 
