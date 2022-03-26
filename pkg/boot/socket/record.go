@@ -22,26 +22,6 @@ var EnvelopePayloadType = []byte{0x1f, 0x00}
 
 type Record boot.Packet
 
-// func NewRequest(ns string, id peer.ID) (Packet, error) {
-// 	p, err := newPacket(capnp.SingleSegment(nil), ns)
-// 	if err != nil {
-// 		return Packet{}, err
-// 	}
-
-// 	return Packet(p), p.SetRequest(string(id))
-// }
-
-// func NewGradualRequest(ns string, id peer.ID, dist uint8) (Packet, error) {
-// 	p, err := newPacket(capnp.SingleSegment(nil), ns)
-// 	if err != nil {
-// 		return Packet{}, err
-// 	}
-
-// 	p.SetGradualRequest()
-// 	p.GradualRequest().SetDistance(dist)
-// 	return Packet(p), p.GradualRequest().SetFrom(string(id))
-// }
-
 func (r Record) Type() RecordType {
 	return r.asPacket().Which()
 }

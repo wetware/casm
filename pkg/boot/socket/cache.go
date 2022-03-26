@@ -123,6 +123,8 @@ func bindID(bind func(s string) error, pk crypto.PrivKey) error {
 
 func bindResponse(r *peer.PeerRecord) func(boot.Packet) error {
 	return func(p boot.Packet) error {
+		p.SetResponse()
+
 		if err := p.Response().SetPeer(string(r.PeerID)); err != nil {
 			return err
 		}

@@ -64,7 +64,12 @@ func (s *Surveyor) Close() error {
 func (s *Surveyor) socketErrHandler(ctx context.Context) func(err error) {
 	return func(err error) {
 		if ctx.Err() == nil {
-			s.log.WithError(err).Debug("socket error")
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				s.log.Debug("read timeout")
+				return
+			}
+
+			s.log.WithError(err).Error("socket error")
 		}
 	}
 }

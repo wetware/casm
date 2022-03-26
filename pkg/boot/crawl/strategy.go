@@ -2,12 +2,17 @@ package crawl
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/bits"
 	"math/rand"
 	"net"
+	"strconv"
+
+	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
-type Strategy func() Range
+type Strategy func() (Range, error)
 
 type Range interface {
 	Next(a net.Addr) bool
@@ -31,15 +36,18 @@ type PortRange struct {
 //
 // If mask == 0, defaults to match all non-reserved ports, i.e.
 // all ports in the range (1024, 65535).
-func NewPortRange(ip net.IP, mask uint16) *PortRange {
-	pr := &PortRange{
-		IP:   ip,
-		Mask: mask,
+func NewPortScan(ip net.IP, mask uint16) Strategy {
+	return func() (Range, error) {
+		pr := &PortRange{
+			IP:   ip,
+			Mask: mask,
+		}
+
+		pr.Reset()
+
+		return pr, nil
 	}
 
-	pr.Reset()
-
-	return pr
 }
 
 // Reset internal state, allowing p to be reused.  Does
@@ -106,18 +114,45 @@ type CIDR struct {
 
 // CIDR returns a range that iterates through a block of IP addreses
 // in pseudorandom order, with a fixed port.
-func NewCIDR(cidr string, port int) (*CIDR, error) {
-	ip, subnet, err := net.ParseCIDR(cidr)
+func NewCIDR(cidr string, port int) Strategy {
+	return func() (Range, error) {
+		ip, subnet, err := net.ParseCIDR(cidr)
 
-	c := &CIDR{
-		ip:     ip,
-		Port:   port,
-		Subnet: subnet,
+		c := &CIDR{
+			ip:     ip,
+			Port:   port,
+			Subnet: subnet,
+		}
+
+		c.Reset()
+
+		return c, err
+	}
+}
+
+func ParseCIDR(maddr ma.Multiaddr) (Strategy, error) {
+	_, addr, err := manet.DialArgs(maddr)
+	if err != nil {
+		return nil, err
 	}
 
-	c.Reset()
+	host, portstr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
 
-	return c, err
+	port, err := strconv.Atoi(portstr)
+	if err != nil {
+		return nil, err
+	}
+
+	ones, err := maddr.ValueForProtocol(P_CIDR)
+	if err != nil {
+		return nil, err
+	}
+
+	cidr := fmt.Sprintf("%s/%s", host, ones)
+	return NewCIDR(cidr, port), nil
 }
 
 // Reset internal state, allowing p to be reused.  Does
@@ -180,4 +215,10 @@ func (c *CIDR) skip() bool {
 
 func (c *CIDR) setIP4(ip net.IP) {
 	binary.BigEndian.PutUint32(ip, c.i^c.rand)
+}
+
+func failure(err error) Strategy {
+	return func() (Range, error) {
+		return nil, err
+	}
 }

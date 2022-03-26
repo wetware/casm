@@ -24,9 +24,7 @@ func WithLogger(l log.Logger) Option {
 // interval (1024, 65535).
 func WithStrategy(s Strategy) Option {
 	if s == nil {
-		s = func() Range {
-			return NewPortRange(nil, 0)
-		}
+		s = NewPortScan(nil, 0)
 	}
 
 	return func(c *Crawler) {

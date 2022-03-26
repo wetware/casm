@@ -5,8 +5,6 @@ import (
 
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/wetware/casm/pkg/boot/crawl"
 )
 
 func TestParse(t *testing.T) {
@@ -38,14 +36,4 @@ func TestParse(t *testing.T) {
 				"should match")
 		})
 	}
-}
-
-func TestStrategy(t *testing.T) {
-	t.Parallel()
-
-	addr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/24")
-	s, err := strategy(addr)
-	require.NoError(t, err, "should succeed")
-	assert.IsType(t, new(crawl.CIDR), s(),
-		"should produce CIDR-crawl strategy")
 }

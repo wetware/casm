@@ -113,14 +113,22 @@ func newIPv4MulticastConn(c net.PacketConn, ifi *net.Interface, group *net.UDPAd
 	conn := ipv4.NewPacketConn(c)
 
 	err := conn.JoinGroup(ifi, &net.UDPAddr{IP: group.IP})
-	if err == nil {
-		err = conn.SetControlMessage(ipv4.FlagDst, true)
+	if err != nil {
+		return ipv4MulticastConn{}, err
+	}
+
+	if err = conn.SetControlMessage(ipv4.FlagDst, true); err != nil {
+		return ipv4MulticastConn{}, err
+	}
+
+	if err := conn.SetMulticastInterface(ifi); err != nil {
+		return ipv4MulticastConn{}, err
 	}
 
 	return ipv4MulticastConn{
 		PacketConn: conn,
 		group:      group,
-	}, err
+	}, nil
 }
 
 // LocalAddr returns the multicast group to which the connnection belongs.
@@ -154,8 +162,16 @@ func newIPv6MulticastConn(c net.PacketConn, ifi *net.Interface, group *net.UDPAd
 	conn := ipv6.NewPacketConn(c)
 
 	err := conn.JoinGroup(ifi, &net.UDPAddr{IP: group.IP})
-	if err == nil {
-		err = conn.SetControlMessage(ipv6.FlagDst, true)
+	if err != nil {
+		return ipv6MulticastConn{}, err
+	}
+
+	if err = conn.SetControlMessage(ipv6.FlagDst, true); err != nil {
+		return ipv6MulticastConn{}, err
+	}
+
+	if err = conn.SetMulticastInterface(ifi); err != nil {
+		return ipv6MulticastConn{}, err
 	}
 
 	return ipv6MulticastConn{

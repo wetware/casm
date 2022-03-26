@@ -129,6 +129,11 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		return nil, err
 	}
 
+	iter, err := c.iter()
+	if err != nil {
+		return nil, err
+	}
+
 	e, err := c.cache.LoadRequest(c.privkey(), ns)
 	if err != nil {
 		return nil, err
@@ -139,7 +144,7 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		defer cancel()
 
 		var addr net.UDPAddr
-		for iter := c.iter(); iter.Next(&addr); {
+		for iter.Next(&addr) {
 			if err := c.sock.Send(e, &addr); err != nil {
 				c.log.
 					WithError(err).

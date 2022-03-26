@@ -1,3 +1,4 @@
+// Package socket implements signed sockets for bootstrap services.
 package socket
 
 import (
@@ -17,8 +18,7 @@ import (
 	"go.uber.org/multierr"
 )
 
-// TODO:  can we reduce this?
-const maxDatagramSize = 8 << 10 // 8 KB
+const maxDatagramSize = 2 << 10 // KB
 
 var ErrClosed = errors.New("closed")
 

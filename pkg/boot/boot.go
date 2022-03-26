@@ -2,10 +2,7 @@ package boot
 
 import (
 	"errors"
-	"fmt"
 	"io"
-	"net"
-	"net/netip"
 
 	"github.com/lthibault/log"
 
@@ -29,17 +26,12 @@ type DiscoveryCloser interface {
 func Discover(log log.Logger, h host.Host, maddr ma.Multiaddr) (DiscoveryCloser, error) {
 	switch {
 	case crawler(maddr):
-		s, err := strategy(maddr)
+		s, err := crawl.ParseCIDR(maddr)
 		if err != nil {
 			return nil, err
 		}
 
-		network, addr, err := manet.DialArgs(maddr)
-		if err != nil {
-			return nil, err
-		}
-
-		conn, err := net.ListenPacket(network, addr)
+		conn, err := manet.ListenPacket(maddr)
 		if err != nil {
 			return nil, err
 		}
@@ -69,29 +61,6 @@ func Discover(log log.Logger, h host.Host, maddr ma.Multiaddr) (DiscoveryCloser,
 	}
 
 	return nil, ErrUnknownBootProto
-}
-
-func strategy(maddr ma.Multiaddr) (crawl.Strategy, error) {
-	_, addr, err := manet.DialArgs(maddr)
-	if err != nil {
-		return nil, err
-	}
-
-	ap, err := netip.ParseAddrPort(addr)
-	if err != nil {
-		return nil, err
-	}
-
-	cidr, err := maddr.ValueForProtocol(crawl.P_CIDR)
-	if err != nil {
-		return nil, err
-	}
-
-	r, err := crawl.NewCIDR(
-		fmt.Sprintf("%s/%s", ap.Addr(), cidr),
-		int(ap.Port()))
-
-	return func() crawl.Range { return r }, err
 }
 
 func crawler(maddr ma.Multiaddr) bool {
