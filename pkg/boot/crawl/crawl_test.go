@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p"
@@ -114,7 +115,7 @@ func TestCrawl_request_noadvert(t *testing.T) {
 
 	readReq := conn.EXPECT().
 		ReadFrom(gomock.Any()).
-		DoAndReturn(bindIncomingRequest(addr)).
+		DoAndReturn(readIncomingRequest(addr)).
 		Times(1)
 
 	conn.EXPECT().
@@ -129,7 +130,7 @@ func TestCrawl_request_noadvert(t *testing.T) {
 	assert.NoError(t, err, "should close gracefully")
 }
 
-func TestCrawl_request_advertised(t *testing.T) {
+func TestCrawl_advertise(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
@@ -166,7 +167,10 @@ func TestCrawl_request_advertised(t *testing.T) {
 	conn.EXPECT().
 		WriteTo(matchOutgoingResponse(), gomock.Eq(addr)).
 		After(readReq).
-		DoAndReturn(sendError(nil, syncReply)).
+		DoAndReturn(func(b []byte, _ net.Addr) (int, error) {
+			defer close(syncReply)
+			return len(b), nil
+		}).
 		Times(1)
 
 	conn.EXPECT().
@@ -176,8 +180,7 @@ func TestCrawl_request_advertised(t *testing.T) {
 		DoAndReturn(blockUntilClosed(syncClose)).
 		AnyTimes()
 
-	as := rangeUDP()
-	c := crawl.New(h, conn, crawl.WithStrategy(as))
+	c := crawl.New(h, conn, crawl.WithStrategy(rangeUDP()))
 
 	ttl, err := c.Advertise(ctx, "casm")
 	require.NoError(t, err, "advertise should succeed")
@@ -185,6 +188,69 @@ func TestCrawl_request_advertised(t *testing.T) {
 	close(syncAdvert)
 
 	<-syncReply
+
+	err = c.Close()
+	assert.NoError(t, err, "should close gracefully")
+}
+
+func TestCrawl_find_peers(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		syncClose = make(chan struct{})
+		syncReq   = make(chan struct{})
+	)
+
+	addr := &net.UDPAddr{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Port: 8822,
+	}
+
+	h := newTestHost()
+	defer h.Close()
+
+	conn := mock_net.NewMockPacketConn(ctrl)
+	conn.EXPECT().
+		Close().
+		DoAndReturn(bindClose(syncClose)).
+		Times(1)
+
+	conn.EXPECT().
+		WriteTo(gomock.Any(), gomock.Eq(addr)).
+		DoAndReturn(func(b []byte, _ net.Addr) (int, error) {
+			defer close(syncReq)
+			return len(b), nil
+		}).
+		Times(1)
+
+	readResp := conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		DoAndReturn(readIncomingResponseAfter(addr, syncReq)).
+		Times(1)
+
+	conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		After(readResp).
+		DoAndReturn(blockUntilClosed(syncClose)).
+		AnyTimes()
+
+	c := crawl.New(h, conn, crawl.WithStrategy(rangeUDP(addr)))
+
+	peers, err := c.FindPeers(ctx, "casm")
+	require.NoError(t, err, "should not return error")
+
+	select {
+	case _, ok := <-peers:
+		assert.True(t, ok, "should return peer")
+	case <-time.After(time.Second):
+		t.Error("should return peer within 1s")
+	}
 
 	err = c.Close()
 	assert.NoError(t, err, "should close gracefully")
@@ -209,7 +275,7 @@ var (
 	initReq, initGradual, initRes    sync.Once
 )
 
-func bindIncomingRequest(from net.Addr) func([]byte) (int, net.Addr, error) {
+func readIncomingRequest(from net.Addr) func([]byte) (int, net.Addr, error) {
 	return func(b []byte) (n int, addr net.Addr, err error) {
 		err = bindTestData(&initReq, &reqBytes, "../socket/testdata/request.golden.capnp")
 		n = copy(b, reqBytes)
@@ -219,7 +285,25 @@ func bindIncomingRequest(from net.Addr) func([]byte) (int, net.Addr, error) {
 }
 
 func readIncomingRequestAfter(from net.Addr, sync <-chan struct{}) func([]byte) (int, net.Addr, error) {
-	bind := bindIncomingRequest(from)
+	bind := readIncomingRequest(from)
+	return func(b []byte) (int, net.Addr, error) {
+		<-sync
+		return bind(b)
+	}
+}
+
+func readIncomingResponse(from net.Addr) func([]byte) (int, net.Addr, error) {
+	return func(b []byte) (n int, addr net.Addr, err error) {
+		err = bindTestData(&initReq, &reqBytes, "../socket/testdata/response.golden.capnp")
+		n = copy(b, reqBytes)
+		addr = from
+		return
+	}
+}
+
+func readIncomingResponseAfter(from net.Addr, sync <-chan struct{}) func([]byte) (int, net.Addr, error) {
+	bind := readIncomingResponse(from)
+
 	return func(b []byte) (int, net.Addr, error) {
 		<-sync
 		return bind(b)
@@ -265,18 +349,6 @@ func (m matchResponse) String() string {
 	return "is response packet"
 }
 
-func sendError(err error, sync chan<- struct{}) func([]byte, net.Addr) (int, error) {
-	return func(b []byte, a net.Addr) (int, error) {
-		defer close(sync)
-
-		if err == nil {
-			return len(b), nil
-		}
-
-		return 0, err
-	}
-}
-
 func bindTestData(init *sync.Once, b *[]byte, path string) (err error) {
 	init.Do(func() {
 		if *b, err = ioutil.ReadFile(path); err != nil {
@@ -308,6 +380,7 @@ func (r *mockRange) Next(a net.Addr) bool {
 		addr.IP = r.as[r.pos].IP
 		addr.Zone = r.as[r.pos].Zone
 		addr.Port = r.as[r.pos].Port
+		r.pos++
 		return true
 	}
 
