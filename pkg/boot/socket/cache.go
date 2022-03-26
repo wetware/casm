@@ -34,6 +34,9 @@ func (c *RecordCache) Initialized() bool {
 	return c.rec.Load() == nil
 }
 
+// Reset the cache by passing an envelope containing a host's
+// signed peer.PeerRecord.  This invalidates previous entries
+// and ensures all future records reference e's addresses.
 func (c *RecordCache) Reset(e *record.Envelope) error {
 	var rec peer.PeerRecord
 	defer c.cache.Purge()
@@ -42,6 +45,9 @@ func (c *RecordCache) Reset(e *record.Envelope) error {
 	return e.TypedRecord(&rec)
 }
 
+// LoadRequest searches the cache for a signed request packet for ns
+// and returns it, if found. Else, it creates and signs a new packet
+// and adds it to the cache.
 func (c *RecordCache) LoadRequest(seal Sealer, id peer.ID, ns string) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyRequest(ns)); ok {
 		return v.(*record.Envelope), nil
@@ -50,6 +56,9 @@ func (c *RecordCache) LoadRequest(seal Sealer, id peer.ID, ns string) (*record.E
 	return c.bind(request(id), seal, ns)
 }
 
+// LoadSurveyRequest searches the cache for a signed survey packet
+// with distance 'dist', and returns it if found. Else, it creates
+// and signs a new survey-request packet and adds it to the cache.
 func (c *RecordCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist uint8) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyGradual(ns, dist)); ok {
 		return v.(*record.Envelope), nil
@@ -58,6 +67,9 @@ func (c *RecordCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist
 	return c.bind(surveyRequest(id, dist), seal, ns)
 }
 
+// LoadResponse searches the cache for a signed response packet for ns
+// and returns it, if found. Else, it creates and signs a new response
+// packet and adds it to the cache.
 func (c *RecordCache) LoadResponse(seal Sealer, ns string) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyResponse(ns)); ok {
 		return v.(*record.Envelope), nil
