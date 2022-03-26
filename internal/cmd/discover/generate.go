@@ -27,7 +27,7 @@ func genpayload() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "response",
-				Aliases: []string{"res"},
+				Aliases: []string{"res", "resp"},
 				Usage:   "generate a response packet",
 			},
 			&cli.Uint64Flag{
