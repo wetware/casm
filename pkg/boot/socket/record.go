@@ -3,8 +3,11 @@ package socket
 import (
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/wetware/casm/internal/api/boot"
 )
+
+type RecordType = boot.Packet_Which
 
 const (
 	EnvelopeDomain = "casm-boot-record"
@@ -14,11 +17,13 @@ const (
 	TypeResponse       RecordType = boot.Packet_Which_response
 )
 
-type RecordType = boot.Packet_Which
-
 // TODO:  register this once stable.
 // https://github.com/multiformats/multicodec/blob/master/table.csv
 var EnvelopePayloadType = []byte{0x1f, 0x00}
+
+func init() {
+	record.RegisterType(&Record{})
+}
 
 type Record boot.Packet
 
