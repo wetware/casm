@@ -31,8 +31,10 @@ type Protocol struct {
 	Cache         *RecordCache
 }
 
+// Socket is a a packet-oriented network interface that exchanges
+// signed messages.
 type Socket struct {
-	sock socket
+	sock packetConn
 	tick *time.Ticker
 
 	mu   sync.RWMutex
@@ -44,9 +46,15 @@ type Socket struct {
 	cache *RecordCache
 }
 
-func New(conn net.PacketConn, p Protocol) *Socket {
+// New socket.  The wrapped PacketConn implementation MUST flush
+// its send buffer in a timely manner.  It must also provide
+// unreliable delivery semantics; if the underlying transport is
+// reliable, it MUST suppress any errors due to failed connections
+// or delivery.  The standard net.PacketConn implementations satisfy
+// these condiitions
+func New(conn net.PacketConn, r *RateLimiter, p Protocol) *Socket {
 	sock := &Socket{
-		sock:  socket{conn},
+		sock:  newPacketConn(conn, r),
 		subs:  make(map[string]subscriberSet),
 		advt:  make(map[string]time.Time),
 		tick:  time.NewTicker(time.Millisecond * 500),
@@ -98,8 +106,8 @@ func (s *Socket) Track(ctx context.Context, h host.Host, ns string, ttl time.Dur
 // The returned net.Addr is shared across calls, and MUST NOT be modified.
 func (s *Socket) LocalAddr() net.Addr { return s.sock.LocalAddr() }
 
-func (s *Socket) Send(e *record.Envelope, addr net.Addr) error {
-	return s.sock.Send(e, addr)
+func (s *Socket) Send(ctx context.Context, e *record.Envelope, addr net.Addr) error {
+	return s.sock.Send(ctx, e, addr)
 }
 
 func (s *Socket) Subscribe(ns string, limit int) (<-chan peer.AddrInfo, func()) {
@@ -278,50 +286,6 @@ func BasicValidator(id peer.ID) Validator {
 
 		return err
 	}
-}
-
-// Socket is a a packet-oriented network interface that exchanges
-// signed messages.
-//
-// The wrapped PacketConn implementation MUST flush its send buffer
-// in a timely manner (as is common in packet-oriented transports
-// like UDP).  It must also provide unreliable delivery semantics;
-// if the underlying transport is reliable, it MUST suppress any
-// errors due to failed connections or delivery.
-type socket struct{ net.PacketConn }
-
-// Send writes the message m to addr.  Send does not support
-// write timeouts since the underlying PacketConn provides a
-// best-effort transmission semantics, and flushes its buffer
-// quickly.
-//
-// Implementations MUST support concurrent calls to Send.
-func (s socket) Send(e *record.Envelope, addr net.Addr) error {
-	b, err := e.Marshal()
-	if err == nil {
-		_, err = s.WriteTo(b, addr)
-	}
-
-	return err
-}
-
-// Scan a record from the from the Socket, returning the originator's
-// along with the signed envelope.
-//
-// Callers MUST NOT make concurrent calls to Recv.
-func (s socket) Scan(validate Validator, p *Record) (net.Addr, error) {
-	var buf [maxDatagramSize]byte
-	n, addr, err := s.ReadFrom(buf[:])
-	if err != nil {
-		return nil, err
-	}
-
-	e, err := record.ConsumeTypedEnvelope(buf[:n], p)
-	if err != nil {
-		return nil, err
-	}
-
-	return addr, validate(e, p)
 }
 
 type subscriberSet map[subscriber]*resultLimiter

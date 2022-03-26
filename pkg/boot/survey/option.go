@@ -36,6 +36,20 @@ func WithCacheSize(size int) Option {
 	}
 }
 
+// WithRateLimiter sets the rate limiter for the underlying
+// socket. If lim == nil, a default rate limiter is applied.
+func WithRateLimiter(lim *socket.RateLimiter) Option {
+	if lim == nil {
+		const rate = 16 << 10 // kbit/sec (about 8 msg/sec)
+		const burst = 8 << 10 // kbits    (about 4 messages)
+		lim = socket.NewBandwidthLimiter(rate, burst)
+	}
+
+	return func(s *Surveyor) {
+		s.lim = lim
+	}
+}
+
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
 		WithLogger(nil),

@@ -24,6 +24,7 @@ var ErrClosed = errors.New("closed")
 // protocol.
 type Surveyor struct {
 	log    log.Logger
+	lim    *socket.RateLimiter
 	sock   *socket.Socket
 	host   host.Host
 	cache  *socket.RecordCache
@@ -46,7 +47,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
 		option(s)
 	}
 
-	s.sock = socket.New(conn, socket.Protocol{
+	s.sock = socket.New(conn, s.lim, socket.Protocol{
 		HandleError:   s.socketErrHandler(ctx),
 		HandleRequest: s.requestHandler(ctx),
 		Validate:      socket.BasicValidator(h.ID()),
@@ -106,7 +107,7 @@ func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.
 			}
 
 			// Send unicast response.
-			if err = s.sock.Send(e, addr); err != nil {
+			if err = s.sock.Send(ctx, e, addr); err != nil {
 				s.log.WithError(err).Debug("error sending unicast response")
 			}
 		}
@@ -148,7 +149,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 	}()
 
 	// Send multicast request.
-	if err := s.sock.Send(e, s.sock.LocalAddr()); err != nil {
+	if err := s.sock.Send(ctx, e, s.sock.LocalAddr()); err != nil {
 		cancel()
 		return nil, err
 	}

@@ -26,6 +26,7 @@ require (
 	go.uber.org/fx v1.17.0
 	go.uber.org/multierr v1.8.0
 	golang.org/x/net v0.0.0-20210813160813-60bc85c4be6d
+	golang.org/x/time v0.0.0-20220224211638-0e9765cccd65
 )
 
 require (

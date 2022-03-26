@@ -99,7 +99,7 @@ func teardown() cli.AfterFunc {
 }
 
 func setsock(c *cli.Context, conn net.PacketConn) error {
-	sock = socket.New(conn, socket.Protocol{
+	sock = socket.New(conn, nil, socket.Protocol{
 		HandleError:   errlogger(c),
 		HandleRequest: func(socket.Request, net.Addr) {},
 		Validate:      render(c, "multicast"),

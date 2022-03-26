@@ -42,6 +42,7 @@ var (
 
 type Crawler struct {
 	log    log.Logger
+	lim    *socket.RateLimiter
 	sock   *socket.Socket
 	host   host.Host
 	iter   Strategy
@@ -63,7 +64,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
 		option(c)
 	}
 
-	c.sock = socket.New(conn, socket.Protocol{
+	c.sock = socket.New(conn, c.lim, socket.Protocol{
 		HandleError:   c.socketErrHandler(ctx),
 		HandleRequest: c.requestHandler(ctx),
 		Validate:      socket.BasicValidator(h.ID()),
@@ -107,7 +108,7 @@ func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.A
 				return
 			}
 
-			if err = c.sock.Send(e, addr); err != nil {
+			if err = c.sock.Send(ctx, e, addr); err != nil {
 				c.log.WithError(err).Debug("error sending response")
 			}
 		}
@@ -145,7 +146,7 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 
 		var addr net.UDPAddr
 		for c.active(ctx) && iter.Next(&addr) {
-			if err := c.sock.Send(e, &addr); err != nil {
+			if err := c.sock.Send(ctx, e, &addr); err != nil {
 				c.log.
 					WithError(err).
 					WithField("to", &addr).

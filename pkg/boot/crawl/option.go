@@ -47,6 +47,18 @@ func WithCacheSize(size int) Option {
 	}
 }
 
+// WithRateLimiter sets the rate limiter for the underlying
+// socket. If lim == nil, a default rate limiter is applied.
+func WithRateLimiter(lim *socket.RateLimiter) Option {
+	if lim == nil {
+		lim = socket.NewPacketLimiter(32., 32)
+	}
+
+	return func(c *Crawler) {
+		c.lim = lim
+	}
+}
+
 func withDefaults(opt []Option) []Option {
 	return append([]Option{
 		WithLogger(nil),

@@ -100,7 +100,7 @@ func send(c *cli.Context) error {
 	}
 
 	for i := 0; repeat(c, i); i++ {
-		if err = sock.Send(e, addr); err != nil {
+		if err = sock.Send(c.Context, e, addr); err != nil {
 			break
 		}
 
