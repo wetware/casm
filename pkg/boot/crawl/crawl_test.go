@@ -1,19 +1,26 @@
 package crawl_test
 
 import (
-	// "context"
-	// "fmt"
-	// "net"
+	"context"
+	"fmt"
+	"io/ioutil"
+	"net"
+	"reflect"
+	"sync"
 	"testing"
-	// "time"
 
-	// "github.com/libp2p/go-libp2p"
-	// "github.com/libp2p/go-libp2p-core/discovery"
-	// "github.com/libp2p/go-libp2p-core/host"
-	// inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	"github.com/golang/mock/gomock"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/peerstore"
+	"github.com/libp2p/go-libp2p-core/record"
+	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	mock_net "github.com/wetware/casm/internal/mock/net"
 	"github.com/wetware/casm/pkg/boot/crawl"
+	"github.com/wetware/casm/pkg/boot/socket"
 )
 
 func TestMultiaddr(t *testing.T) {
@@ -84,151 +91,238 @@ func TestTranscoderCIDR(t *testing.T) {
 	})
 }
 
-// func TestOne(t *testing.T) {
-// 	t.Parallel()
-// 	t.Helper()
+func TestCrawl_request_noadvert(t *testing.T) {
+	t.Parallel()
 
-// 	var (
-// 		ip          = net.ParseIP("127.0.1.10")
-// 		cidr string = fmt.Sprintf("%v/24", ip.String())
-// 		port        = 8822
-// 		addr        = &net.UDPAddr{IP: ip, Port: port}
-// 		ns   string = "one"
-// 	)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
+	sync := make(chan struct{})
+	addr := &net.UDPAddr{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Port: 8822,
+	}
 
-// 	h := newTestHost()
+	h := newTestHost()
+	defer h.Close()
 
-// 	iter, err := crawl.NewCIDR(cidr, port)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, iter)
+	conn := mock_net.NewMockPacketConn(ctrl)
+	conn.EXPECT().
+		Close().
+		DoAndReturn(bindClose(sync)).
+		Times(1)
 
-// 	c, err := crawl.New(h, addr, iter)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, c)
-// 	defer c.Close()
+	readReq := conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		DoAndReturn(bindIncomingRequest(addr)).
+		Times(1)
 
-// 	require.NotNil(t, c)
-// 	finder, err := c.FindPeers(ctx, ns)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, finder)
+	conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		After(readReq).
+		DoAndReturn(blockUntilClosed(sync)).
+		AnyTimes()
 
-// 	n := 0
-// 	for range finder {
-// 		n++
-// 	}
-// 	require.Equal(t, 0, n)
-// }
+	c := crawl.New(h, conn, crawl.WithStrategy(rangeUDP()))
 
-// func TestTwo(t *testing.T) {
-// 	t.Parallel()
-// 	t.Helper()
+	err := c.Close()
+	assert.NoError(t, err, "should close gracefully")
+}
 
-// 	var (
-// 		ip0          = net.ParseIP("127.0.2.10")
-// 		ip1          = net.ParseIP("127.0.2.11")
-// 		port         = 8822
-// 		addr0        = &net.UDPAddr{IP: ip0, Port: port}
-// 		addr1        = &net.UDPAddr{IP: ip1, Port: port}
-// 		ns    string = "two"
-// 		ttl          = time.Hour
-// 	)
+func TestCrawl_request_advertised(t *testing.T) {
+	t.Parallel()
 
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-// 	h0 := newTestHost()
-// 	h1 := newTestHost()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-// 	iter0, err := crawl.NewCIDR("127.0.2.0/24", port)
-// 	require.NoError(t, err)
+	var (
+		syncClose  = make(chan struct{})
+		syncAdvert = make(chan struct{})
+		syncReply  = make(chan struct{})
+	)
 
-// 	c0, err := crawl.New(h0, addr0, iter0)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, c0)
-// 	defer c0.Close()
+	addr := &net.UDPAddr{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Port: 8822,
+	}
 
-// 	iter1, err := crawl.NewCIDR("127.0.2.0/24", port)
-// 	require.NoError(t, err)
+	h := newTestHost()
+	defer h.Close()
 
-// 	c1, err := crawl.New(h1, addr1, iter1)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, c0)
-// 	defer c1.Close()
+	conn := mock_net.NewMockPacketConn(ctrl)
+	conn.EXPECT().
+		Close().
+		DoAndReturn(bindClose(syncClose)).
+		Times(1)
 
-// 	_, err = c1.Advertise(ctx, ns, discovery.TTL(ttl))
-// 	require.NoError(t, err)
+	readReq := conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		DoAndReturn(readIncomingRequestAfter(addr, syncAdvert)).
+		Times(1)
 
-// 	finder, err := c0.FindPeers(ctx, ns)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, finder)
+	conn.EXPECT().
+		WriteTo(matchOutgoingResponse(), gomock.Eq(addr)).
+		After(readReq).
+		DoAndReturn(sendError(nil, syncReply)).
+		Times(1)
 
-// 	n := 0
-// 	for info := range finder {
-// 		require.EqualValues(t, h1.ID(), info.ID)
-// 		n++
-// 	}
-// 	require.Equal(t, 1, n)
-// }
+	conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		After(readReq).
+		Return(0, nil, net.ErrClosed).
+		DoAndReturn(blockUntilClosed(syncClose)).
+		AnyTimes()
 
-// func TestMultiple(t *testing.T) {
-// 	t.Parallel()
-// 	t.Helper()
+	as := rangeUDP()
+	c := crawl.New(h, conn, crawl.WithStrategy(as))
 
-// 	const (
-// 		N           = 20
-// 		port        = 8822
-// 		ns   string = "multiple"
-// 		ttl         = time.Hour
-// 	)
+	ttl, err := c.Advertise(ctx, "casm")
+	require.NoError(t, err, "advertise should succeed")
+	assert.Equal(t, peerstore.TempAddrTTL, ttl)
+	close(syncAdvert)
 
-// 	var (
-// 		hs  = make([]host.Host, N)
-// 		cs  = make([]*crawl.Crawler, N)
-// 		err error
-// 	)
+	<-syncReply
 
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
+	err = c.Close()
+	assert.NoError(t, err, "should close gracefully")
+}
 
-// 	for i := 0; i < N; i++ {
-// 		hs[i] = newTestHost()
-// 		defer hs[i].Close()
+func bindClose(sync chan<- struct{}) func() error {
+	return func() error {
+		defer close(sync)
+		return nil
+	}
+}
 
-// 		iter, err := crawl.NewCIDR("127.0.3.0/24", port)
-// 		require.NoError(t, err)
+func blockUntilClosed(sync <-chan struct{}) func([]byte) (int, net.Addr, error) {
+	return func([]byte) (int, net.Addr, error) {
+		<-sync
+		return 0, nil, net.ErrClosed
+	}
+}
 
-// 		cs[i], err = crawl.New(hs[i], &net.UDPAddr{IP: net.ParseIP(fmt.Sprintf("127.0.3.%v", i+10)), Port: port}, iter)
-// 		require.NoError(t, err)
-// 		require.NotNil(t, cs[i])
-// 		defer cs[i].Close()
+var (
+	reqBytes, gradualBytes, resBytes []byte
+	initReq, initGradual, initRes    sync.Once
+)
 
-// 		_, err = cs[i].Advertise(ctx, ns, discovery.TTL(ttl))
-// 		require.NoError(t, err)
-// 	}
+func bindIncomingRequest(from net.Addr) func([]byte) (int, net.Addr, error) {
+	return func(b []byte) (n int, addr net.Addr, err error) {
+		err = bindTestData(&initReq, &reqBytes, "../socket/testdata/request.golden.capnp")
+		n = copy(b, reqBytes)
+		addr = from
+		return
+	}
+}
 
-// 	finder, err := cs[0].FindPeers(ctx, ns)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, finder)
+func readIncomingRequestAfter(from net.Addr, sync <-chan struct{}) func([]byte) (int, net.Addr, error) {
+	bind := bindIncomingRequest(from)
+	return func(b []byte) (int, net.Addr, error) {
+		<-sync
+		return bind(b)
+	}
+}
 
-// 	n := 0
-// 	for range finder {
-// 		n++
-// 	}
-// 	require.Equal(t, N, n)
-// }
+func matchOutgoingResponse() gomock.Matcher {
+	return &matchResponse{}
+}
 
-// func newTestHost() host.Host {
-// 	h, err := libp2p.New(
-// 		libp2p.NoListenAddrs,
-// 		libp2p.NoTransports,
-// 		libp2p.Transport(inproc.New()),
-// 		libp2p.ListenAddrStrings("/inproc/~"))
-// 	if err != nil {
-// 		panic(err)
-// 	}
+type matchResponse struct {
+	err error
+}
 
-// 	return h
-// }
+// Matches returns whether x is a match.
+func (m *matchResponse) Matches(x interface{}) bool {
+	b, ok := x.([]byte)
+	if !ok {
+		m.err = fmt.Errorf("expected *boot.Record, got %s", reflect.TypeOf(x))
+		return false
+	}
+
+	_, rec, err := record.ConsumeEnvelope(b, socket.EnvelopeDomain)
+	if err != nil {
+		m.err = fmt.Errorf("consume envelope: %w", err)
+		return false
+	}
+
+	if _, ok = rec.(*socket.Record); !ok {
+		m.err = fmt.Errorf("expected *boot.Record, got %s", reflect.TypeOf(rec))
+		return false
+	}
+
+	return true
+}
+
+// String describes what the matcher matches.
+func (m matchResponse) String() string {
+	if m.err != nil {
+		return m.err.Error()
+	}
+
+	return "is response packet"
+}
+
+func sendError(err error, sync chan<- struct{}) func([]byte, net.Addr) (int, error) {
+	return func(b []byte, a net.Addr) (int, error) {
+		defer close(sync)
+
+		if err == nil {
+			return len(b), nil
+		}
+
+		return 0, err
+	}
+}
+
+func bindTestData(init *sync.Once, b *[]byte, path string) (err error) {
+	init.Do(func() {
+		if *b, err = ioutil.ReadFile(path); err != nil {
+			panic(err)
+		}
+	})
+
+	return
+}
+
+type mockRange struct {
+	pos int
+	as  []*net.UDPAddr
+}
+
+func rangeUDP(as ...*net.UDPAddr) crawl.Strategy {
+	return func() (crawl.Range, error) {
+		return &mockRange{as: as}, nil
+	}
+}
+
+func (r *mockRange) Next(a net.Addr) bool {
+	if r.pos == len(r.as) {
+		return false
+	}
+
+	switch addr := a.(type) {
+	case *net.UDPAddr:
+		addr.IP = r.as[r.pos].IP
+		addr.Zone = r.as[r.pos].Zone
+		addr.Port = r.as[r.pos].Port
+		return true
+	}
+
+	panic("unreachable")
+}
+
+func newTestHost() host.Host {
+	h, err := libp2p.New(
+		libp2p.NoListenAddrs,
+		libp2p.NoTransports,
+		libp2p.Transport(inproc.New()),
+		libp2p.ListenAddrStrings("/inproc/test"))
+	if err != nil {
+		panic(err)
+	}
+
+	return h
+}
