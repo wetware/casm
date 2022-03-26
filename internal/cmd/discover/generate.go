@@ -59,7 +59,38 @@ func generate(c *cli.Context) (*record.Envelope, error) {
 		return nil, err
 	}
 
-	rec := peer.NewPeerRecord()
+	rec, err := newPeerRecord(pk)
+	if err != nil {
+		return nil, err
+	}
+
+	seal := sealer(pk)
+
+	e, err := seal(rec)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = cache.Reset(e); err != nil {
+		return nil, err
+	}
+
+	if c.Bool("resp") {
+		return cache.LoadResponse(seal, c.String("ns"))
+	}
+
+	if c.IsSet("dist") {
+		return cache.LoadSurveyRequest(seal,
+			rec.PeerID,
+			c.String("ns"),
+			uint8(c.Uint("dist")))
+	}
+
+	return cache.LoadRequest(seal, rec.PeerID, c.String("ns"))
+}
+
+func newPeerRecord(pk crypto.PrivKey) (rec *peer.PeerRecord, err error) {
+	rec = peer.NewPeerRecord()
 	rec.PeerID, err = peer.IDFromPrivateKey(pk)
 	if err != nil {
 		return nil, err
@@ -70,26 +101,13 @@ func generate(c *cli.Context) (*record.Envelope, error) {
 	rec.Addrs = append(rec.Addrs, ma.StringCast(fmt.Sprintf(
 		"/ip6/::1/udp/2020/quic/p2p/%s", rec.PeerID)))
 
-	e, err := record.Seal(rec, pk)
-	if err != nil {
-		return nil, err
-	}
+	return
+}
 
-	if err = cache.Reset(e); err != nil {
-		return nil, err
+func sealer(pk crypto.PrivKey) func(record.Record) (*record.Envelope, error) {
+	return func(r record.Record) (*record.Envelope, error) {
+		return record.Seal(r, pk)
 	}
-
-	if c.Bool("resp") {
-		return cache.LoadResponse(pk, c.String("ns"))
-	}
-
-	if c.IsSet("dist") {
-		return cache.LoadGradualRequest(pk,
-			c.String("ns"),
-			uint8(c.Uint("dist")))
-	}
-
-	return cache.LoadRequest(pk, c.String("ns"))
 }
 
 func privkey() (crypto.PrivKey, error) {
