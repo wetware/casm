@@ -144,24 +144,13 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		defer cancel()
 
 		var addr net.UDPAddr
-		for iter.Next(&addr) {
+		for c.active(ctx) && iter.Next(&addr) {
 			if err := c.sock.Send(e, &addr); err != nil {
 				c.log.
 					WithError(err).
 					WithField("to", &addr).
 					Debug("failed to send request packet")
 				return
-			}
-
-			// TODO:  rate-limiting & flow-control goes here
-			select {
-			case <-c.done:
-				return
-
-			case <-ctx.Done():
-				return
-
-			default:
 			}
 		}
 
@@ -173,6 +162,17 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 	}()
 
 	return out, nil
+}
+
+func (c *Crawler) active(ctx context.Context) (ok bool) {
+	select {
+	case <-ctx.Done():
+	case <-c.done:
+	default:
+		ok = true
+	}
+
+	return
 }
 
 func (c *Crawler) privkey() crypto.PrivKey {
