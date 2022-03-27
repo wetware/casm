@@ -23,7 +23,7 @@ Users can stack additional guarantees in application logic, for example by build
 
 ### Installation
 
-Run `go get github.com/wetware/casm@latest` with modules enabled.
+Run `go get github.com/wetware/casm` with modules enabled.
 
 ### Usage
 
