@@ -80,12 +80,6 @@ func (c *Crawler) Close() error {
 	return c.sock.Close()
 }
 
-func running(ctx context.Context) func() bool {
-	return func() bool {
-		return ctx.Err() == nil
-	}
-}
-
 func (c *Crawler) socketErrHandler(ctx context.Context) func(err error) {
 	return func(err error) {
 		if ctx.Err() == nil {
