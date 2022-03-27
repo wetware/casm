@@ -4,445 +4,156 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"net"
-	"sync/atomic"
 	"time"
 
+	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/discovery"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
 
 	"github.com/lthibault/log"
 
-	capnp "capnproto.org/go/capnp/v3"
-
-	"github.com/wetware/casm/internal/api/survey"
-	netutil "github.com/wetware/casm/pkg/util/net"
-)
-
-const (
-	defaultTTL      = time.Minute
-	maxDatagramSize = 8192
+	"github.com/wetware/casm/pkg/boot/socket"
 )
 
 var ErrClosed = errors.New("closed")
 
-type DialFunc func(net.Addr) (net.PacketConn, error)
-
-func (dial DialFunc) Dial(addr net.Addr) (net.PacketConn, error) {
-	if dial != nil {
-		return dial(addr)
-	}
-
-	udpAddr, err := net.ResolveUDPAddr(addr.Network(), addr.String())
-	if err != nil {
-		return nil, err
-	}
-	return net.ListenUDP(addr.Network(), udpAddr)
-}
-
-type ListenFunc func(net.Addr) (net.PacketConn, error)
-
-func (listen ListenFunc) Listen(addr net.Addr) (net.PacketConn, error) {
-	if listen != nil {
-		return listen(addr)
-	}
-
-	udpAddr, err := net.ResolveUDPAddr(addr.Network(), addr.String())
-	if err != nil {
-		return nil, err
-	}
-	return net.ListenMulticastUDP(addr.Network(), nil, udpAddr)
-}
-
-type Transport struct {
-	DialFunc
-	ListenFunc
-}
-
+// Surveyor discovers peers through a surveyor/respondent multicast
+// protocol.
 type Surveyor struct {
-	done <-chan struct{}
-	log  log.Logger
-
-	t     time.Time
-	thunk chan<- func()
-
-	e   atomic.Value
-	rec atomic.Value
-
-	mustFind      map[string]map[listener]struct{}
-	mustAdvertise map[string]time.Time
-
-	tp    Transport
-	c     comm
-	cherr chan<- error
-	err   atomic.Value
+	log    log.Logger
+	lim    *socket.RateLimiter
+	sock   *socket.Socket
+	host   host.Host
+	cache  *socket.RecordCache
+	done   <-chan struct{}
+	cancel context.CancelFunc
 }
 
-func New(h host.Host, addr net.Addr, opt ...Option) (*Surveyor, error) {
-	var (
-		done  = make(chan struct{})
-		cherr = make(chan error, 1)
-		thunk = make(chan func())
-		recv  = make(chan *capnp.Message, 8)
-		send  = make(chan *capnp.Message, 8)
-	)
+// New surveyor.  The supplied PacketConn SHOULD be bound to a multicast
+// group.  Use of JoinMulticastGroup to construct conn is RECOMMENDED.
+func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
+	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Surveyor{
-		t:             netutil.Time(),
-		thunk:         thunk,
-		done:          done,
-		cherr:         cherr,
-		mustFind:      make(map[string]map[listener]struct{}),
-		mustAdvertise: make(map[string]time.Time),
+		host:   h,
+		done:   ctx.Done(),
+		cancel: cancel,
 	}
 
 	for _, option := range withDefaults(opt) {
 		option(s)
 	}
 
-	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-	if err != nil {
-		return nil, err
-	}
+	s.sock = socket.New(conn, socket.Protocol{
+		Validate:      socket.BasicValidator(h.ID()),
+		HandleError:   socket.BasicErrHandler(ctx, s.log),
+		HandleRequest: s.requestHandler(ctx),
+		// RateLimiter:   s.lim,  // FIXME:  blocks reads when waiting to write
+		Cache: s.cache,
+	})
 
-	// Ensure the sync operation is run before anything else
-	v, ok := <-sub.Out()
-	if !ok {
-		return nil, fmt.Errorf("host %w", ErrClosed)
-	}
-	s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
-
-	lconn, err := s.tp.Listen(addr)
-	if err != nil {
-		return nil, err
-	}
-
-	dconn, err := s.tp.Dial(addr)
-	if err != nil {
-		lconn.Close()
-		return nil, err
-	}
-
-	s.c = comm{
-		log:   s.log,
-		done:  done,
-		cherr: cherr,
-		recv:  recv,
-		send:  send,
-
-		addr:  addr,
-		dconn: dconn,
-	}
-
-	go s.c.StartRecv(lconn)
-	go s.c.StartSend(dconn)
-
-	go func() {
-		for v := range sub.Out() {
-			s.setLocalRecord(v.(event.EvtLocalAddressesUpdated))
-		}
-	}()
-
-	go func() {
-		defer lconn.Close()
-		defer dconn.Close()
-		defer sub.Close()
-		defer close(done)
-
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case s.t = <-ticker.C:
-				for ns, deadline := range s.mustAdvertise {
-					if s.t.After(deadline) {
-						delete(s.mustAdvertise, ns)
-					}
-				}
-
-			case f := <-thunk:
-				f()
-			case m := <-recv:
-				if err := s.handleMessage(m); err != nil {
-					s.log.WithError(err).Debug("dropped message")
-				}
-
-			case err := <-cherr:
-				s.err.CompareAndSwap(error(nil), err)
-				return
-			}
-		}
-	}()
-
-	return s, nil
+	return s
 }
 
 func (s *Surveyor) Close() error {
-	select {
-	case s.cherr <- ErrClosed:
-	default:
-	}
-
-	<-s.done
-	return nil
+	s.cancel()
+	return s.sock.Close()
 }
 
-func (s *Surveyor) setLocalRecord(ev event.EvtLocalAddressesUpdated) {
-	r, _ := ev.SignedPeerRecord.Record()
-	rec := r.(*peer.PeerRecord)
-	s.e.Store(ev.SignedPeerRecord)
-	s.rec.Store(rec)
-}
+func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {
+	return func(r socket.Request, addr net.Addr) {
+		id, err := r.From()
+		if err != nil {
+			s.log.WithError(err).Debug("invalid ID in request packet")
+			return
+		}
 
-func (s *Surveyor) handleMessage(m *capnp.Message) error {
-	p, err := survey.ReadRootPacket(m)
-	if err != nil {
-		return err
-	}
+		// request comes from itself?
+		if id == s.host.ID() {
+			return
+		}
 
-	switch p.Which() {
-	case survey.Packet_Which_request:
-		return s.handleRequest(p)
+		// distance too large?
+		if s.ignore(id, r.Distance()) {
+			return
+		}
 
-	case survey.Packet_Which_response:
-		return s.handleResponse(p)
-	}
+		ns, err := r.Namespace()
+		if err != nil {
+			s.log.WithError(err).Debug("invalid namespace in request packet")
+			return
+		}
 
-	return fmt.Errorf("unrecognized packet type '%d'", p.Which())
-}
+		if s.sock.Tracking(ns) {
+			e, err := s.cache.LoadResponse(s.sealer(), ns)
+			if err != nil {
+				s.log.WithError(err).Error("error loading response from cache")
+				return
+			}
 
-func (s *Surveyor) handleRequest(p survey.Packet) error {
-	request, err := p.Request()
-	if err != nil {
-		return err
-	}
-
-	// validate requester
-	envelope, err := request.Src()
-	if err != nil {
-		return err
-	}
-
-	var rec peer.PeerRecord
-	if _, err = record.ConsumeTypedEnvelope(envelope, &rec); err != nil {
-		return err
-	}
-
-	if rec.PeerID == s.rec.Load().(*peer.PeerRecord).PeerID {
-		return nil // request comes from itself
-	}
-
-	if s.ignore(rec.PeerID, request.Distance()) {
-		return nil // ignore
-	}
-
-	ns, err := p.Namespace()
-	if err != nil {
-		return err
-	}
-
-	if _, ok := s.mustAdvertise[ns]; !ok {
-		return nil // namespace not advertised
-	}
-
-	if err = s.setResponse(ns, p); err != nil {
-		return err
-	}
-
-	return s.c.Send(p.Message())
-}
-
-func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
-	return xor(s.rec.Load().(*peer.PeerRecord).PeerID, id)>>uint32(d) != 0
-}
-
-func (s *Surveyor) setResponse(ns string, p survey.Packet) error {
-	if err := p.SetNamespace(ns); err != nil {
-		return err
-	}
-
-	b, err := s.e.Load().(*record.Envelope).Marshal()
-	if err != nil {
-		return err
-	}
-
-	return p.SetResponse(b)
-}
-
-func (s *Surveyor) handleResponse(p survey.Packet) error {
-	ns, err := p.Namespace()
-	if err != nil {
-		return err
-	}
-
-	envelope, err := p.Response()
-	if err != nil {
-		return err
-	}
-
-	var rec peer.PeerRecord
-	if _, err = record.ConsumeTypedEnvelope(envelope, &rec); err != nil {
-		return err
-	}
-
-	if finders, ok := s.mustFind[ns]; ok {
-		for f := range finders {
-			select {
-			case f.Ch <- &rec:
-			default:
+			// Send unicast response.
+			if err = s.sock.Send(ctx, e, addr); err != nil {
+				s.log.WithError(err).Debug("error sending unicast response")
 			}
 		}
 	}
+}
 
-	return nil
+func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
+	return xor(s.host.ID(), id)>>uint32(d) != 0
 }
 
 func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	var opts = discovery.Options{Ttl: defaultTTL}
+	var opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
 	if err := opts.Apply(opt...); err != nil {
 		return 0, err
 	}
 
-	select {
-	case s.thunk <- func() { s.mustAdvertise[ns] = s.t.Add(opts.Ttl) }:
-		// No need to synchronize.  Thunk is guaranteed to happen
-		// before the next operation (e.g. FindPeers).
-		return opts.Ttl, nil
-	case <-ctx.Done():
-		return 0, ctx.Err()
-
-	case <-s.done:
-		return 0, ErrClosed
-	}
+	return opts.Ttl, s.sock.Track(ctx, s.host, ns, opts.Ttl)
 }
 
 func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	if err := s.err.Load(); err != nil {
-		return nil, err.(error)
-	}
-
-	var opts discovery.Options
+	opts := discovery.Options{Limit: 1}
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
 	}
 
-	m, err := s.buildRequest(ns, distance(opts))
+	e, err := s.cache.LoadSurveyRequest(s.sealer(), s.host.ID(), ns, distance(opts))
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		cherr = make(chan error, 1) // TODO:  pool?
-		recv  = make(chan *peer.PeerRecord, 8)
-		out   = make(chan peer.AddrInfo, 8)
-	)
+	out, cancel := s.sock.Subscribe(ns, opts.Limit)
+	go func() {
+		defer cancel()
 
-	loop := func() {
-		defer close(out)
-		defer func() {
-			select {
-			case s.thunk <- func() {
-				if nsm, ok := s.mustFind[ns]; ok {
-					delete(nsm, listener{recv})
-				}
-				close(recv)
-			}:
-			case <-s.done:
-			}
-		}()
-
-		for {
-			select {
-			case rec := <-recv:
-				select {
-				case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
-					if opts.Limit--; opts.Limit == 0 {
-						return
-					}
-
-				case <-ctx.Done():
-				case <-s.done:
-				}
-
-			case <-ctx.Done():
-				return
-			case <-s.done:
-				return
-			}
+		select {
+		case <-ctx.Done():
+		case <-s.done:
 		}
+	}()
+
+	// Send multicast request.
+	if err := s.sock.Send(ctx, e, s.sock.LocalAddr()); err != nil {
+		cancel()
+		return nil, err
 	}
 
-	findPeers := func() {
-		if err := s.c.Send(m); err != nil {
-			cherr <- err
-			return
-		}
+	return out, nil
+}
 
-		ls, ok := s.mustFind[ns]
-		if !ok {
-			ls = map[listener]struct{}{}
-			s.mustFind[ns] = ls
-		}
-
-		ls[listener{recv}] = struct{}{}
-		cherr <- nil
-		go loop()
-	}
-
-	select {
-	case s.thunk <- findPeers:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-
-	case <-s.done:
-		return nil, errors.New("closed")
-	}
-
-	select {
-	case err := <-cherr:
-		return out, err
-
-	case <-ctx.Done():
-		return nil, ctx.Err()
-
-	case <-s.done:
-		return nil, errors.New("closed")
+func (s *Surveyor) sealer() socket.Sealer {
+	return func(r record.Record) (*record.Envelope, error) {
+		return record.Seal(r, privkey(s.host))
 	}
 }
 
-func (s *Surveyor) buildRequest(ns string, dist uint8) (*capnp.Message, error) {
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		return nil, err
-	}
-
-	p, err := survey.NewRootPacket(seg)
-	if err != nil {
-		return nil, err
-	}
-
-	request, err := p.NewRequest()
-	if err != nil {
-		return nil, err
-	}
-
-	if err = p.SetNamespace(ns); err != nil {
-		return nil, err
-	}
-
-	request.SetDistance(dist)
-
-	rec, err := s.e.Load().(*record.Envelope).Marshal()
-	if err == nil {
-		err = request.SetSrc(rec)
-	}
-
-	return p.Message(), err
+func privkey(h host.Host) crypto.PrivKey {
+	return h.Peerstore().PrivKey(h.ID())
 }
 
 func xor(id1, id2 peer.ID) uint32 {
@@ -452,8 +163,4 @@ func xor(id1, id2 peer.ID) uint32 {
 	}
 
 	return binary.BigEndian.Uint32(xored)
-}
-
-type listener struct {
-	Ch chan<- *peer.PeerRecord
 }

@@ -2,132 +2,206 @@ package crawl
 
 import (
 	"context"
-	"io"
-	"io/ioutil"
+	"errors"
 	"net"
+	"strconv"
 	"time"
 
-	"github.com/lthibault/log"
-
+	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
 
-	netutil "github.com/wetware/casm/pkg/util/net"
+	"github.com/lthibault/log"
+	ma "github.com/multiformats/go-multiaddr"
+
+	"github.com/wetware/casm/pkg/boot/socket"
 )
 
-type Dialer interface {
-	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
+const P_CIDR = 103
+
+func init() {
+	if err := ma.AddProtocol(ma.Protocol{
+		Name:       "cidr",
+		Code:       P_CIDR,
+		VCode:      ma.CodeToVarint(P_CIDR),
+		Size:       8, // bits
+		Transcoder: TranscoderCIDR{},
+	}); err != nil {
+		panic(err)
+	}
 }
 
-type DialStrategy interface {
-	Dial(context.Context, Dialer) (<-chan net.Conn, error)
-}
+var (
+	ErrClosed = errors.New("closed")
 
-type Scanner interface {
-	Scan(net.Conn, record.Record) (*record.Envelope, error)
-}
+	// ErrCIDROverflow is returned when a CIDR block is too large.
+	ErrCIDROverflow = errors.New("CIDR overflow")
+)
 
 type Crawler struct {
-	Logger   log.Logger
-	Dialer   Dialer
-	Strategy DialStrategy
-	Scanner  Scanner
+	log    log.Logger
+	lim    *socket.RateLimiter
+	sock   *socket.Socket
+	host   host.Host
+	iter   Strategy
+	cache  *socket.RecordCache
+	done   <-chan struct{}
+	cancel context.CancelFunc
 }
 
-func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	if c.Logger == nil {
-		c.Logger = log.New(log.WithLevel(log.FatalLevel))
+func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	c := &Crawler{
+		host:   h,
+		done:   ctx.Done(),
+		cancel: cancel,
 	}
 
-	if c.Scanner == nil {
-		c.Scanner = basicScanner{}
+	for _, option := range withDefaults(opt) {
+		option(c)
 	}
 
-	c.Logger = c.Logger.WithField("ns", ns)
+	c.sock = socket.New(conn, socket.Protocol{
+		Validate:      socket.BasicValidator(h.ID()),
+		HandleError:   socket.BasicErrHandler(ctx, c.log),
+		HandleRequest: c.requestHandler(ctx),
+		// RateLimiter:   c.lim,  // FIXME:  blocks reads when waiting to write
+		Cache: c.cache,
+	})
 
-	var opts discovery.Options
+	return c
+}
+
+func (c *Crawler) Close() error {
+	c.cancel()
+	return c.sock.Close()
+}
+
+func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {
+	return func(r socket.Request, addr net.Addr) {
+		ns, err := r.Namespace()
+		if err != nil {
+			c.log.WithError(err).Debug("error reading request namespace")
+			return
+		}
+
+		if c.sock.Tracking(ns) {
+			e, err := c.cache.LoadResponse(c.sealer(), ns)
+			if err != nil {
+				c.log.WithError(err).Error("error loading response from cache")
+				return
+			}
+
+			if err = c.sock.Send(ctx, e, addr); err != nil {
+				c.log.WithError(err).Debug("error sending response")
+			}
+		}
+	}
+}
+
+func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+	var opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
+	if err := opts.Apply(opt...); err != nil {
+		return 0, err
+	}
+
+	return opts.Ttl, c.sock.Track(ctx, c.host, ns, opts.Ttl)
+}
+
+func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	opts := discovery.Options{Limit: 1}
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
 	}
 
-	conns, err := c.Strategy.Dial(ctx, c.dialer())
+	iter, err := c.iter()
 	if err != nil {
 		return nil, err
 	}
 
-	out := make(chan peer.AddrInfo, 8)
+	e, err := c.cache.LoadRequest(c.sealer(), c.host.ID(), ns)
+	if err != nil {
+		return nil, err
+	}
+
+	out, cancel := c.sock.Subscribe(ns, opts.Limit)
 	go func() {
-		defer close(out)
+		defer cancel()
 
-		c.Logger.Trace("crawl started")
-		defer c.Logger.Tracef("crawl finished")
-
-		var rec peer.PeerRecord
-		for conn := range conns {
-			if c.read(ctx, conn, &rec) {
-				select {
-				case out <- peer.AddrInfo{ID: rec.PeerID, Addrs: rec.Addrs}:
-					if opts.Limit--; opts.Limit == 0 {
-						return
-					}
-
-				case <-ctx.Done():
-				}
+		var addr net.UDPAddr
+		for c.active(ctx) && iter.Next(&addr) {
+			if err := c.sock.Send(ctx, e, &addr); err != nil {
+				c.log.
+					WithError(err).
+					WithField("to", &addr).
+					Debug("failed to send request packet")
+				return
 			}
+		}
+
+		// Wait for response
+		select {
+		case <-ctx.Done():
+		case <-c.done:
 		}
 	}()
 
 	return out, nil
 }
 
-func (c Crawler) read(ctx context.Context, conn net.Conn, r record.Record) bool {
-	defer conn.Close()
-
-	if err := c.deadline(ctx, conn); err != nil {
-		c.Logger.WithError(err).Debug("unable to set deadline")
-		return false
+func (c *Crawler) active(ctx context.Context) (ok bool) {
+	select {
+	case <-ctx.Done():
+	case <-c.done:
+	default:
+		ok = true
 	}
 
-	_, err := c.scanner().Scan(conn, r)
-	if err != nil {
-		c.Logger.WithError(err).Debug("scan failed")
-	}
-
-	return err == nil
+	return
 }
 
-func (c Crawler) deadline(ctx context.Context, conn net.Conn) error {
-	if t, ok := ctx.Deadline(); ok {
-		return conn.SetDeadline(t)
+func (c *Crawler) sealer() socket.Sealer {
+	return func(r record.Record) (*record.Envelope, error) {
+		return record.Seal(r, privkey(c.host))
 	}
-
-	return conn.SetDeadline(netutil.Time().Add(time.Second))
 }
 
-func (c Crawler) dialer() Dialer {
-	if c.Dialer == nil {
-		return new(net.Dialer)
-	}
-
-	return c.Dialer
+func privkey(h host.Host) crypto.PrivKey {
+	return h.Peerstore().PrivKey(h.ID())
 }
 
-func (c Crawler) scanner() Scanner {
-	if c.Scanner == nil {
-		return basicScanner{}
-	}
+// TranscoderCIDR decodes a uint8 CIDR block
+type TranscoderCIDR struct{}
 
-	return c.Scanner
-}
-
-type basicScanner struct{}
-
-func (basicScanner) Scan(conn net.Conn, dst record.Record) (*record.Envelope, error) {
-	data, err := ioutil.ReadAll(io.LimitReader(conn, 4096)) // arbitrary MTU
+func (ct TranscoderCIDR) StringToBytes(cidrBlock string) ([]byte, error) {
+	num, err := strconv.ParseUint(cidrBlock, 10, 8)
 	if err != nil {
 		return nil, err
 	}
 
-	return record.ConsumeTypedEnvelope(data, dst)
+	if num > 128 {
+		return nil, ErrCIDROverflow
+	}
+
+	return []byte{uint8(num)}, err
+}
+
+func (ct TranscoderCIDR) BytesToString(b []byte) (string, error) {
+	if len(b) > 1 || b[0] > 128 {
+		return "", ErrCIDROverflow
+	}
+
+	return strconv.FormatUint(uint64(b[0]), 10), nil
+}
+
+func (ct TranscoderCIDR) ValidateBytes(b []byte) error {
+	if uint8(b[0]) > 128 { // 128 is maximum CIDR block for IPv6
+		return ErrCIDROverflow
+	}
+
+	return nil
 }

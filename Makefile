@@ -42,17 +42,3 @@ capnp-pex:  clean-capnp-pex
 
 clean-capnp-pex:
 	@rm -rf internal/api/pex
-
-capnp-casm:  clean-capnp-casm
-	@mkdir -p internal/api/casm
-	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std -ogo:internal/api/casm --src-prefix=api/ api/casm.capnp
-
-clean-capnp-casm:
-	@rm -rf internal/api/casm
-
-capnp-survey:
-	@mkdir -p internal/api/survey
-	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std -ogo:internal/api/survey --src-prefix=api/ api/survey.capnp
-
-clean-capnp-survey:
-	@rm -rf internal/api/survey

@@ -1,161 +1,224 @@
 package crawl
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
+	"math/bits"
 	"math/rand"
 	"net"
-	"sync"
-	"time"
+	"strconv"
 
-	"github.com/lthibault/log"
+	ma "github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
-var _ DialStrategy = (*Subnet)(nil)
+type Strategy func() (Range, error)
 
-// Subnet is a brute-force dial strategy that exhaustively searches an
-// entire Subnet block in pseudorandom order.
-type Subnet struct {
-	Logger log.Logger
-	Net    string
-	Port   int
-	CIDR   string
-
-	// Timeout specifies the timeout duration for each attempted
-	// schan.  Increasing this value will will increase the time
-	// needed to traverse a CIDR block.
-	//
-	// Defaults to 100ms.
-	Timeout time.Duration
-
-	once sync.Once
+type Range interface {
+	Next(a net.Addr) bool
 }
 
-func (ss *Subnet) Dial(ctx context.Context, d Dialer) (<-chan net.Conn, error) {
-	ss.once.Do(func() {
-		if ss.Logger == nil {
-			ss.Logger = log.New()
+type PortRange struct {
+	IP    net.IP
+	Mask  uint16
+	pos   uint16
+	shift int
+}
+
+// NewPortRange returns a range that iterates through ports on
+// the specified IP.  The mask parameter is a bitmask used to
+// select which ports should be scanned. PortRange is stateful,
+// and ports are scanned in order.
+//
+// If len(ip) == 0, defaults to 127.0.0.1
+// If the IP address is unspecified, defaults to the standard
+// loopback address for the IP version.
+//
+// If mask == 0, defaults to match all non-reserved ports, i.e.
+// all ports in the range (1024, 65535).
+func NewPortScan(ip net.IP, mask uint16) Strategy {
+	return func() (Range, error) {
+		pr := &PortRange{
+			IP:   ip,
+			Mask: mask,
 		}
 
-		if ss.Net == "" {
-			ss.Net = "tcp"
-		}
+		pr.Reset()
 
-		if ss.CIDR == "" {
-			ss.CIDR = "127.0.0.1"
-		}
-
-		if ss.Port == 0 {
-			ss.Port = 8822
-		}
-
-		if ss.Timeout <= 0 {
-			ss.Timeout = time.Millisecond * 100
-		}
-
-		ss.Logger = ss.Logger.With(log.F{
-			"net":     ss.Net,
-			"port":    ss.Port,
-			"cidr":    ss.CIDR,
-			"timeout": ss.Timeout,
-		})
-	})
-
-	iter, err := newSubnetIter(ss.CIDR)
-	if err != nil {
-		return nil, err
+		return pr, nil
 	}
 
-	out := make(chan net.Conn, 1)
-	go func() {
-		defer close(out)
+}
 
-		ip := make(net.IP, 4)
-		for ; iter.More(ctx); iter.Next() {
-			if iter.Skip() {
-				continue
-			}
-
-			iter.Scan(ip)
-
-			conn, err := ss.dial(ctx, d, ip)
-			if err != nil {
-				ss.Logger.
-					WithError(err).
-					WithField("ip", ip).
-					Trace("no response")
-				continue
-			}
-
-			select {
-			case out <- conn:
-				ss.Logger.
-					WithField("peer", conn.RemoteAddr()).
-					Trace("connected to port")
-
-			case <-ctx.Done():
-			}
+// Reset internal state, allowing p to be reused.  Does
+// not affect IP or Mask.
+func (p *PortRange) Reset() {
+	switch {
+	case p.IP.IsUnspecified():
+		if p.IP.To4() == nil {
+			p.IP = net.IPv6loopback
+			break
 		}
-	}()
 
-	return out, nil
+		fallthrough
+
+	case len(p.IP) == 0:
+		p.IP = net.IPv4(127, 0, 0, 1)
+	}
+
+	if p.Mask == 0 {
+		p.Mask = 63 << 10 // matches all ports >1023
+	}
+
+	p.shift = bits.TrailingZeros16(p.Mask)
+	p.pos = 0
 }
 
-func (ss *Subnet) dial(ctx context.Context, d Dialer, ip net.IP) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, ss.Timeout)
-	defer cancel()
+func (p *PortRange) Next(addr net.Addr) (ok bool) {
+	switch a := addr.(type) {
+	case *net.UDPAddr:
+		a.IP = p.IP
+		a.Port, ok = p.nextPort()
 
-	return d.DialContext(ctx,
-		ss.Net,
-		fmt.Sprintf("%v:%d", ip, ss.Port))
+	case *net.TCPAddr:
+		a.IP = p.IP
+		a.Port, ok = p.nextPort()
+	}
+
+	return
 }
 
-// iterates through a CIDR range in pseudorandom order.
-type cidrIter struct {
-	ip     net.IP
-	subnet *net.IPNet
+func (p *PortRange) nextPort() (int, bool) {
+	for {
+		p.pos++
+
+		i := p.pos << p.shift
+		if i > p.Mask {
+			return 0, false // we're done
+		}
+
+		if i&p.Mask != 0 {
+			return int(i), true
+		}
+	}
+}
+
+type CIDR struct {
+	Port int
+	ip   net.IP
+
+	Subnet *net.IPNet
 
 	mask, begin, end, i, rand uint32
 }
 
-func newSubnetIter(cidr string) (it *cidrIter, err error) {
-	it = new(cidrIter)
+// CIDR returns a range that iterates through a block of IP addreses
+// in pseudorandom order, with a fixed port.
+func NewCIDR(cidr string, port int) Strategy {
+	return func() (Range, error) {
+		ip, subnet, err := net.ParseCIDR(cidr)
 
-	it.ip, it.subnet, err = net.ParseCIDR(cidr)
+		c := &CIDR{
+			ip:     ip,
+			Port:   port,
+			Subnet: subnet,
+		}
 
+		c.Reset()
+
+		return c, err
+	}
+}
+
+func ParseCIDR(maddr ma.Multiaddr) (Strategy, error) {
+	_, addr, err := manet.DialArgs(maddr)
+	if err != nil {
+		return nil, err
+	}
+
+	host, portstr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	port, err := strconv.Atoi(portstr)
+	if err != nil {
+		return nil, err
+	}
+
+	ones, err := maddr.ValueForProtocol(P_CIDR)
+	if err != nil {
+		return nil, err
+	}
+
+	cidr := fmt.Sprintf("%s/%s", host, ones)
+	return NewCIDR(cidr, port), nil
+}
+
+// Reset internal state, allowing p to be reused.  Does
+// not affect subnet or port.
+func (c *CIDR) Reset() {
 	// Convert IPNet struct mask and address to uint32.
 	// Network is BigEndian.
-	it.mask = binary.BigEndian.Uint32(it.subnet.Mask)
-	it.begin = binary.BigEndian.Uint32(it.subnet.IP)
-	it.end = (it.begin & it.mask) | (it.mask ^ 0xffffffff) // final address
+	c.mask = binary.BigEndian.Uint32(c.Subnet.Mask)
+	c.begin = binary.BigEndian.Uint32(c.Subnet.IP)
+	c.end = (c.begin & c.mask) | (c.mask ^ 0xffffffff) // final address
 
 	// Each IP will be masked with the nonce before knocking.
 	// This effectively randomizes the search.
-	it.rand = rand.Uint32() & (it.mask ^ 0xffffffff)
+	c.rand = rand.Uint32() & (c.mask ^ 0xffffffff)
 
-	it.i = it.begin
+	c.i = c.begin
+}
+
+// Reset internal state, allowing p to be reused.  Does
+// not affect IP or Mask.
+func (c *CIDR) Next(addr net.Addr) (ok bool) {
+	switch a := addr.(type) {
+	case *net.UDPAddr:
+		a.Port = c.Port
+		ok = c.nextIP(a.IP)
+
+	case *net.TCPAddr:
+		a.Port = c.Port
+		ok = c.nextIP(a.IP)
+	}
+
 	return
 }
 
-func (c *cidrIter) More(ctx context.Context) bool {
-	return ctx.Err() == nil && c.i <= c.end
+func (c *CIDR) nextIP(ip net.IP) bool {
+	for ; c.more(); c.next() {
+		if !c.skip() {
+			c.setIP4(ip) // TODO:  IPv6 support
+		}
+
+	}
+
+	return false
 }
 
-func (c *cidrIter) Skip() bool {
-	// Skip X.X.X.0 and X.X.X.255
-	return c.i^c.rand == c.begin || c.i^c.rand == c.end
+func (c *CIDR) more() bool {
+	return c.i <= c.end
 }
 
-func (c *cidrIter) Next() {
+func (c *CIDR) next() {
 	// Populate the current IP address.
 	c.i++
 	binary.BigEndian.PutUint32(c.ip, c.i^c.rand)
 }
 
-func (c *cidrIter) Scan(ip net.IP) {
-	if len(ip) != 4 {
-		panic(ip)
-	}
+func (c *CIDR) skip() bool {
+	// Skip X.X.X.0 and X.X.X.255
+	return c.i^c.rand == c.begin || c.i^c.rand == c.end
+}
+
+func (c *CIDR) setIP4(ip net.IP) {
 	binary.BigEndian.PutUint32(ip, c.i^c.rand)
+}
+
+func failure(err error) Strategy {
+	return func() (Range, error) {
+		return nil, err
+	}
 }

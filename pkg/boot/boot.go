@@ -2,170 +2,77 @@ package boot
 
 import (
 	"errors"
-	"fmt"
-	"net"
-	"reflect"
-	"strconv"
+	"io"
+
+	"github.com/lthibault/log"
 
 	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/lthibault/log"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/wetware/casm/pkg/boot/crawl"
 	"github.com/wetware/casm/pkg/boot/survey"
 )
 
-const (
-	P_CIDR = iota + 100
-	P_SURVEY
-	P_GRADUAL
-)
+// ErrUnknownBootProto is returned when the multiaddr passed
+// to Parse does not contain a recognized boot protocol.
+var ErrUnknownBootProto = errors.New("unknown boot protocol")
 
-var (
-	// ErrUnknownBootProto is returned when the multiaddr passed
-	// to Parse does not contain a recognized boot protocol.
-	ErrUnknownBootProto = errors.New("unknown boot protocol")
-
-	// ErrCIDROverflow is returned when a CIDR block is too large.
-	ErrCIDROverflow = errors.New("CIDR overflow")
-
-	// ErrDistanceOverflow is returned when a peer-distance is too large.
-	ErrDistanceOverflow = errors.New("distance overflow")
-)
-
-func init() {
-	for _, p := range []ma.Protocol{
-		{
-			Name:       "cidr",
-			Code:       P_CIDR,
-			VCode:      ma.CodeToVarint(P_CIDR),
-			Size:       8,
-			Transcoder: TranscoderCIDR{},
-		},
-		{
-			Name:  "survey",
-			Code:  P_SURVEY,
-			VCode: ma.CodeToVarint(P_SURVEY),
-		},
-		{
-			Name:  "gradual",
-			Code:  P_GRADUAL,
-			VCode: ma.CodeToVarint(P_GRADUAL),
-		},
-	} {
-		if err := ma.AddProtocol(p); err != nil {
-			panic(err)
-		}
-	}
+type DiscoveryCloser interface {
+	discovery.Discovery
+	io.Closer
 }
 
-// New configures a bootstrap discovery for h by parsing
-// the supplied multiaddr.  The logger may be nil, in which
-// case the resulting boostrap service will fall back on a
-// default logging configuration.
-func New(log log.Logger, h host.Host, maddr ma.Multiaddr) (discovery.Discoverer, error) {
-	a, err := parseLayer4(maddr)
-	if err != nil {
-		return nil, err
-	}
-
-	addr, err := manet.ToNetAddr(a)
-	if err != nil {
-		return nil, err
-	}
-
-	log = log.WithField("net", addr.Network())
-
-	switch bootProto(maddr) {
-	case P_CIDR:
-		cidr, err := parseCIDR(maddr)
+func Discover(log log.Logger, h host.Host, maddr ma.Multiaddr) (DiscoveryCloser, error) {
+	switch {
+	case crawler(maddr):
+		s, err := crawl.ParseCIDR(maddr)
 		if err != nil {
 			return nil, err
 		}
 
-		return newCrawler(log, addr, cidr)
-
-	case P_SURVEY:
-		log = log.WithField("addr", addr.String())
-
-		s, err := survey.New(h, addr, survey.WithLogger(log))
-		if err != nil || !hasBootProto(maddr, P_GRADUAL) {
-			return s, err
+		conn, err := manet.ListenPacket(maddr)
+		if err != nil {
+			return nil, err
 		}
 
-		return survey.GradualSurveyor{
-			Surveyor: s,
-		}, nil
+		return crawl.New(h, conn,
+			crawl.WithLogger(log),
+			crawl.WithStrategy(s)), nil
+
+	case multicast(maddr):
+		group, ifi, err := survey.ResolveMulticast(maddr)
+		if err != nil {
+			return nil, err
+		}
+
+		conn, err := survey.JoinMulticastGroup("udp", ifi, group)
+		if err != nil {
+			return nil, err
+		}
+
+		s := survey.New(h, conn, survey.WithLogger(log))
+
+		if !gradual(maddr) {
+			return s, nil
+		}
+
+		return survey.GradualSurveyor{Surveyor: s}, nil
 	}
 
 	return nil, ErrUnknownBootProto
 }
 
-// parseLayer4 fetches the first two components from a multiaddr, which
-// are expected to IPs and TCP/UDP repsectively, and joins them into a
-// single multiaddress.
-func parseLayer4(maddr ma.Multiaddr) (ma.Multiaddr, error) {
-	var cs []ma.Multiaddr
-	ma.ForEach(maddr, func(c ma.Component) bool {
-		cs = append(cs, &c)
-		return len(cs) < 2
-	})
-
-	if len(cs) < 2 {
-		return nil, errors.New("not enough components")
-	}
-
-	switch cs[0].(*ma.Component).Protocol().Code {
-	case ma.P_IP4, ma.P_IP6:
-	default:
-		return nil, errors.New("no ip protocol")
-	}
-
-	switch cs[1].(*ma.Component).Protocol().Code {
-	case ma.P_TCP, ma.P_UDP:
-	default:
-		return nil, errors.New("no transport protocol")
-	}
-
-	return ma.Join(cs[0], cs[1]), nil
+func crawler(maddr ma.Multiaddr) bool {
+	return hasBootProto(maddr, crawl.P_CIDR)
 }
 
-func newCrawler(log log.Logger, addr net.Addr, cidr int) (c crawl.Crawler, err error) {
-	switch a := addr.(type) {
-	case *net.TCPAddr:
-		c.Logger = log.WithField("cidr", fmt.Sprintf("%s/%d", a.IP, cidr))
-
-		c.Strategy = &crawl.Subnet{
-			Logger: c.Logger,
-			Net:    a.Network(),
-			Port:   a.Port,
-			CIDR:   fmt.Sprintf("%v/%v", a.IP, cidr), // e.g. '10.0.1.0/24'
-		}
-
-	case *net.UDPAddr:
-		c.Logger = log.WithField("cidr", fmt.Sprintf("%s/%d", a.IP, cidr))
-
-		err = fmt.Errorf("UDP crawler NOT IMPLEMENTED") // TODO
-
-	default:
-		err = fmt.Errorf("crawler not implemented for %s", reflect.TypeOf(addr))
-	}
-
-	return
+func multicast(maddr ma.Multiaddr) bool {
+	return hasBootProto(maddr, survey.P_MULTICAST)
 }
 
-func bootProto(maddr ma.Multiaddr) int {
-	for _, code := range []int{
-		P_CIDR,
-		P_SURVEY,
-	} {
-		if hasBootProto(maddr, code) {
-			return code
-		}
-	}
-
-	return -1
+func gradual(maddr ma.Multiaddr) bool {
+	return hasBootProto(maddr, survey.P_SURVEY)
 }
 
 func hasBootProto(maddr ma.Multiaddr, code int) bool {
@@ -176,53 +83,4 @@ func hasBootProto(maddr ma.Multiaddr, code int) bool {
 	}
 
 	return false
-}
-
-func parseCIDR(maddr ma.Multiaddr) (cidr int, err error) {
-	ma.ForEach(maddr, func(c ma.Component) bool {
-		if c.Protocol().Code != P_CIDR {
-			return true // continue ...
-		}
-
-		b := c.RawValue()
-		if err = c.Protocol().Transcoder.ValidateBytes(b); err == nil {
-			cidr = int(c.RawValue()[0])
-		}
-
-		return false
-	})
-
-	return
-}
-
-// TranscoderCIDR decodes a uint8 CIDR block
-type TranscoderCIDR struct{}
-
-func (ct TranscoderCIDR) StringToBytes(cidrBlock string) ([]byte, error) {
-	num, err := strconv.ParseUint(cidrBlock, 10, 8)
-	if err != nil {
-		return nil, err
-	}
-
-	if num > 128 {
-		return nil, ErrCIDROverflow
-	}
-
-	return []byte{uint8(num)}, err
-}
-
-func (ct TranscoderCIDR) BytesToString(b []byte) (string, error) {
-	if len(b) > 1 || b[0] > 128 {
-		return "", ErrCIDROverflow
-	}
-
-	return strconv.FormatUint(uint64(b[0]), 10), nil
-}
-
-func (ct TranscoderCIDR) ValidateBytes(b []byte) error {
-	if uint8(b[0]) > 128 { // 128 is maximum CIDR block for IPv6
-		return ErrCIDROverflow
-	}
-
-	return nil
 }

@@ -11,9 +11,9 @@ func TestProto(t *testing.T) {
 	t.Parallel()
 
 	const ns = "test"
-	match := casm.NewMatcher(ns)
+	matcher := casm.NewMatcher(ns)
 	proto := casm.Subprotocol(ns)
 
-	assert.True(t, match(string(proto)),
+	assert.True(t, matcher.MatchProto(proto),
 		"matcher should match subprotocol")
 }

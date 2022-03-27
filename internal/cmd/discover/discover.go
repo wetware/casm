@@ -1,148 +1,122 @@
 package discover
 
-// import (
-// 	"context"
-// 	"encoding/json"
-// 	"fmt"
-// 	"io"
+import (
+	"fmt"
+	"net"
+	"os/signal"
+	"syscall"
 
-// 	"github.com/libp2p/go-libp2p-core/discovery"
-// 	ma "github.com/multiformats/go-multiaddr"
-// 	"github.com/urfave/cli/v2"
-// 	"go.uber.org/fx"
+	"github.com/lthibault/log"
+	"github.com/muesli/termenv"
+	ma "github.com/multiformats/go-multiaddr"
+	"github.com/urfave/cli/v2"
+	logutil "github.com/wetware/casm/internal/util/log"
+	"github.com/wetware/casm/pkg/boot/crawl"
+	"github.com/wetware/casm/pkg/boot/socket"
+	"github.com/wetware/casm/pkg/boot/survey"
+)
 
-// 	logutil "github.com/wetware/casm/internal/util/log"
-// 	"github.com/wetware/casm/pkg/boot"
-// )
+var (
+	sock   *socket.Socket
+	maddr  ma.Multiaddr
+	logger log.Logger
+	addr   *net.UDPAddr
+	ifi    *net.Interface
+)
 
-// var (
-// 	app *fx.App
-// 	enc *json.Encoder
-// 	d   discovery.Discoverer
-// )
+var flags = []cli.Flag{
+	&cli.StringFlag{
+		Name:    "ns",
+		Usage:   "cluster namespace",
+		Value:   "casm",
+		EnvVars: []string{"CASM_NS"},
+	},
+	&cli.StringFlag{
+		Name:    "addr",
+		Aliases: []string{"a"},
+		Usage:   "discovery service multiaddress",
+		Value:   "/ip4/228.8.8.8/udp/8822/multicast/lo0",
+	},
+}
 
-// var flags = []cli.Flag{
-// 	&cli.StringFlag{
-// 		Name:    "ns",
-// 		Usage:   "cluster namespace",
-// 		Value:   "casm",
-// 		EnvVars: []string{"CASM_NS"},
-// 	},
-// 	&cli.StringFlag{
-// 		Name:    "discover",
-// 		Aliases: []string{"d"},
-// 		Usage:   "discovery service multiaddress",
-// 		Value:   "/multicast/ip4/228.8.8.8/udp/8822",
-// 	},
-// 	&cli.DurationFlag{
-// 		Name:    "timeout",
-// 		Aliases: []string{"t"},
-// 		Usage:   "stop after t seconds",
-// 	},
-// 	&cli.IntFlag{
-// 		Name:    "number",
-// 		Aliases: []string{"n"},
-// 		Usage:   "number of records to return (0 = stream)",
-// 		Value:   1,
-// 	},
-// }
+var commands = []*cli.Command{
+	listen(),
+	emit(),
+	genpayload(),
+}
 
-// // Command constructor
-// func Command() *cli.Command {
-// 	return &cli.Command{
-// 		Name:   "discover",
-// 		Usage:  "discover peers on the network",
-// 		Flags:  flags,
-// 		Before: before(),
-// 		After:  after(),
-// 		Action: run(),
-// 	}
-// }
+// Command constructor
+func Command() *cli.Command {
+	return &cli.Command{
+		Name:        "discover",
+		Usage:       "discover peers on the network",
+		Flags:       flags,
+		Subcommands: commands,
+		Before:      parse(),
+		After:       teardown(),
+	}
+}
 
-// func before() cli.BeforeFunc {
-// 	return func(c *cli.Context) error {
-// 		app = fx.New(fx.NopLogger,
-// 			fx.Supply(c),
-// 			fx.Populate(&d, &enc),
-// 			fx.Provide(
-// 				newEncoder,
-// 				newTransport,
-// 				newDiscoveryClient))
-// 		return app.Start(c.Context)
-// 	}
-// }
+func parse() cli.BeforeFunc {
+	return func(c *cli.Context) (err error) {
+		logger = logutil.New(c)
 
-// func after() cli.AfterFunc {
-// 	return func(c *cli.Context) error {
-// 		return app.Stop(c.Context)
-// 	}
-// }
+		maddr, err = ma.NewMultiaddr(c.String("addr"))
+		return
+	}
+}
 
-// func run() cli.ActionFunc {
-// 	return func(c *cli.Context) error {
-// 		ctx, cancel := maybeTimeout(c)
-// 		defer cancel()
+func teardown() cli.AfterFunc {
+	return func(c *cli.Context) error {
+		if sock != nil {
+			return sock.Close()
+		}
 
-// 		if c.Duration("t") > 0 {
-// 			ctx, cancel = context.WithTimeout(c.Context, c.Duration("t"))
-// 			defer cancel()
-// 		}
+		return nil
+	}
+}
 
-// 		ps, err := d.FindPeers(ctx, c.String("ns"), discovery.Limit(c.Int("n")))
-// 		if err != nil {
-// 			return err
-// 		}
+func setsock(c *cli.Context, conn net.PacketConn) error {
+	sock = socket.New(conn, socket.Protocol{
+		HandleError:   errlogger(c),
+		HandleRequest: func(socket.Request, net.Addr) {},
+		Validate:      render(c, "multicast"),
+	})
 
-// 		for info := range ps {
-// 			if err := enc.Encode(info); err != nil {
-// 				return err
-// 			}
-// 		}
+	return nil
+}
 
-// 		return nil
-// 	}
-// }
+func errlogger(c *cli.Context) func(error) {
+	ctx, cancel := signal.NotifyContext(c.Context,
+		syscall.SIGINT,
+		syscall.SIGTERM)
+	defer cancel()
 
-// func maybeTimeout(c *cli.Context) (context.Context, context.CancelFunc) {
-// 	if c.Duration("t") > 0 {
-// 		return context.WithTimeout(c.Context, c.Duration("t"))
-// 	}
+	const red = "#cc0000"
+	emsg := termenv.String("ERROR").Foreground(p.Color(red))
 
-// 	return c.Context, func() {}
-// }
+	return func(err error) {
+		if ctx.Err() == nil {
+			fmt.Fprintf(c.App.Writer, "%s: %s\n", emsg, err)
+		}
+	}
+}
 
-// func newEncoder(c *cli.Context) *json.Encoder {
-// 	enc := json.NewEncoder(c.App.Writer)
-// 	if c.Bool("prettyprint") {
-// 		enc.SetIndent("", "  ")
-// 	}
+func task(f cli.ActionFunc, c *cli.Context) func() error {
+	return func() error {
+		return f(c)
+	}
+}
 
-// 	return enc
-// }
+func proto() (proto int) {
+	ma.ForEach(maddr, func(c ma.Component) bool {
+		switch proto = c.Protocol().Code; proto {
+		case crawl.P_CIDR, survey.P_MULTICAST:
+			return false
+		}
 
-// func newDiscoveryClient(c *cli.Context, t boot.Transport, lx fx.Lifecycle) (discovery.Discoverer, error) {
-// 	d, err := boot.NewMulticastClient(
-// 		boot.WithTransport(t),
-// 		boot.WithLogger(logutil.New(c)))
+		return true
+	})
 
-// 	if err == nil {
-// 		lx.Append(closer(d))
-// 	}
-
-// 	return d, err
-// }
-
-// func newTransport(c *cli.Context) (boot.Transport, error) {
-// 	m, err := ma.NewMultiaddr(c.String("d"))
-// 	if err != nil {
-// 		return nil, fmt.Errorf("%w:  %s", err, m)
-// 	}
-
-// 	return boot.NewTransport(m)
-// }
-
-// func closer(c io.Closer) fx.Hook {
-// 	return fx.Hook{
-// 		OnStop: func(context.Context) error { return c.Close() },
-// 	}
-// }
+	return
+}

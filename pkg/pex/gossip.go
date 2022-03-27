@@ -79,12 +79,12 @@ type gossiper struct {
 
 func (px *PeerExchange) newGossiper(ns string) *gossiper {
 	var (
-		ctx, cancel = context.WithCancel(ctxutil.C(px.done))
-		log         = px.log.WithField("ns", ns)
-		proto       = casm.Subprotocol(ns)
-		protoPacked = casm.Subprotocol(ns, "packed")
-		match       = casm.NewMatcher(ns)
-		matchPacked = match.Then(protoutil.Exactly("packed"))
+		ctx, cancel   = context.WithCancel(ctxutil.C(px.done))
+		log           = px.log.WithField("ns", ns)
+		proto         = casm.Subprotocol(ns)
+		protoPacked   = casm.Subprotocol(ns, "packed")
+		matcher       = casm.NewMatcher(ns)
+		packedMatcher = matcher.Then(protoutil.Exactly("packed"))
 	)
 
 	g := &gossiper{
@@ -100,12 +100,12 @@ func (px *PeerExchange) newGossiper(ns string) *gossiper {
 
 	px.h.SetStreamHandlerMatch(
 		proto,
-		match,
+		matcher.Match,
 		g.newHandler(ctx, log))
 
 	px.h.SetStreamHandlerMatch(
 		protoPacked,
-		matchPacked,
+		packedMatcher.Match,
 		g.newHandler(ctx, log))
 
 	return g

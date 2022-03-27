@@ -6,14 +6,23 @@ $Go.package("boot");
 $Go.import("github.com/wetware/casm/internal/api/boot");
 
 
-struct MulticastPacket {
+struct Packet {
+    namespace         @0 :Text;
+
     union {
-        query @0 :Text;  # namespace
-        response @1 :Response;
+        request       @1 :PeerID;  # from
+
+        survey           :group {
+            from      @2 :PeerID;
+            distance  @3 :UInt8;
+        }
+
+        response         :group {
+            peer      @4 :PeerID;
+            addrs     @5 :List(Multiaddr);
+        }
     }
 
-    struct Response {
-        ns @0 :Text;
-        signedEnvelope @1 :Data;  # peer.PeerRecord
-    }
+    using PeerID   = Text;
+    using Multiaddr = Data;
 }
