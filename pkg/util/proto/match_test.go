@@ -12,63 +12,74 @@ func TestMatchers(t *testing.T) {
 
 	for _, tt := range []struct {
 		name          string
-		match         MatchFunc
+		matcher       MatchFunc
 		input         string
 		expectNoMatch bool
 	}{
 		{
-			name:  "Exactly/match",
-			match: Exactly("foo"),
-			input: "/bar/foo/",
+			name:    "Exactly/match",
+			matcher: Exactly("foo"),
+			input:   "/foo/bar/",
 		},
 		{
 			name:          "Exactly/reject",
-			match:         Exactly("foo"),
+			matcher:       Exactly("bar"),
 			input:         "/foo/bar/",
 			expectNoMatch: true,
 		},
 		{
-			name:  "Prefix/match",
-			match: Prefix("/foo/bar/"),
-			input: "/foo/bar/baz/qux",
+			name:    "Prefix/match",
+			matcher: Prefix("/foo/bar/"),
+			input:   "/foo/bar/baz/qux",
 		},
 		{
 			name:          "Prefix/reject",
-			match:         Prefix("/foo/bar/"),
+			matcher:       Prefix("/foo/bar/"),
 			input:         "/bar/foo/baz/qux/",
 			expectNoMatch: true,
 		},
 		{
-			name:  "SemVer/match",
-			match: SemVer("1.1.0-beta.1"),
-			input: "/1.1.5/",
+			name:    "Suffix/Match",
+			matcher: Suffix("/baz/qux"),
+			input:   "/foo/bar/baz/qux",
 		},
 		{
-			name:  "SemVer/match/minor",
-			match: SemVer("1.1.0-beta.1"),
-			input: "/1.0.0/",
+			name:          "Suffix/reject",
+			matcher:       Suffix("/baz/qux/"),
+			input:         "/foo/bar/qux/baz/",
+			expectNoMatch: true,
+		},
+		{
+			name:    "SemVer/match",
+			matcher: SemVer("1.1.0-beta.1"),
+			input:   "/1.1.5/",
+		},
+		{
+			name:    "SemVer/match/minor",
+			matcher: SemVer("1.1.0-beta.1"),
+			input:   "/1.0.0/",
 		},
 		{
 			name:          "SemVer/reject",
-			match:         SemVer("1.1.0-beta.1"),
+			matcher:       SemVer("1.1.0-beta.1"),
 			input:         "/foobar/2.1.0/",
 			expectNoMatch: true,
 		},
 		{
 			name:          "SemVer/reject/minor",
-			match:         SemVer("1.1.0-beta.1"),
+			matcher:       SemVer("1.1.0-beta.1"),
 			input:         "/1.2.1/",
 			expectNoMatch: true,
 		},
 		{
 			name:          "SemVer/reject/malformed",
-			match:         SemVer("1.1.0-beta.1"),
+			matcher:       SemVer("1.1.0-beta.1"),
 			input:         "/not a semver string/",
 			expectNoMatch: true,
 		},
 		{
 			name: "MatchComplex",
-			match: Match(
+			matcher: Match(
 				Prefix("ww"),
 				SemVer("1.5.1"),
 				Exactly("ns"),
@@ -77,19 +88,19 @@ func TestMatchers(t *testing.T) {
 		},
 		{
 			name: "Chain",
-			match: Match(
+			matcher: Match(
 				Prefix("ww"),
 				SemVer("0.0.0")).Then(Exactly("ns")),
 			input: "/ww/0.0.0/ns",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if match := tt.match(tt.input); tt.expectNoMatch {
+			if remainder, match := tt.matcher(tt.input); tt.expectNoMatch {
 				assert.False(t, match,
-					"should not match '%s'", tt.input)
+					"should not match '%s' (remainder: %s)", tt.input, remainder)
 			} else {
 				assert.True(t, match,
-					"should match '%s'", tt.input)
+					"should match '%s' (remainder: %s)", tt.input, remainder)
 			}
 		})
 	}
