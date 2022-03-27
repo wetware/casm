@@ -73,6 +73,9 @@ func (as StaticAddrs) FindPeers(_ context.Context, _ string, opt ...discovery.Op
 	return staticChan(limited(opts, as)), nil
 }
 
+// Close is a nop method.  It exists to satisfy boot.DiscoveryCloser.
+func (StaticAddrs) Close() error { return nil }
+
 func limited(opts *discovery.Options, ps []peer.AddrInfo) []peer.AddrInfo {
 	if opts.Limit > 0 && opts.Limit < len(ps) {
 		ps = ps[:opts.Limit]
