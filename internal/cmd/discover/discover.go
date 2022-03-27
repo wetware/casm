@@ -5,7 +5,6 @@ import (
 	"net"
 	"os/signal"
 	"syscall"
-	"text/template"
 
 	"github.com/lthibault/log"
 	"github.com/muesli/termenv"
@@ -15,27 +14,6 @@ import (
 	"github.com/wetware/casm/pkg/boot/crawl"
 	"github.com/wetware/casm/pkg/boot/socket"
 	"github.com/wetware/casm/pkg/boot/survey"
-)
-
-const templ = `Got {{ .Proto }} packet ({{ .Size }} byte)
-  type:      {{ .Type }}
-  namespace: {{ .Colorize .Namespace }}
-  size:      {{ .Size }} bytes
-  peer:	     {{ .Colorize .PeerID.String }}
-{{- if eq .Type 1 }}  
-  distance:   {{ .Distance }}
-{{- end }}
-{{- with .Err }}
-  {{ Color "#cc0000" "ERROR:" }}     {{.}}
-{{- end }}
-
-`
-
-var (
-	p = termenv.ColorProfile()
-	t = template.Must(template.New("boot").
-		Funcs(termenv.TemplateFuncs(p)).
-		Parse(templ))
 )
 
 var (
@@ -99,7 +77,7 @@ func teardown() cli.AfterFunc {
 }
 
 func setsock(c *cli.Context, conn net.PacketConn) error {
-	sock = socket.New(conn, nil, socket.Protocol{
+	sock = socket.New(conn, socket.Protocol{
 		HandleError:   errlogger(c),
 		HandleRequest: func(socket.Request, net.Addr) {},
 		Validate:      render(c, "multicast"),

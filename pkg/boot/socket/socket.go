@@ -21,12 +21,11 @@ const maxDatagramSize = 2 << 10 // KB
 
 var ErrClosed = errors.New("closed")
 
-type Validator func(*record.Envelope, *Record) error
-
 type Protocol struct {
 	HandleError   func(error)
 	HandleRequest func(Request, net.Addr)
 	Validate      Validator
+	RateLimiter   *RateLimiter
 	Cache         *RecordCache
 }
 
@@ -51,9 +50,9 @@ type Socket struct {
 // reliable, it MUST suppress any errors due to failed connections
 // or delivery.  The standard net.PacketConn implementations satisfy
 // these condiitions
-func New(conn net.PacketConn, r *RateLimiter, p Protocol) *Socket {
+func New(conn net.PacketConn, p Protocol) *Socket {
 	sock := &Socket{
-		sock:  newPacketConn(conn, r),
+		sock:  newPacketConn(conn, p.RateLimiter),
 		subs:  make(map[string]subscriberSet),
 		advt:  make(map[string]time.Time),
 		time:  time.Now(),
@@ -282,31 +281,6 @@ func (s *Socket) dispatch(r Response, addr net.Addr) error {
 	}
 
 	return err
-}
-
-// BasicValidator returns a validator that checks that the
-// host corresponding to id is not the packet's originator,
-// and that that the envelope was signed by the peer whose
-// ID appears in the packet.
-func BasicValidator(id peer.ID) Validator {
-	return func(e *record.Envelope, r *Record) error {
-		peer, err := r.PeerID()
-		if err != nil {
-			return err
-		}
-
-		// originates from local host?
-		if peer == id {
-			return errors.New("same-host request")
-		}
-
-		// envelope was signed by peer?
-		if !peer.MatchesPublicKey(e.PublicKey) {
-			err = errors.New("envelope not signed by peer")
-		}
-
-		return err
-	}
 }
 
 type subscriberSet map[subscriber]*resultLimiter

@@ -3,6 +3,8 @@ package discover
 import (
 	"crypto/md5"
 	"fmt"
+	"text/template"
+	"time"
 
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/muesli/termenv"
@@ -11,6 +13,29 @@ import (
 	"github.com/wetware/casm/pkg/boot/crawl"
 	"github.com/wetware/casm/pkg/boot/socket"
 	"github.com/wetware/casm/pkg/boot/survey"
+)
+
+const templ = `[{{ printf "%04d" .Tick }}] Got {{ .Proto }} packet ({{ .Size }} byte)
+  type:      {{ .Type }}
+  namespace: {{ .Colorize .Namespace }}
+  size:      {{ .Size }} bytes
+  peer:	     {{ .Colorize .PeerID.String }}
+{{- if eq .Type 1 }}  
+  distance:   {{ .Distance }}
+{{- end }}
+{{- with .Err }}
+  {{ Color "#cc0000" "ERROR:" }}     {{.}}
+{{- end }}
+
+`
+
+var (
+	t0 time.Time
+
+	p = termenv.ColorProfile()
+	t = template.Must(template.New("boot").
+		Funcs(termenv.TemplateFuncs(p)).
+		Parse(templ))
 )
 
 func listen() *cli.Command {
@@ -65,15 +90,19 @@ func recv(c *cli.Context) error {
 	return nil
 }
 
-type request struct {
-	Proto string
+type templateCtx struct {
 	Err   error
-	socket.Request
+	Proto string
 	*record.Envelope
 }
 
 func (r request) Colorize(s string) termenv.Style {
-	return colorID(s)
+	hash := md5.Sum([]byte(s))
+	hash[0] <<= 1 // make sure it's not too dark
+	hash[1] <<= 1
+	hash[3] <<= 1
+	color := fmt.Sprintf("#%x", hash[:3])
+	return termenv.String(s).Foreground(p.Color(color))
 }
 
 func (r request) Size() (int, error) {
@@ -81,29 +110,22 @@ func (r request) Size() (int, error) {
 	return len(b), err
 }
 
+func (r request) Tick() time.Duration {
+	if t0.IsZero() {
+		t0 = time.Now()
+	}
+
+	return time.Now().Sub(t0) / time.Second
+}
+
+type request struct {
+	templateCtx
+	socket.Request
+}
+
 type response struct {
-	Proto string
-	Err   error
+	templateCtx
 	socket.Response
-	*record.Envelope
-}
-
-func (r response) Colorize(s string) termenv.Style {
-	return colorID(s)
-}
-
-func (r response) Size() (int, error) {
-	b, err := r.Envelope.Marshal()
-	return len(b), err
-}
-
-func colorID(s string) termenv.Style {
-	hash := md5.Sum([]byte(s))
-	hash[0] <<= 1 // make sure it's not too dark
-	hash[1] <<= 1
-	hash[3] <<= 1
-	color := fmt.Sprintf("#%x", hash[:3])
-	return termenv.String(s).Foreground(p.Color(color))
 }
 
 func render(c *cli.Context, proto string) func(*record.Envelope, *socket.Record) error {
@@ -119,18 +141,22 @@ func render(c *cli.Context, proto string) func(*record.Envelope, *socket.Record)
 		switch r.Type() {
 		case socket.TypeRequest, socket.TypeSurvey:
 			return t.Execute(c.App.Writer, request{
-				Proto:    proto,
-				Err:      validate(e, r),
-				Request:  socket.Request{Record: *r},
-				Envelope: e,
+				templateCtx: templateCtx{
+					Proto:    proto,
+					Err:      validate(e, r),
+					Envelope: e,
+				},
+				Request: socket.Request{Record: *r},
 			})
 
 		default:
 			return t.Execute(c.App.Writer, response{
-				Proto:    proto,
-				Err:      validate(e, r),
+				templateCtx: templateCtx{
+					Proto:    proto,
+					Err:      validate(e, r),
+					Envelope: e,
+				},
 				Response: socket.Response{Record: *r},
-				Envelope: e,
 			})
 		}
 

@@ -48,11 +48,12 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
 		option(s)
 	}
 
-	s.sock = socket.New(conn, s.lim, socket.Protocol{
-		HandleError:   s.socketErrHandler(ctx),
-		HandleRequest: s.requestHandler(ctx),
+	s.sock = socket.New(conn, socket.Protocol{
 		Validate:      socket.BasicValidator(h.ID()),
-		Cache:         s.cache,
+		HandleError:   socket.BasicErrHandler(ctx, s.log),
+		HandleRequest: s.requestHandler(ctx),
+		// RateLimiter:   s.lim,  // FIXME:  blocks reads when waiting to write
+		Cache: s.cache,
 	})
 
 	return s
@@ -61,19 +62,6 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
 func (s *Surveyor) Close() error {
 	s.cancel()
 	return s.sock.Close()
-}
-
-func (s *Surveyor) socketErrHandler(ctx context.Context) func(err error) {
-	return func(err error) {
-		if ctx.Err() == nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				s.log.Debug("read timeout")
-				return
-			}
-
-			s.log.WithError(err).Error("socket error")
-		}
-	}
 }
 
 func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {

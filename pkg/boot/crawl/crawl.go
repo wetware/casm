@@ -65,11 +65,11 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
 		option(c)
 	}
 
-	c.sock = socket.New(conn, c.lim, socket.Protocol{
-		HandleError:   c.socketErrHandler(ctx),
-		HandleRequest: c.requestHandler(ctx),
+	c.sock = socket.New(conn, socket.Protocol{
 		Validate:      socket.BasicValidator(h.ID()),
-		Cache:         c.cache,
+		HandleError:   socket.BasicErrHandler(ctx, c.log),
+		HandleRequest: c.requestHandler(ctx),
+		// RateLimiter:   c.lim,  // FIXME:  blocks reads when waiting to write
 	})
 
 	return c
@@ -78,14 +78,6 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
 func (c *Crawler) Close() error {
 	c.cancel()
 	return c.sock.Close()
-}
-
-func (c *Crawler) socketErrHandler(ctx context.Context) func(err error) {
-	return func(err error) {
-		if ctx.Err() == nil {
-			c.log.WithError(err).Debug("socket error")
-		}
-	}
 }
 
 func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {

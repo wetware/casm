@@ -90,8 +90,18 @@ func (conn packetConn) Scan(validate Validator, p *Record) (net.Addr, error) {
 
 	e, err := record.ConsumeTypedEnvelope(buf[:n], p)
 	if err != nil {
-		return nil, err
+		return nil, ValidationError{
+			From:  addr,
+			Cause: err,
+		}
 	}
 
-	return addr, validate(e, p)
+	if err = validate(e, p); err != nil {
+		return nil, ValidationError{
+			From:  addr,
+			Cause: err,
+		}
+	}
+
+	return addr, nil
 }
