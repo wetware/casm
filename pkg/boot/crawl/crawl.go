@@ -70,6 +70,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
 		HandleError:   socket.BasicErrHandler(ctx, c.log),
 		HandleRequest: c.requestHandler(ctx),
 		// RateLimiter:   c.lim,  // FIXME:  blocks reads when waiting to write
+		Cache: c.cache,
 	})
 
 	return c
