@@ -66,6 +66,7 @@ func (s *Surveyor) Close() error {
 
 func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {
 	return func(r socket.Request, addr net.Addr) {
+
 		id, err := r.From()
 		if err != nil {
 			s.log.WithError(err).Debug("invalid ID in request packet")
@@ -95,7 +96,6 @@ func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.
 				return
 			}
 
-			// Send unicast response.
 			if err = s.sock.Send(ctx, e, addr); err != nil {
 				s.log.WithError(err).Debug("error sending unicast response")
 			}

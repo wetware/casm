@@ -49,7 +49,7 @@ type PeerExchange struct {
 	peersUpdated event.Emitter
 
 	store rootStore
-	disc  discover
+	disc  *discover
 }
 
 // New PeerExchange.  Host MUST be lisening on at least one address.
@@ -80,6 +80,7 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 		advertisers:  make(map[string]advertiser),
 		closer:       sub,
 		peersUpdated: e,
+		disc:         newDiscover(),
 	}
 
 	for _, option := range withDefaults(opt) {
@@ -95,7 +96,7 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 			close(done)
 			for ns, ad := range px.advertisers {
 				ad.Gossiper.Stop()
-				//px.disc.StopTracking(ns)
+				px.disc.StopTracking(ns)
 				delete(px.advertisers, ns)
 			}
 		}()
@@ -109,7 +110,7 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 				for ns, ad := range px.advertisers {
 					if ad.Expired(px.t) {
 						ad.Gossiper.Stop()
-						//px.disc.StopTracking(ns)
+						px.disc.StopTracking(ns)
 						delete(px.advertisers, ns)
 					}
 				}
@@ -184,7 +185,7 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 	}
 
 	// If cache is empty or all peers fail, fall back on boot service.
-	peers, err := px.disc.Bootstrap(ctx, ns)
+	peers, err := px.disc.Bootstrap(ctx, px.log.WithField("ns", ns), ns)
 	if err != nil {
 		return 0, err
 	}
@@ -222,7 +223,7 @@ func (px *PeerExchange) FindPeers(ctx context.Context, ns string, opt ...discove
 
 	// If cache is empty or all peers fail, fall back on boot service.
 	bootstrap := func(ctx context.Context) (<-chan peer.AddrInfo, error) {
-		return px.disc.Bootstrap(ctx, ns)
+		return px.disc.Bootstrap(ctx, px.log.WithField("ns", ns), ns)
 	}
 
 	out := make(chan peer.AddrInfo)
