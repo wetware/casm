@@ -15,9 +15,8 @@ import (
 )
 
 var (
-	pk    crypto.PrivKey
-	id    peer.ID
-	cache = socket.NewRecordCache(8)
+	pk crypto.PrivKey
+	id peer.ID
 )
 
 func genpayload() *cli.Command {
@@ -54,6 +53,11 @@ func genpayload() *cli.Command {
 }
 
 func generate(c *cli.Context) (*record.Envelope, error) {
+	cache, err := socket.NewRecordCache(8)
+	if err != nil {
+		return nil, err
+	}
+
 	pk, err := privkey()
 	if err != nil {
 		return nil, err

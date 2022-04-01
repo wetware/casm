@@ -20,13 +20,13 @@ type RecordCache struct {
 	cache *lru.TwoQueueCache
 }
 
-func NewRecordCache(size int) *RecordCache {
+func NewRecordCache(size int) (*RecordCache, error) {
 	c, err := lru.New2Q(size)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	return &RecordCache{cache: c}
+	return &RecordCache{cache: c}, nil
 }
 
 // Returns true if the cache was initialized with the host's record.
@@ -53,7 +53,7 @@ func (c *RecordCache) LoadRequest(seal Sealer, id peer.ID, ns string) (*record.E
 		return v.(*record.Envelope), nil
 	}
 
-	return c.bind(request(id), seal, ns)
+	return c.storeCache(request(id), seal, ns)
 }
 
 // LoadSurveyRequest searches the cache for a signed survey packet
@@ -64,7 +64,7 @@ func (c *RecordCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist
 		return v.(*record.Envelope), nil
 	}
 
-	return c.bind(surveyRequest(id, dist), seal, ns)
+	return c.storeCache(surveyRequest(id, dist), seal, ns)
 }
 
 // LoadResponse searches the cache for a signed response packet for ns
@@ -75,12 +75,12 @@ func (c *RecordCache) LoadResponse(seal Sealer, ns string) (*record.Envelope, er
 		return v.(*record.Envelope), nil
 	}
 
-	return c.bind(response(c.rec.Load().(*peer.PeerRecord)), seal, ns)
+	return c.storeCache(response(c.rec.Load().(*peer.PeerRecord)), seal, ns)
 }
 
 type bindFunc func(boot.Packet) error
 
-func (c *RecordCache) bind(bind bindFunc, seal Sealer, ns string) (e *record.Envelope, err error) {
+func (c *RecordCache) storeCache(bind bindFunc, seal Sealer, ns string) (e *record.Envelope, err error) {
 	if e, err = newCacheEntry(bind, seal, ns); err == nil {
 		c.cache.Add(ns, e)
 	}
