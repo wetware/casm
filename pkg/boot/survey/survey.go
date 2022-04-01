@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
+	"go.uber.org/multierr"
 
 	"github.com/lthibault/log"
 
@@ -68,7 +69,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
 
 func (s *Surveyor) Close() error {
 	s.cancel()
-	return s.sock.Close()
+	return multierr.Combine(s.tracker.Close(), s.sock.Close())
 }
 
 func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {

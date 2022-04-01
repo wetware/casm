@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
+	"go.uber.org/multierr"
 
 	"github.com/lthibault/log"
 	ma "github.com/multiformats/go-multiaddr"
@@ -83,7 +84,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
 
 func (c *Crawler) Close() error {
 	c.cancel()
-	return c.sock.Close()
+	return multierr.Combine(c.tracker.Close(), c.sock.Close())
 }
 
 func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {

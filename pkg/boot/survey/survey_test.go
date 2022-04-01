@@ -163,6 +163,7 @@ func newTestTable(t *testing.T, N int) []test {
 func closeTestTable(tt []test) {
 	for _, t := range tt {
 		t.h.Close()
+		t.t.Close()
 	}
 }
 
