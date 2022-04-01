@@ -23,7 +23,7 @@ import (
 type test struct {
 	h host.Host
 	c *socket.RecordCache
-	t tracker.HostTracker
+	t *tracker.HostTracker
 }
 
 func TestClose(t *testing.T) {
@@ -138,9 +138,9 @@ func TestFindPeers(t *testing.T) {
 	require.Equal(t, 1, peersAmount)
 }
 
-func newTestTable(t *testing.T, N int) []*test {
+func newTestTable(t *testing.T, N int) []test {
 	var (
-		tt  = make([]*test, N)
+		tt  = make([]test, N)
 		err error
 	)
 
@@ -154,13 +154,13 @@ func newTestTable(t *testing.T, N int) []*test {
 		tt[i].c, err = socket.NewRecordCache(2)
 		require.NoError(t, err)
 
-		tt[i].t = *tracker.New(tt[i].h)
+		tt[i].t = tracker.New(tt[i].h)
 		tt[i].t.Ensure(context.Background())
 	}
 	return tt
 }
 
-func closeTestTable(tt []*test) {
+func closeTestTable(tt []test) {
 	for _, t := range tt {
 		t.h.Close()
 	}
@@ -199,7 +199,7 @@ func readIncomingRequest(request []byte, from net.Addr) func([]byte) (int, net.A
 	}
 }
 
-func loadRequest(t *test, ns string, distance uint8) ([]byte, error) {
+func loadRequest(t test, ns string, distance uint8) ([]byte, error) {
 	request, err := t.c.LoadSurveyRequest(sealer(t.h), t.h.ID(), ns, distance)
 	if err != nil {
 		return nil, err
@@ -207,8 +207,8 @@ func loadRequest(t *test, ns string, distance uint8) ([]byte, error) {
 	return request.Marshal()
 }
 
-func loadResponse(t *test, ns string) ([]byte, error) {
-	response, err := t.c.LoadResponse(sealer(t.h), &t.t, ns)
+func loadResponse(t test, ns string) ([]byte, error) {
+	response, err := t.c.LoadResponse(sealer(t.h), t.t, ns)
 	if err != nil {
 		return nil, err
 	}
