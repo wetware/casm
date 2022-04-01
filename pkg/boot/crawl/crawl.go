@@ -72,6 +72,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
 		// RateLimiter:   c.lim,  // FIXME:  blocks reads when waiting to write
 		Cache: c.cache,
 	})
+	c.sock.Start()
 
 	return c
 }

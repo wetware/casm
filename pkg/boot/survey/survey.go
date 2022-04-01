@@ -55,6 +55,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
 		// RateLimiter:   s.lim,  // FIXME:  blocks reads when waiting to write
 		Cache: s.cache,
 	})
+	s.sock.Start()
 
 	return s
 }
