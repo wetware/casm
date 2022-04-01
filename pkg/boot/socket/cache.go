@@ -1,13 +1,12 @@
 package socket
 
 import (
-	"sync/atomic"
-
 	"capnproto.org/go/capnp/v3"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	"github.com/wetware/casm/internal/api/boot"
+	"github.com/wetware/casm/pkg/util/tracker"
 )
 
 // Sealer is a higher-order function capable of sealing a
@@ -16,7 +15,6 @@ import (
 type Sealer func(record.Record) (*record.Envelope, error)
 
 type RecordCache struct {
-	rec   atomic.Value
 	cache *lru.TwoQueueCache
 }
 
@@ -29,20 +27,11 @@ func NewRecordCache(size int) (*RecordCache, error) {
 	return &RecordCache{cache: c}, nil
 }
 
-// Returns true if the cache was initialized with the host's record.
-func (c *RecordCache) Initialized() bool {
-	return c.rec.Load() == nil
-}
-
 // Reset the cache by passing an envelope containing a host's
 // signed peer.PeerRecord.  This invalidates previous entries
 // and ensures all future records reference e's addresses.
-func (c *RecordCache) Reset(e *record.Envelope) error {
-	var rec peer.PeerRecord
-	defer c.cache.Purge()
-	defer c.rec.Store(&rec)
-
-	return e.TypedRecord(&rec)
+func (c *RecordCache) Reset() {
+	c.cache.Purge()
 }
 
 // LoadRequest searches the cache for a signed request packet for ns
@@ -70,12 +59,12 @@ func (c *RecordCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist
 // LoadResponse searches the cache for a signed response packet for ns
 // and returns it, if found. Else, it creates and signs a new response
 // packet and adds it to the cache.
-func (c *RecordCache) LoadResponse(seal Sealer, ns string) (*record.Envelope, error) {
+func (c *RecordCache) LoadResponse(seal Sealer, prov tracker.RecordProvider, ns string) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyResponse(ns)); ok {
 		return v.(*record.Envelope), nil
 	}
 
-	return c.storeCache(response(c.rec.Load().(*peer.PeerRecord)), seal, ns)
+	return c.storeCache(response(prov.Record()), seal, ns)
 }
 
 type bindFunc func(boot.Packet) error

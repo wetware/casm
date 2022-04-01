@@ -1,4 +1,4 @@
-package host
+package tracker
 
 import (
 	"context"
@@ -15,10 +15,6 @@ import (
 
 var ErrClosed = errors.New("closed")
 
-type RecordProvider interface {
-	Record() *peer.PeerRecord
-}
-
 type HostTracker struct {
 	host host.Host
 
@@ -27,12 +23,13 @@ type HostTracker struct {
 	once sync.Once
 	sub  event.Subscription
 
+	mu        sync.Mutex
 	callbacks []Callback
 }
 
 type Callback func()
 
-func NewHostTracker(h host.Host, callback ...Callback) *HostTracker {
+func New(h host.Host, callback ...Callback) *HostTracker {
 	return &HostTracker{host: h, callbacks: callback}
 }
 
@@ -85,12 +82,6 @@ func (h *HostTracker) Ensure(ctx context.Context) (err error) {
 	return
 }
 
-func (h HostTracker) callCallbacks() {
-	for _, c := range h.callbacks {
-		go c()
-	}
-}
-
 func (h HostTracker) Close() error {
 	return h.sub.Close()
 }
@@ -100,5 +91,39 @@ func (h HostTracker) Record() *peer.PeerRecord {
 
 	envelope := h.envelope.Load().(*record.Envelope)
 	envelope.TypedRecord(&rec)
+	return &rec
+}
+
+func (h HostTracker) AddCallback(c Callback) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.callbacks = append(h.callbacks, c)
+}
+
+func (h HostTracker) callCallbacks() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, c := range h.callbacks {
+		go c()
+	}
+}
+
+// interface for retrieving the peer.PeerRecord
+// from the Tracker and also a struct for testing purposes
+
+type RecordProvider interface {
+	Record() *peer.PeerRecord
+}
+
+type StaticRecordProvider struct {
+	Envelope *record.Envelope
+}
+
+func (s StaticRecordProvider) Record() *peer.PeerRecord {
+	var rec peer.PeerRecord
+
+	s.Envelope.TypedRecord(&rec)
 	return &rec
 }

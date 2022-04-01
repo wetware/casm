@@ -12,6 +12,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/urfave/cli/v2"
 	"github.com/wetware/casm/pkg/boot/socket"
+	"github.com/wetware/casm/pkg/util/tracker"
 )
 
 var (
@@ -75,12 +76,8 @@ func generate(c *cli.Context) (*record.Envelope, error) {
 		return nil, err
 	}
 
-	if err = cache.Reset(e); err != nil {
-		return nil, err
-	}
-
 	if c.Bool("resp") {
-		return cache.LoadResponse(seal, c.String("ns"))
+		return cache.LoadResponse(seal, tracker.StaticRecordProvider{Envelope: e}, c.String("ns"))
 	}
 
 	if c.IsSet("dist") {

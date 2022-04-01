@@ -17,6 +17,7 @@ import (
 	"github.com/lthibault/log"
 
 	"github.com/wetware/casm/pkg/boot/socket"
+	"github.com/wetware/casm/pkg/util/tracker"
 )
 
 var ErrClosed = errors.New("closed")
@@ -24,13 +25,14 @@ var ErrClosed = errors.New("closed")
 // Surveyor discovers peers through a surveyor/respondent multicast
 // protocol.
 type Surveyor struct {
-	log    log.Logger
-	lim    *socket.RateLimiter
-	sock   *socket.Socket
-	host   host.Host
-	cache  *socket.RecordCache
-	done   <-chan struct{}
-	cancel context.CancelFunc
+	log     log.Logger
+	lim     *socket.RateLimiter
+	sock    *socket.Socket
+	host    host.Host
+	cache   *socket.RecordCache
+	done    <-chan struct{}
+	cancel  context.CancelFunc
+	tracker *tracker.HostTracker
 }
 
 // New surveyor.  The supplied PacketConn SHOULD be bound to a multicast
@@ -39,21 +41,23 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Surveyor{
-		host:   h,
-		done:   ctx.Done(),
-		cancel: cancel,
+		host:    h,
+		done:    ctx.Done(),
+		cancel:  cancel,
+		tracker: tracker.New(h),
 	}
 
 	for _, option := range withDefaults(opt) {
 		option(s)
 	}
 
+	s.tracker.AddCallback(s.cache.Reset)
+
 	s.sock = socket.New(conn, socket.Protocol{
 		Validate:      socket.BasicValidator(h.ID()),
 		HandleError:   socket.BasicErrHandler(ctx, s.log),
 		HandleRequest: s.requestHandler(ctx),
 		// RateLimiter:   s.lim,  // FIXME:  blocks reads when waiting to write
-		Cache: s.cache,
 	})
 	s.sock.Start()
 
@@ -90,7 +94,7 @@ func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.
 		}
 
 		if s.sock.Tracking(ns) {
-			e, err := s.cache.LoadResponse(s.sealer(), ns)
+			e, err := s.cache.LoadResponse(s.sealer(), s.tracker, ns)
 			if err != nil {
 				s.log.WithError(err).Error("error loading response from cache")
 				return
@@ -114,7 +118,13 @@ func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Op
 		return 0, err
 	}
 
-	return opts.Ttl, s.sock.Track(ctx, s.host, ns, opts.Ttl)
+	if err := s.tracker.Ensure(ctx); err != nil {
+		return 0, err
+	}
+
+	s.sock.Track(ctx, s.host, ns, opts.Ttl)
+
+	return opts.Ttl, nil
 }
 
 func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {

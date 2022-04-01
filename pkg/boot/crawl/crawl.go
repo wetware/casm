@@ -18,6 +18,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/wetware/casm/pkg/boot/socket"
+	"github.com/wetware/casm/pkg/util/tracker"
 )
 
 const P_CIDR = 103
@@ -42,35 +43,38 @@ var (
 )
 
 type Crawler struct {
-	log    log.Logger
-	lim    *socket.RateLimiter
-	sock   *socket.Socket
-	host   host.Host
-	iter   Strategy
-	cache  *socket.RecordCache
-	done   <-chan struct{}
-	cancel context.CancelFunc
+	log     log.Logger
+	lim     *socket.RateLimiter
+	sock    *socket.Socket
+	host    host.Host
+	iter    Strategy
+	cache   *socket.RecordCache
+	done    <-chan struct{}
+	cancel  context.CancelFunc
+	tracker *tracker.HostTracker
 }
 
 func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	c := &Crawler{
-		host:   h,
-		done:   ctx.Done(),
-		cancel: cancel,
+		host:    h,
+		done:    ctx.Done(),
+		cancel:  cancel,
+		tracker: tracker.New(h),
 	}
 
 	for _, option := range withDefaults(opt) {
 		option(c)
 	}
 
+	c.tracker.AddCallback(c.cache.Reset)
+
 	c.sock = socket.New(conn, socket.Protocol{
 		Validate:      socket.BasicValidator(h.ID()),
 		HandleError:   socket.BasicErrHandler(ctx, c.log),
 		HandleRequest: c.requestHandler(ctx),
 		// RateLimiter:   c.lim,  // FIXME:  blocks reads when waiting to write
-		Cache: c.cache,
 	})
 	c.sock.Start()
 
@@ -91,7 +95,7 @@ func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.A
 		}
 
 		if c.sock.Tracking(ns) {
-			e, err := c.cache.LoadResponse(c.sealer(), ns)
+			e, err := c.cache.LoadResponse(c.sealer(), c.tracker, ns)
 			if err != nil {
 				c.log.WithError(err).Error("error loading response from cache")
 				return
@@ -110,7 +114,13 @@ func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Opt
 		return 0, err
 	}
 
-	return opts.Ttl, c.sock.Track(ctx, c.host, ns, opts.Ttl)
+	if err := c.tracker.Ensure(ctx); err != nil {
+		return 0, err
+	}
+
+	c.sock.Track(ctx, c.host, ns, opts.Ttl)
+
+	return opts.Ttl, nil
 }
 
 func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {

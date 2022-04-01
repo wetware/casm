@@ -17,11 +17,13 @@ import (
 	mock_net "github.com/wetware/casm/internal/mock/net"
 	"github.com/wetware/casm/pkg/boot/socket"
 	"github.com/wetware/casm/pkg/boot/survey"
+	"github.com/wetware/casm/pkg/util/tracker"
 )
 
 type test struct {
 	h host.Host
 	c *socket.RecordCache
+	t tracker.HostTracker
 }
 
 func TestClose(t *testing.T) {
@@ -67,10 +69,10 @@ func TestAdvertise(t *testing.T) {
 
 	conn := mock_net.NewMockPacketConn(ctrl)
 
-	request, err := loadRequest(tt[1].c, tt[1].h, ns, 255)
+	request, err := loadRequest(tt[1], ns, 255)
 	require.NoError(t, err)
 
-	response, err := loadResponse(tt[0].c, tt[0].h, ns)
+	response, err := loadResponse(tt[0], ns)
 	require.NoError(t, err)
 
 	conn.EXPECT().ReadFrom(gomock.Any()).DoAndReturn(readIncomingRequest(request, addr)).MinTimes(1)
@@ -109,10 +111,10 @@ func TestFindPeers(t *testing.T) {
 
 	conn := mock_net.NewMockPacketConn(ctrl)
 
-	request, err := loadRequest(tt[0].c, tt[0].h, ns, 255)
+	request, err := loadRequest(tt[0], ns, 255)
 	require.NoError(t, err)
 
-	response, err := loadResponse(tt[1].c, tt[1].h, ns)
+	response, err := loadResponse(tt[1], ns)
 	require.NoError(t, err)
 
 	conn.EXPECT().LocalAddr().Return(addr).Times(1)
@@ -146,13 +148,14 @@ func newTestTable(t *testing.T, N int) []test {
 		tt[i].h, err = newTestHost()
 		require.NoError(t, err)
 
-		rec, err := waitReady(tt[i].h)
+		_, err = waitReady(tt[i].h)
 		require.NoError(t, err)
 
 		tt[i].c, err = socket.NewRecordCache(2)
 		require.NoError(t, err)
 
-		tt[i].c.Reset(rec)
+		tt[i].t = *tracker.New(tt[i].h)
+		tt[i].t.Ensure(context.Background())
 	}
 	return tt
 }
@@ -196,16 +199,16 @@ func readIncomingRequest(request []byte, from net.Addr) func([]byte) (int, net.A
 	}
 }
 
-func loadRequest(cache *socket.RecordCache, h host.Host, ns string, distance uint8) ([]byte, error) {
-	request, err := cache.LoadSurveyRequest(sealer(h), h.ID(), ns, distance)
+func loadRequest(t test, ns string, distance uint8) ([]byte, error) {
+	request, err := t.c.LoadSurveyRequest(sealer(t.h), t.h.ID(), ns, distance)
 	if err != nil {
 		return nil, err
 	}
 	return request.Marshal()
 }
 
-func loadResponse(cache *socket.RecordCache, h host.Host, ns string) ([]byte, error) {
-	response, err := cache.LoadResponse(sealer(h), ns)
+func loadResponse(t test, ns string) ([]byte, error) {
+	response, err := t.c.LoadResponse(sealer(t.h), t.t, ns)
 	if err != nil {
 		return nil, err
 	}
