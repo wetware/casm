@@ -43,7 +43,7 @@ func WithCacheSize(size int) Option {
 	}
 
 	return func(c *Crawler) {
-		c.cache, _ = socket.NewRecordCache(size)
+		c.cache, _ = socket.NewCache(size)
 	}
 }
 

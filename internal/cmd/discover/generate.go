@@ -54,7 +54,7 @@ func genpayload() *cli.Command {
 }
 
 func generate(c *cli.Context) (*record.Envelope, error) {
-	cache, err := socket.NewRecordCache(8)
+	cache, err := socket.NewCache(8)
 	if err != nil {
 		return nil, err
 	}

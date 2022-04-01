@@ -40,7 +40,7 @@ type Socket struct {
 	time time.Time
 	sub  event.Subscription
 
-	cache *RecordCache
+	cache *RequestResponseCache
 
 	prot Protocol
 }

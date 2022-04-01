@@ -36,8 +36,6 @@ func init() {
 }
 
 var (
-	ErrClosed = errors.New("closed")
-
 	// ErrCIDROverflow is returned when a CIDR block is too large.
 	ErrCIDROverflow = errors.New("CIDR overflow")
 )
@@ -48,7 +46,7 @@ type Crawler struct {
 	sock    *socket.Socket
 	host    host.Host
 	iter    Strategy
-	cache   *socket.RecordCache
+	cache   *socket.RequestResponseCache
 	done    <-chan struct{}
 	cancel  context.CancelFunc
 	tracker *tracker.HostTracker

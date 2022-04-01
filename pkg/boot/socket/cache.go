@@ -14,30 +14,28 @@ import (
 // having to manage private keys.
 type Sealer func(record.Record) (*record.Envelope, error)
 
-type RecordCache struct {
+type RequestResponseCache struct {
 	cache *lru.TwoQueueCache
 }
 
-func NewRecordCache(size int) (*RecordCache, error) {
+func NewCache(size int) (*RequestResponseCache, error) {
 	c, err := lru.New2Q(size)
 	if err != nil {
 		return nil, err
 	}
 
-	return &RecordCache{cache: c}, nil
+	return &RequestResponseCache{cache: c}, nil
 }
 
-// Reset the cache by passing an envelope containing a host's
-// signed peer.PeerRecord.  This invalidates previous entries
-// and ensures all future records reference e's addresses.
-func (c *RecordCache) Reset() {
+// This invalidates previous entries
+func (c *RequestResponseCache) Reset() {
 	c.cache.Purge()
 }
 
 // LoadRequest searches the cache for a signed request packet for ns
 // and returns it, if found. Else, it creates and signs a new packet
 // and adds it to the cache.
-func (c *RecordCache) LoadRequest(seal Sealer, id peer.ID, ns string) (*record.Envelope, error) {
+func (c *RequestResponseCache) LoadRequest(seal Sealer, id peer.ID, ns string) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyRequest(ns)); ok {
 		return v.(*record.Envelope), nil
 	}
@@ -48,7 +46,7 @@ func (c *RecordCache) LoadRequest(seal Sealer, id peer.ID, ns string) (*record.E
 // LoadSurveyRequest searches the cache for a signed survey packet
 // with distance 'dist', and returns it if found. Else, it creates
 // and signs a new survey-request packet and adds it to the cache.
-func (c *RecordCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist uint8) (*record.Envelope, error) {
+func (c *RequestResponseCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist uint8) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyGradual(ns, dist)); ok {
 		return v.(*record.Envelope), nil
 	}
@@ -59,7 +57,7 @@ func (c *RecordCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist
 // LoadResponse searches the cache for a signed response packet for ns
 // and returns it, if found. Else, it creates and signs a new response
 // packet and adds it to the cache.
-func (c *RecordCache) LoadResponse(seal Sealer, prov tracker.RecordProvider, ns string) (*record.Envelope, error) {
+func (c *RequestResponseCache) LoadResponse(seal Sealer, prov tracker.RecordProvider, ns string) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyResponse(ns)); ok {
 		return v.(*record.Envelope), nil
 	}
@@ -69,7 +67,7 @@ func (c *RecordCache) LoadResponse(seal Sealer, prov tracker.RecordProvider, ns 
 
 type bindFunc func(boot.Packet) error
 
-func (c *RecordCache) storeCache(bind bindFunc, seal Sealer, ns string) (e *record.Envelope, err error) {
+func (c *RequestResponseCache) storeCache(bind bindFunc, seal Sealer, ns string) (e *record.Envelope, err error) {
 	if e, err = newCacheEntry(bind, seal, ns); err == nil {
 		c.cache.Add(ns, e)
 	}

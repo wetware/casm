@@ -29,7 +29,7 @@ type Surveyor struct {
 	lim     *socket.RateLimiter
 	sock    *socket.Socket
 	host    host.Host
-	cache   *socket.RecordCache
+	cache   *socket.RequestResponseCache
 	done    <-chan struct{}
 	cancel  context.CancelFunc
 	tracker *tracker.HostTracker

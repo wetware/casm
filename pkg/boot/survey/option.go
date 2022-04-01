@@ -32,7 +32,7 @@ func WithCacheSize(size int) Option {
 	}
 
 	return func(s *Surveyor) {
-		s.cache, _ = socket.NewRecordCache(size)
+		s.cache, _ = socket.NewCache(size)
 	}
 }
 

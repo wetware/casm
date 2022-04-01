@@ -22,7 +22,7 @@ import (
 
 type test struct {
 	h host.Host
-	c *socket.RecordCache
+	c *socket.RequestResponseCache
 	t *tracker.HostTracker
 }
 
@@ -151,7 +151,7 @@ func newTestTable(t *testing.T, N int) []test {
 		_, err = waitReady(tt[i].h)
 		require.NoError(t, err)
 
-		tt[i].c, err = socket.NewRecordCache(2)
+		tt[i].c, err = socket.NewCache(2)
 		require.NoError(t, err)
 
 		tt[i].t = tracker.New(tt[i].h)
