@@ -83,7 +83,10 @@ func (h *HostAddrTracker) Ensure(ctx context.Context) (err error) {
 }
 
 func (h HostAddrTracker) Close() error {
-	return h.sub.Close()
+	if h.sub != nil {
+		return h.sub.Close()
+	}
+	return nil
 }
 
 func (h HostAddrTracker) Record() *peer.PeerRecord {
