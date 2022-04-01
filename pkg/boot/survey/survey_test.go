@@ -23,7 +23,7 @@ import (
 type test struct {
 	h host.Host
 	c *socket.RequestResponseCache
-	t *tracker.HostTracker
+	t *tracker.HostAddrTracker
 }
 
 func TestClose(t *testing.T) {

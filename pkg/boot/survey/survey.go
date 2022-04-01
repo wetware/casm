@@ -26,13 +26,15 @@ var ErrClosed = errors.New("closed")
 // protocol.
 type Surveyor struct {
 	log     log.Logger
-	lim     *socket.RateLimiter
-	sock    *socket.Socket
 	host    host.Host
-	cache   *socket.RequestResponseCache
-	done    <-chan struct{}
-	cancel  context.CancelFunc
-	tracker *tracker.HostTracker
+	tracker *tracker.HostAddrTracker
+
+	lim   *socket.RateLimiter
+	sock  *socket.Socket
+	cache *socket.RequestResponseCache
+
+	done   <-chan struct{}
+	cancel context.CancelFunc
 }
 
 // New surveyor.  The supplied PacketConn SHOULD be bound to a multicast

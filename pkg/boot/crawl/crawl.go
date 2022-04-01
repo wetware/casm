@@ -42,14 +42,16 @@ var (
 
 type Crawler struct {
 	log     log.Logger
-	lim     *socket.RateLimiter
-	sock    *socket.Socket
 	host    host.Host
-	iter    Strategy
-	cache   *socket.RequestResponseCache
-	done    <-chan struct{}
-	cancel  context.CancelFunc
-	tracker *tracker.HostTracker
+	tracker *tracker.HostAddrTracker
+
+	lim   *socket.RateLimiter
+	sock  *socket.Socket
+	cache *socket.RequestResponseCache
+	iter  Strategy
+
+	done   <-chan struct{}
+	cancel context.CancelFunc
 }
 
 func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {

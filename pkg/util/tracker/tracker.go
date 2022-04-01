@@ -15,7 +15,7 @@ import (
 
 var ErrClosed = errors.New("closed")
 
-type HostTracker struct {
+type HostAddrTracker struct {
 	host host.Host
 
 	envelope atomic.Value
@@ -29,11 +29,11 @@ type HostTracker struct {
 
 type Callback func()
 
-func New(h host.Host, callback ...Callback) *HostTracker {
-	return &HostTracker{host: h, callbacks: callback}
+func New(h host.Host, callback ...Callback) *HostAddrTracker {
+	return &HostAddrTracker{host: h, callbacks: callback}
 }
 
-func (h *HostTracker) Ensure(ctx context.Context) (err error) {
+func (h *HostAddrTracker) Ensure(ctx context.Context) (err error) {
 	h.once.Do(func() {
 		if len(h.host.Addrs()) == 0 {
 			err = errors.New("host not accepting connections")
@@ -82,11 +82,11 @@ func (h *HostTracker) Ensure(ctx context.Context) (err error) {
 	return
 }
 
-func (h HostTracker) Close() error {
+func (h HostAddrTracker) Close() error {
 	return h.sub.Close()
 }
 
-func (h HostTracker) Record() *peer.PeerRecord {
+func (h HostAddrTracker) Record() *peer.PeerRecord {
 	var rec peer.PeerRecord
 
 	envelope := h.envelope.Load().(*record.Envelope)
@@ -94,14 +94,14 @@ func (h HostTracker) Record() *peer.PeerRecord {
 	return &rec
 }
 
-func (h HostTracker) AddCallback(c Callback) {
+func (h HostAddrTracker) AddCallback(c Callback) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.callbacks = append(h.callbacks, c)
 }
 
-func (h HostTracker) callCallbacks() {
+func (h HostAddrTracker) callCallbacks() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
