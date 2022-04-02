@@ -13,6 +13,8 @@ import (
 	"github.com/libp2p/go-libp2p-core/record"
 )
 
+const empty = 0
+
 var ErrClosed = errors.New("closed")
 
 type HostAddrTracker struct {
@@ -20,11 +22,12 @@ type HostAddrTracker struct {
 
 	envelope atomic.Value
 
-	once sync.Once
-	sub  event.Subscription
+	sub event.Subscription
 
 	mu        sync.Mutex
 	callbacks []Callback
+
+	closed bool
 }
 
 type Callback func(*peer.PeerRecord)
@@ -34,77 +37,87 @@ func New(h host.Host, callback ...Callback) *HostAddrTracker {
 }
 
 func (h *HostAddrTracker) Ensure(ctx context.Context) (err error) {
-	h.once.Do(func() {
-		if len(h.host.Addrs()) == 0 {
-			err = errors.New("host not accepting connections")
-			return
+	if h.closed { // only run Ensure logic once
+		return ErrClosed
+	}
+
+	if h.sub != nil { // only run once the Ensure logic
+		return
+	}
+
+	if len(h.host.Addrs()) == 0 {
+		return errors.New("host not accepting connections")
+	}
+
+	h.sub, err = h.host.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		return err
+	}
+
+	// Ensure a sync operation is run before continuing the call
+	// to Advertise, as this may otherwise cause a panic.
+	//
+	// The host may have unregistered its addresses concurrently
+	// with the call to Subscribe, so we provide a cancellation
+	// mechanism via the context.  Note that if the first call to
+	// ensureTrackHostAddr fails, subsequent calls will also fail.
+	select {
+	case v, ok := <-h.sub.Out():
+		if !ok {
+			return fmt.Errorf("host %w", ErrClosed)
 		}
 
-		h.sub, err = h.host.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-		if err != nil {
-			return
-		}
+		evt := v.(event.EvtLocalAddressesUpdated)
+		h.envelope.Store(evt.SignedPeerRecord)
+		h.callCallbacks()
 
-		// Ensure a sync operation is run before continuing the call
-		// to Advertise, as this may otherwise cause a panic.
-		//
-		// The host may have unregistered its addresses concurrently
-		// with the call to Subscribe, so we provide a cancellation
-		// mechanism via the context.  Note that if the first call to
-		// ensureTrackHostAddr fails, subsequent calls will also fail.
-		select {
-		case v, ok := <-h.sub.Out():
-			if !ok {
-				err = fmt.Errorf("host %w", ErrClosed)
-				return
-			}
+	case <-ctx.Done():
+		h.sub.Close()
+		return ctx.Err()
+	}
 
+	go func() {
+		for v := range h.sub.Out() {
 			evt := v.(event.EvtLocalAddressesUpdated)
 			h.envelope.Store(evt.SignedPeerRecord)
 			h.callCallbacks()
-
-		case <-ctx.Done():
-			h.sub.Close()
-			err = ctx.Err()
-			return
 		}
+	}()
 
-		go func() {
-			for v := range h.sub.Out() {
-				evt := v.(event.EvtLocalAddressesUpdated)
-				h.envelope.Store(evt.SignedPeerRecord)
-				h.callCallbacks()
-			}
-		}()
-
-	})
+	h.closed = true
 
 	return
 }
 
-func (h HostAddrTracker) Close() error {
+func (h *HostAddrTracker) Close() (err error) {
 	if h.sub != nil {
-		return h.sub.Close()
+		err = h.sub.Close()
 	}
-	return nil
+	h.closed = false
+	return
 }
 
-func (h HostAddrTracker) Record() *peer.PeerRecord {
-	var rec peer.PeerRecord
+func (h *HostAddrTracker) Record() *peer.PeerRecord {
+	rawEnvelope := h.envelope.Load()
+	if rawEnvelope == nil {
+		return nil
+	}
 
-	envelope := h.envelope.Load().(*record.Envelope)
+	envelope := rawEnvelope.(*record.Envelope)
+
+	var rec peer.PeerRecord
 	envelope.TypedRecord(&rec)
 	return &rec
 }
 
-func (h HostAddrTracker) AddCallback(c Callback) {
+func (h *HostAddrTracker) AddCallback(c Callback) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.callbacks = append(h.callbacks, c)
 }
 
-func (h HostAddrTracker) callCallbacks() {
+func (h *HostAddrTracker) callCallbacks() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
