@@ -57,12 +57,12 @@ func (c *RequestResponseCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns str
 // LoadResponse searches the cache for a signed response packet for ns
 // and returns it, if found. Else, it creates and signs a new response
 // packet and adds it to the cache.
-func (c *RequestResponseCache) LoadResponse(seal Sealer, prov tracker.RecordProvider, ns string) (*record.Envelope, error) {
+func (c *RequestResponseCache) LoadResponse(seal Sealer, recProv tracker.RecordProvider, ns string) (*record.Envelope, error) {
 	if v, ok := c.cache.Get(keyResponse(ns)); ok {
 		return v.(*record.Envelope), nil
 	}
 
-	return c.storeCache(response(prov.Record()), seal, ns)
+	return c.storeCache(response(recProv.Record()), seal, ns)
 }
 
 type bindFunc func(boot.Packet) error

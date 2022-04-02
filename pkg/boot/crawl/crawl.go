@@ -69,7 +69,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
 		option(c)
 	}
 
-	c.tracker.AddCallback(c.cache.Reset)
+	c.tracker.AddCallback(func(*peer.PeerRecord) { c.cache.Reset() })
 
 	c.sock = socket.New(conn, socket.Protocol{
 		Validate:      socket.BasicValidator(h.ID()),

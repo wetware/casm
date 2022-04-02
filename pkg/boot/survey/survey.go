@@ -54,7 +54,7 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
 		option(s)
 	}
 
-	s.tracker.AddCallback(s.cache.Reset)
+	s.tracker.AddCallback(func(*peer.PeerRecord) { s.cache.Reset() })
 
 	s.sock = socket.New(conn, socket.Protocol{
 		Validate:      socket.BasicValidator(h.ID()),

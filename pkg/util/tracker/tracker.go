@@ -27,7 +27,7 @@ type HostAddrTracker struct {
 	callbacks []Callback
 }
 
-type Callback func()
+type Callback func(*peer.PeerRecord)
 
 func New(h host.Host, callback ...Callback) *HostAddrTracker {
 	return &HostAddrTracker{host: h, callbacks: callback}
@@ -108,8 +108,9 @@ func (h HostAddrTracker) callCallbacks() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	rec := h.Record()
 	for _, c := range h.callbacks {
-		go c()
+		go c(rec)
 	}
 }
 
