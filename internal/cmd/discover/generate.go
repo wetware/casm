@@ -12,12 +12,12 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/urfave/cli/v2"
 	"github.com/wetware/casm/pkg/boot/socket"
+	"github.com/wetware/casm/pkg/util/tracker"
 )
 
 var (
-	pk    crypto.PrivKey
-	id    peer.ID
-	cache = socket.NewRecordCache(8)
+	pk crypto.PrivKey
+	id peer.ID
 )
 
 func genpayload() *cli.Command {
@@ -54,6 +54,11 @@ func genpayload() *cli.Command {
 }
 
 func generate(c *cli.Context) (*record.Envelope, error) {
+	cache, err := socket.NewCache(8)
+	if err != nil {
+		return nil, err
+	}
+
 	pk, err := privkey()
 	if err != nil {
 		return nil, err
@@ -71,12 +76,8 @@ func generate(c *cli.Context) (*record.Envelope, error) {
 		return nil, err
 	}
 
-	if err = cache.Reset(e); err != nil {
-		return nil, err
-	}
-
 	if c.Bool("resp") {
-		return cache.LoadResponse(seal, c.String("ns"))
+		return cache.LoadResponse(seal, tracker.StaticRecordProvider{Envelope: e}, c.String("ns"))
 	}
 
 	if c.IsSet("dist") {

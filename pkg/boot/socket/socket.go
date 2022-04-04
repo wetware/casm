@@ -26,7 +26,6 @@ type Protocol struct {
 	HandleRequest func(Request, net.Addr)
 	Validate      Validator
 	RateLimiter   *RateLimiter
-	Cache         *RecordCache
 }
 
 // Socket is a a packet-oriented network interface that exchanges
@@ -41,7 +40,7 @@ type Socket struct {
 	time time.Time
 	sub  event.Subscription
 
-	cache *RecordCache
+	prot Protocol
 }
 
 // New socket.  The wrapped PacketConn implementation MUST flush
@@ -52,18 +51,20 @@ type Socket struct {
 // these condiitions
 func New(conn net.PacketConn, p Protocol) *Socket {
 	sock := &Socket{
-		sock:  newPacketConn(conn, p.RateLimiter),
-		subs:  make(map[string]subscriberSet),
-		advt:  make(map[string]time.Time),
-		time:  time.Now(),
-		tick:  time.NewTicker(time.Millisecond * 500),
-		cache: p.Cache,
+		sock: newPacketConn(conn, p.RateLimiter),
+		subs: make(map[string]subscriberSet),
+		advt: make(map[string]time.Time),
+		time: time.Now(),
+		tick: time.NewTicker(time.Millisecond * 500),
+		prot: p,
 	}
 
-	go sock.tickloop()
-	go sock.scanloop(p)
-
 	return sock
+}
+
+func (s *Socket) Start() {
+	go s.tickloop()
+	go s.scanloop()
 }
 
 func (s *Socket) Close() (err error) {
@@ -86,16 +87,11 @@ func (s *Socket) Tracking(ns string) bool {
 	return ok
 }
 
-func (s *Socket) Track(ctx context.Context, h host.Host, ns string, ttl time.Duration) error {
+func (s *Socket) Track(ctx context.Context, h host.Host, ns string, ttl time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	err := s.ensureTrackHostAddr(ctx, h)
-	if err == nil {
-		s.advt[ns] = s.time.Add(ttl)
-	}
-
-	return err
+	s.advt[ns] = s.time.Add(ttl)
 }
 
 // LocalAddr returns the local address on which the socket is listening.
@@ -142,58 +138,6 @@ func (s *Socket) Subscribe(ns string, limit int) (<-chan peer.AddrInfo, func()) 
 	return ch, cancel
 }
 
-// caller MUST hold mu.
-func (s *Socket) ensureTrackHostAddr(ctx context.Context, h host.Host) (err error) {
-	// previously initialized?
-	if s.sub != nil {
-		return
-	}
-
-	// client host?  (best-effort)
-	//
-	// The caller may not have set addresses on the host yet, so
-	// we should allow them to retry. Therefore, we perform this
-	// check outside of sync.Once.
-	if len(h.Addrs()) == 0 {
-		return errors.New("host not accepting connections")
-	}
-
-	s.sub, err = h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-	if err != nil {
-		return
-	}
-
-	// Ensure a sync operation is run before continuing the call
-	// to Advertise, as this may otherwise cause a panic.
-	//
-	// The host may have unregistered its addresses concurrently
-	// with the call to Subscribe, so we provide a cancellation
-	// mechanism via the context.  Note that if the first call to
-	// ensureTrackHostAddr fails, subsequent calls will also fail.
-	select {
-	case v, ok := <-s.sub.Out():
-		if !ok {
-			return fmt.Errorf("host %w", ErrClosed)
-		}
-
-		evt := v.(event.EvtLocalAddressesUpdated)
-		s.cache.Reset(evt.SignedPeerRecord)
-
-	case <-ctx.Done():
-		s.sub.Close()
-		return ctx.Err()
-	}
-
-	go func() {
-		for v := range s.sub.Out() {
-			evt := v.(event.EvtLocalAddressesUpdated)
-			s.cache.Reset(evt.SignedPeerRecord)
-		}
-	}()
-
-	return err
-}
-
 func (s *Socket) tickloop() {
 	for t := range s.tick.C {
 		s.mu.Lock()
@@ -209,7 +153,7 @@ func (s *Socket) tickloop() {
 	}
 }
 
-func (s *Socket) scanloop(p Protocol) {
+func (s *Socket) scanloop() {
 	var (
 		r    Record
 		addr net.Addr
@@ -217,8 +161,8 @@ func (s *Socket) scanloop(p Protocol) {
 	)
 
 	for {
-		if addr, err = s.sock.Scan(p.Validate, &r); err != nil {
-			p.HandleError(err)
+		if addr, err = s.sock.Scan(s.prot.Validate, &r); err != nil {
+			s.prot.HandleError(err)
 
 			// socket closed?
 			if ne, ok := err.(net.Error); ok && !ne.Timeout() {
@@ -233,14 +177,14 @@ func (s *Socket) scanloop(p Protocol) {
 		switch r.Type() {
 		case TypeResponse:
 			if err := s.dispatch(Response{r}, addr); err != nil {
-				p.HandleError(err)
+				s.prot.HandleError(err)
 			}
 
 		case TypeRequest, TypeSurvey:
-			p.HandleRequest(Request{r}, addr)
+			s.prot.HandleRequest(Request{r}, addr)
 
 		default:
-			p.HandleError(fmt.Errorf("%s: invalid packet type", r.Type()))
+			s.prot.HandleError(fmt.Errorf("%s: invalid packet type", r.Type()))
 		}
 	}
 }
@@ -323,5 +267,3 @@ func (ss subscriberSet) Remove(s chan<- peer.AddrInfo) (empty bool) {
 	delete(ss, subscriber{s})
 	return len(ss) == 0
 }
-
-type thunk func(time.Time)
