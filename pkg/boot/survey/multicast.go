@@ -109,20 +109,20 @@ type ipv4MulticastConn struct {
 	group *net.UDPAddr
 }
 
-func newIPv4MulticastConn(c net.PacketConn, ifi *net.Interface, group *net.UDPAddr) (ipv4MulticastConn, error) {
+func newIPv4MulticastConn(c net.PacketConn, ifi *net.Interface, group *net.UDPAddr) (net.PacketConn, error) {
 	conn := ipv4.NewPacketConn(c)
 
 	err := conn.JoinGroup(ifi, &net.UDPAddr{IP: group.IP})
 	if err != nil {
-		return ipv4MulticastConn{}, err
+		return nil, err
 	}
 
 	if err = conn.SetControlMessage(ipv4.FlagDst, true); err != nil {
-		return ipv4MulticastConn{}, err
+		return nil, err
 	}
 
 	if err := conn.SetMulticastInterface(ifi); err != nil {
-		return ipv4MulticastConn{}, err
+		return nil, err
 	}
 
 	return ipv4MulticastConn{
@@ -158,20 +158,20 @@ type ipv6MulticastConn struct {
 	group *net.UDPAddr
 }
 
-func newIPv6MulticastConn(c net.PacketConn, ifi *net.Interface, group *net.UDPAddr) (ipv6MulticastConn, error) {
+func newIPv6MulticastConn(c net.PacketConn, ifi *net.Interface, group *net.UDPAddr) (net.PacketConn, error) {
 	conn := ipv6.NewPacketConn(c)
 
 	err := conn.JoinGroup(ifi, &net.UDPAddr{IP: group.IP})
 	if err != nil {
-		return ipv6MulticastConn{}, err
+		return nil, err
 	}
 
 	if err = conn.SetControlMessage(ipv6.FlagDst, true); err != nil {
-		return ipv6MulticastConn{}, err
+		return nil, err
 	}
 
 	if err = conn.SetMulticastInterface(ifi); err != nil {
-		return ipv6MulticastConn{}, err
+		return nil, err
 	}
 
 	return ipv6MulticastConn{

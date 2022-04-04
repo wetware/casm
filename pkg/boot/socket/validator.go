@@ -76,19 +76,15 @@ func BasicErrHandler(ctx context.Context, log log.Logger) func(error) {
 			return
 		}
 
-		if errors.Is(err, net.ErrClosed) {
-			log.Error(err)
-			return
-		}
-
 		switch e := err.(type) {
 		case net.Error:
-			if e.Timeout() {
+			if errors.Is(err, net.ErrClosed) {
+				log.Error(err)
+			} else if e.Timeout() {
 				log.Debug("read timeout")
-				return
+			} else {
+				log.WithError(err).Error("network error")
 			}
-
-			log.WithError(err).Error("network error")
 
 		case ValidationError:
 			log.With(e).Debug("validation failed")

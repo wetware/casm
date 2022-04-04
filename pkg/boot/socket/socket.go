@@ -39,8 +39,6 @@ type Socket struct {
 	advt map[string]time.Time
 	time time.Time
 	sub  event.Subscription
-
-	prot Protocol
 }
 
 // New socket.  The wrapped PacketConn implementation MUST flush
@@ -56,15 +54,12 @@ func New(conn net.PacketConn, p Protocol) *Socket {
 		advt: make(map[string]time.Time),
 		time: time.Now(),
 		tick: time.NewTicker(time.Millisecond * 500),
-		prot: p,
 	}
 
-	return sock
-}
+	go sock.tickloop()
+	go sock.scanloop(p)
 
-func (s *Socket) Start() {
-	go s.tickloop()
-	go s.scanloop()
+	return sock
 }
 
 func (s *Socket) Close() (err error) {
@@ -153,7 +148,7 @@ func (s *Socket) tickloop() {
 	}
 }
 
-func (s *Socket) scanloop() {
+func (s *Socket) scanloop(p Protocol) {
 	var (
 		r    Record
 		addr net.Addr
@@ -161,8 +156,8 @@ func (s *Socket) scanloop() {
 	)
 
 	for {
-		if addr, err = s.sock.Scan(s.prot.Validate, &r); err != nil {
-			s.prot.HandleError(err)
+		if addr, err = s.sock.Scan(p.Validate, &r); err != nil {
+			p.HandleError(err)
 
 			// socket closed?
 			if ne, ok := err.(net.Error); ok && !ne.Timeout() {
@@ -177,14 +172,14 @@ func (s *Socket) scanloop() {
 		switch r.Type() {
 		case TypeResponse:
 			if err := s.dispatch(Response{r}, addr); err != nil {
-				s.prot.HandleError(err)
+				p.HandleError(err)
 			}
 
 		case TypeRequest, TypeSurvey:
-			s.prot.HandleRequest(Request{r}, addr)
+			p.HandleRequest(Request{r}, addr)
 
 		default:
-			s.prot.HandleError(fmt.Errorf("%s: invalid packet type", r.Type()))
+			p.HandleError(fmt.Errorf("%s: invalid packet type", r.Type()))
 		}
 	}
 }

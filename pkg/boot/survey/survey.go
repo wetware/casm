@@ -62,7 +62,6 @@ func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
 		HandleRequest: s.requestHandler(ctx),
 		// RateLimiter:   s.lim,  // FIXME:  blocks reads when waiting to write
 	})
-	s.sock.Start()
 
 	return s
 }
@@ -77,11 +76,6 @@ func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.
 		id, err := r.From()
 		if err != nil {
 			s.log.WithError(err).Debug("invalid ID in request packet")
-			return
-		}
-
-		// request comes from itself?
-		if id == s.host.ID() {
 			return
 		}
 
@@ -109,10 +103,6 @@ func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.
 			}
 		}
 	}
-}
-
-func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
-	return xor(s.host.ID(), id)>>uint32(d) != 0
 }
 
 func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
@@ -158,6 +148,10 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 	}
 
 	return out, nil
+}
+
+func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
+	return xor(s.host.ID(), id)>>uint32(d) != 0
 }
 
 func (s *Surveyor) sealer() socket.Sealer {

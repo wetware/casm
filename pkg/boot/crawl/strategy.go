@@ -216,9 +216,3 @@ func (c *CIDR) skip() bool {
 func (c *CIDR) setIP4(ip net.IP) {
 	binary.BigEndian.PutUint32(ip, c.i^c.rand)
 }
-
-func failure(err error) Strategy {
-	return func() (Range, error) {
-		return nil, err
-	}
-}
