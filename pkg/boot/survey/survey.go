@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/crypto"
@@ -28,6 +29,7 @@ var ErrClosed = errors.New("closed")
 type Surveyor struct {
 	log     log.Logger
 	host    host.Host
+	once    sync.Once
 	tracker *tracker.HostAddrTracker
 
 	lim   *socket.RateLimiter
@@ -116,12 +118,15 @@ func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
 }
 
 func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	var opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
-	if err := opts.Apply(opt...); err != nil {
+	var (
+		err  error
+		opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
+	)
+	if err = opts.Apply(opt...); err != nil {
 		return 0, err
 	}
 
-	if err := s.tracker.Ensure(ctx); err != nil {
+	if s.once.Do(func() { err = s.tracker.Ensure(ctx) }); err != nil {
 		return 0, err
 	}
 

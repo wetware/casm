@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/crypto"
@@ -44,6 +45,7 @@ var (
 type Crawler struct {
 	log     log.Logger
 	host    host.Host
+	once    sync.Once
 	tracker *tracker.HostAddrTracker
 
 	lim   *socket.RateLimiter
@@ -110,12 +112,16 @@ func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.A
 }
 
 func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
-	var opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
-	if err := opts.Apply(opt...); err != nil {
+	var (
+		err  error
+		opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
+	)
+
+	if err = opts.Apply(opt...); err != nil {
 		return 0, err
 	}
 
-	if err := c.tracker.Ensure(ctx); err != nil {
+	if c.once.Do(func() { err = c.tracker.Ensure(ctx) }); err != nil {
 		return 0, err
 	}
 
