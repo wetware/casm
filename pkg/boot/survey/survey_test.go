@@ -1,201 +1,223 @@
 package survey_test
 
-// import (
-// 	"context"
-// 	"net"
-// 	"testing"
-// 	"time"
+import (
+	"context"
+	"net"
+	"testing"
+	"time"
 
-// 	"capnproto.org/go/capnp/v3"
-// 	"github.com/libp2p/go-libp2p"
-// 	"github.com/libp2p/go-libp2p-core/discovery"
-// 	"github.com/libp2p/go-libp2p-core/event"
-// 	"github.com/libp2p/go-libp2p-core/host"
-// 	"github.com/libp2p/go-libp2p-core/record"
-// 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	"github.com/golang/mock/gomock"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/discovery"
+	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/record"
+	inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	"github.com/stretchr/testify/require"
+	mock_net "github.com/wetware/casm/internal/mock/net"
+	"github.com/wetware/casm/pkg/boot/socket"
+	"github.com/wetware/casm/pkg/boot/survey"
+	"github.com/wetware/casm/pkg/util/tracker"
+)
 
-// 	"github.com/golang/mock/gomock"
-// 	"github.com/stretchr/testify/assert"
-// 	"github.com/stretchr/testify/require"
-// 	mock_net "github.com/wetware/casm/internal/mock/net"
+type test struct {
+	h host.Host
+	c *socket.RequestResponseCache
+	t *tracker.HostAddrTracker
+}
 
-// 	"github.com/wetware/casm/internal/api/boot"
-// 	"github.com/wetware/casm/pkg/boot/survey"
-// )
+func TestClose(t *testing.T) {
+	t.Parallel()
 
-// const (
-// 	testNs       = "casm/survey"
-// 	advertiseTTL = time.Minute
-// )
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-// func TestTransport(t *testing.T) {
-// 	t.Parallel()
+	h, err := newTestHost()
+	require.NoError(t, err)
+	defer h.Close()
 
-// 	var tpt survey.MulticastTransport
+	conn := mock_net.NewMockPacketConn(ctrl)
 
-// 	// Change port in order to avoid conflicts between parallel tests.
-// 	const multicastAddr = "228.8.8.8:8823"
-// 	addr, err := net.ResolveUDPAddr("udp4", multicastAddr)
-// 	require.NoError(t, err)
+	conn.EXPECT().Close().Times(1)
+	conn.EXPECT().ReadFrom(gomock.Any()).AnyTimes()
 
-// 	lconn, err := tpt.Listen(addr)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, lconn)
-// 	defer lconn.Close()
+	surveyor := survey.New(h, conn)
+	surveyor.Close()
+}
 
-// 	dconn, err := tpt.Dial(addr)
-// 	require.NoError(t, err)
-// 	require.NotNil(t, dconn)
-// 	defer dconn.Close()
+func TestAdvertise(t *testing.T) {
+	t.Parallel()
 
-// 	ch := make(chan []byte, 1)
-// 	go func() {
-// 		defer close(ch)
-// 		var buf [4]byte
-// 		n, _, err := lconn.ReadFrom(buf[:])
-// 		require.NoError(t, err)
-// 		ch <- buf[:n]
-// 	}()
+	const (
+		N  = 2
+		ns = "test-advertise"
+	)
 
-// 	n, err := dconn.WriteTo([]byte("test"), addr)
-// 	require.NoError(t, err)
-// 	assert.Equal(t, len("test"), n)
+	var (
+		err  error
+		addr = &net.UDPAddr{
+			IP:   net.IPv4(127, 0, 0, 1),
+			Port: 8822,
+		}
+	)
 
-// 	b := <-ch
-// 	require.Equal(t, "test", string(b))
-// }
+	tt := newTestTable(t, N)
+	defer closeTestTable(tt)
 
-// func TestSurveyor(t *testing.T) {
-// 	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
+	conn := mock_net.NewMockPacketConn(ctrl)
 
-// 	ctrl := gomock.NewController(t)
-// 	defer ctrl.Finish()
+	request, err := loadRequest(tt[1], ns, 255)
+	require.NoError(t, err)
 
-// 	h := newTestHost()
-// 	defer h.Close()
+	response, err := loadResponse(tt[0], ns)
+	require.NoError(t, err)
 
-// 	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-// 	require.NoError(t, err, "must subscribe to address updates")
-// 	defer sub.Close()
-// 	e := (<-sub.Out()).(event.EvtLocalAddressesUpdated).SignedPeerRecord
+	conn.EXPECT().ReadFrom(gomock.Any()).DoAndReturn(readIncomingRequest(request, addr)).MinTimes(1)
+	conn.EXPECT().WriteTo(response, addr).MinTimes(1)
+	conn.EXPECT().Close().Times(1)
 
-// 	mockTransport := survey.MulticastTransport{
-// 		DialFunc: func(net.Addr) (net.PacketConn, error) {
-// 			conn := mock_net.NewMockPacketConn(ctrl)
-// 			// Expect a single call to Close
-// 			conn.EXPECT().
-// 				Close().
-// 				Return(error(nil)).
-// 				Times(1)
+	surveyor := survey.New(tt[0].h, conn)
+	defer surveyor.Close()
 
-// 			// Expect a single REQUEST packet to be issued.
-// 			conn.EXPECT().
-// 				WriteTo(gomock.AssignableToTypeOf([]byte{}), gomock.AssignableToTypeOf(net.Addr(new(net.UDPAddr)))).
-// 				Return(0, nil). // n not checked by sender
-// 				Times(1)
+	surveyor.Advertise(context.Background(), ns)
 
-// 			return conn, nil
-// 		},
-// 		ListenFunc: func(net.Addr) (net.PacketConn, error) {
-// 			conn := mock_net.NewMockPacketConn(ctrl)
-// 			// Expect a single call to Close
-// 			conn.EXPECT().
-// 				Close().
-// 				Return(error(nil)).
-// 				Times(1)
+	time.Sleep(time.Second)
+}
 
-// 			// Expect one RESPONSE message.
-// 			conn.EXPECT().
-// 				ReadFrom(gomock.AssignableToTypeOf([]byte{})).
-// 				DoAndReturn(func(b []byte) (int, net.Addr, error) {
-// 					return copy(b, newResponsePayload(e)), new(net.UDPAddr), nil
-// 				}).
-// 				AnyTimes()
+func TestFindPeers(t *testing.T) {
+	t.Parallel()
 
-// 			return conn, nil
-// 		},
-// 	}
+	const (
+		N  = 2
+		ns = "test-findpeers"
+	)
 
-// 	s, err := survey.New(h, new(net.UDPAddr), survey.WithTransport(mockTransport))
-// 	require.NoError(t, err, "should open packet connections")
-// 	require.NotNil(t, s, "should return surveyor")
-// 	defer s.Close()
+	var (
+		err  error
+		addr = &net.UDPAddr{
+			IP:   net.IPv4(127, 0, 0, 1),
+			Port: 8822,
+		}
+	)
 
-// 	t.Run("ShouldAdvertise", func(t *testing.T) {
-// 		ttl, err := s.Advertise(ctx, testNs, discovery.TTL(advertiseTTL))
-// 		require.NoError(t, err, "should advertise successfully")
-// 		require.Equal(t, advertiseTTL, ttl, "should return advertised TTL")
-// 	})
+	tt := newTestTable(t, N)
+	defer closeTestTable(tt)
 
-// 	t.Run("ShouldFindPeer", func(t *testing.T) {
-// 		finder, err := s.FindPeers(ctx, testNs)
-// 		require.NoError(t, err, "should issue request packet")
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-// 		select {
-// 		case <-time.After(time.Second):
-// 			t.Error("should receive response")
-// 		case info := <-finder:
-// 			// NOTE: we advertised h's record to avoid creating a separate host
-// 			require.Equal(t, info, *host.InfoFromHost(h))
-// 		}
-// 	})
+	conn := mock_net.NewMockPacketConn(ctrl)
 
-// 	t.Run("Close", func(t *testing.T) {
-// 		require.NoError(t, s.Close(), "should close without error")
+	request, err := loadRequest(tt[0], ns, 255)
+	require.NoError(t, err)
 
-// 		ttl, err := s.Advertise(ctx, testNs)
-// 		require.ErrorIs(t, err, survey.ErrClosed)
-// 		require.Zero(t, ttl)
+	response, err := loadResponse(tt[1], ns)
+	require.NoError(t, err)
 
-// 		ch, err := s.FindPeers(ctx, testNs)
-// 		require.ErrorIs(t, err, survey.ErrClosed)
-// 		require.Nil(t, ch)
-// 	})
-// }
+	conn.EXPECT().LocalAddr().Return(addr).Times(1)
+	conn.EXPECT().WriteTo(request, addr).Times(1)
+	conn.EXPECT().ReadFrom(gomock.Any()).DoAndReturn(readIncomingRequest(response, addr)).MinTimes(1)
+	conn.EXPECT().Close().Times(1)
 
-// func newTestHost() host.Host {
-// 	h, err := libp2p.New(
-// 		libp2p.NoListenAddrs,
-// 		libp2p.NoTransports,
-// 		libp2p.Transport(inproc.New()),
-// 		libp2p.ListenAddrStrings("/inproc/~"))
-// 	if err != nil {
-// 		panic(err)
-// 	}
+	surveyor := survey.New(tt[0].h, conn)
+	defer surveyor.Close()
 
-// 	return h
-// }
+	peers, err := surveyor.FindPeers(context.Background(), ns, discovery.Limit(1))
+	require.NoError(t, err)
 
-// func newResponsePayload(e *record.Envelope) []byte {
-// 	b, err := e.Marshal()
-// 	if err != nil {
-// 		panic(err)
-// 	}
+	peersAmount := 0
+	for info := range peers {
+		require.EqualValues(t, tt[1].h.Addrs(), info.Addrs)
+		require.EqualValues(t, tt[1].h.ID(), info.ID)
 
-// 	m, s, err := capnp.NewMessage(capnp.SingleSegment(nil))
-// 	if err != nil {
-// 		panic(err)
-// 	}
+		peersAmount++
+	}
+	require.Equal(t, 1, peersAmount)
+}
 
-// 	p, err := boot.NewRootPacket(s)
-// 	if err != nil {
-// 		panic(err)
-// 	}
+func newTestTable(t *testing.T, N int) []test {
+	var (
+		tt  = make([]test, N)
+		err error
+	)
 
-// 	if err = p.SetNamespace(testNs); err != nil {
-// 		panic(err)
-// 	}
+	for i := 0; i < N; i++ {
+		tt[i].h, err = newTestHost()
+		require.NoError(t, err)
 
-// 	if err = p.SetResponse(b); err != nil {
-// 		panic(err)
-// 	}
+		_, err = waitReady(tt[i].h)
+		require.NoError(t, err)
 
-// 	if b, err = m.MarshalPacked(); err != nil {
-// 		panic(err)
-// 	}
+		tt[i].c, err = socket.NewCache(2)
+		require.NoError(t, err)
 
-// 	return b
-// }
+		tt[i].t = tracker.New(tt[i].h)
+		tt[i].t.Ensure(context.Background())
+	}
+	return tt
+}
+
+func closeTestTable(tt []test) {
+	for _, t := range tt {
+		t.h.Close()
+		t.t.Close()
+	}
+}
+
+func newTestHost() (host.Host, error) {
+	h, err := libp2p.New(
+		libp2p.NoListenAddrs,
+		libp2p.NoTransports,
+		libp2p.Transport(inproc.New()),
+		libp2p.ListenAddrStrings("/inproc/~"))
+	if err != nil {
+		return nil, err
+	}
+
+	return h, nil
+}
+
+func waitReady(h host.Host) (*record.Envelope, error) {
+	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
+	if err != nil {
+		return nil, err
+	}
+	defer sub.Close()
+
+	v := <-sub.Out()
+	return v.(event.EvtLocalAddressesUpdated).SignedPeerRecord, nil
+}
+
+func readIncomingRequest(request []byte, from net.Addr) func([]byte) (int, net.Addr, error) {
+	return func(b []byte) (n int, addr net.Addr, err error) {
+		err = nil
+		n = copy(b, request)
+		addr = from
+		return
+	}
+}
+
+func loadRequest(t test, ns string, distance uint8) ([]byte, error) {
+	request, err := t.c.LoadSurveyRequest(sealer(t.h), t.h.ID(), ns, distance)
+	if err != nil {
+		return nil, err
+	}
+	return request.Marshal()
+}
+
+func loadResponse(t test, ns string) ([]byte, error) {
+	response, err := t.c.LoadResponse(sealer(t.h), t.t, ns)
+	if err != nil {
+		return nil, err
+	}
+	return response.Marshal()
+}
+
+func sealer(h host.Host) socket.Sealer {
+	return func(r record.Record) (*record.Envelope, error) {
+		return record.Seal(r, h.Peerstore().PrivKey(h.ID()))
+	}
+}
