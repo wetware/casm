@@ -1,12 +1,27 @@
 package socket
 
 import (
+	"net"
+
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/wetware/casm/internal/api/boot"
 )
 
-type Request struct{ Record }
+type Request struct {
+	Record
+	NS   string
+	From net.Addr
+}
+
+func (r Request) Loggable() map[string]interface{} {
+	id, _ := r.Record.Peer()
+	return map[string]interface{}{
+		"ns":   r.NS,
+		"peer": id,
+		"from": r.From,
+	}
+}
 
 func (r Request) IsSurvey() bool {
 	return r.asPacket().Which() == boot.Packet_Which_survey
@@ -20,30 +35,19 @@ func (r Request) Distance() (dist uint8) {
 	return
 }
 
-func (r Request) From() (id peer.ID, err error) {
-	var s string
-	if r.IsSurvey() {
-		s, err = r.asPacket().Survey().From()
-	} else {
-		s, err = r.asPacket().Request()
-	}
-
-	if err == nil {
-		id, err = peer.IDFromString(s)
-	}
-
-	return
+type Response struct {
+	Record
+	NS   string
+	From net.Addr
 }
 
-type Response struct{ Record }
-
-func (r Response) Peer() (id peer.ID, err error) {
-	var s string
-	if s, err = r.asPacket().Response().Peer(); err == nil {
-		id, err = peer.IDFromString(s)
+func (r Response) Loggable() map[string]interface{} {
+	id, _ := r.Record.Peer()
+	return map[string]interface{}{
+		"ns":   r.NS,
+		"peer": id,
+		"from": r.From,
 	}
-
-	return
 }
 
 func (r Response) Addrs() ([]ma.Multiaddr, error) {

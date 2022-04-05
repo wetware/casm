@@ -2,22 +2,14 @@ package discover
 
 import (
 	"bytes"
-	"crypto/rand"
-	"fmt"
 	"io"
 
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/record"
-	ma "github.com/multiformats/go-multiaddr"
+	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/urfave/cli/v2"
 	"github.com/wetware/casm/pkg/boot/socket"
-	"github.com/wetware/casm/pkg/util/tracker"
-)
-
-var (
-	pk crypto.PrivKey
-	id peer.ID
 )
 
 func genpayload() *cli.Command {
@@ -54,64 +46,35 @@ func genpayload() *cli.Command {
 }
 
 func generate(c *cli.Context) (*record.Envelope, error) {
-	cache, err := socket.NewCache(8)
+	cache := socket.NewCache(8)
+
+	h, err := libp2p.New(
+		libp2p.NoListenAddrs,
+		libp2p.NoTransports,
+		libp2p.Transport(inproc.New()),
+		libp2p.ListenAddrStrings("/inproc/~"))
 	if err != nil {
 		return nil, err
 	}
 
-	pk, err := privkey()
-	if err != nil {
-		return nil, err
+	seal := sealer(h)
+
+	if c.Bool("response") {
+		return cache.LoadResponse(seal, h, c.String("ns"))
 	}
 
-	rec, err := newPeerRecord(pk)
-	if err != nil {
-		return nil, err
-	}
-
-	seal := sealer(pk)
-
-	e, err := seal(rec)
-	if err != nil {
-		return nil, err
-	}
-
-	if c.Bool("resp") {
-		return cache.LoadResponse(seal, tracker.StaticRecordProvider{Envelope: e}, c.String("ns"))
-	}
-
-	if c.IsSet("dist") {
+	if c.IsSet("distance") {
 		return cache.LoadSurveyRequest(seal,
-			rec.PeerID,
+			h.ID(),
 			c.String("ns"),
-			uint8(c.Uint("dist")))
+			uint8(c.Uint("distance")))
 	}
 
-	return cache.LoadRequest(seal, rec.PeerID, c.String("ns"))
+	return cache.LoadRequest(seal, h.ID(), c.String("ns"))
 }
 
-func newPeerRecord(pk crypto.PrivKey) (rec *peer.PeerRecord, err error) {
-	rec = peer.NewPeerRecord()
-	rec.PeerID, err = peer.IDFromPrivateKey(pk)
-	if err != nil {
-		return nil, err
-	}
-
-	rec.Addrs = append(rec.Addrs, ma.StringCast(fmt.Sprintf(
-		"/ip4/10.0.0.1/udp/2020/quic/p2p/%s", rec.PeerID)))
-	rec.Addrs = append(rec.Addrs, ma.StringCast(fmt.Sprintf(
-		"/ip6/::1/udp/2020/quic/p2p/%s", rec.PeerID)))
-
-	return
-}
-
-func sealer(pk crypto.PrivKey) func(record.Record) (*record.Envelope, error) {
+func sealer(h host.Host) func(record.Record) (*record.Envelope, error) {
 	return func(r record.Record) (*record.Envelope, error) {
-		return record.Seal(r, pk)
+		return record.Seal(r, h.Peerstore().PrivKey(h.ID()))
 	}
-}
-
-func privkey() (crypto.PrivKey, error) {
-	pk, _, err := crypto.GenerateECDSAKeyPair(rand.Reader)
-	return pk, err
 }

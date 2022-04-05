@@ -19,7 +19,7 @@ const templ = `[{{ printf "%04d" .Tick }}] Got {{ .Proto }} packet ({{ .Size }} 
   type:      {{ .Type }}
   namespace: {{ .Colorize .Namespace }}
   size:      {{ .Size }} bytes
-  peer:	     {{ .Colorize .PeerID.String }}
+  peer:	     {{ .Colorize .Peer.String }}
 {{- if eq .Type 1 }}  
   distance:   {{ .Distance }}
 {{- end }}
@@ -98,9 +98,6 @@ type templateCtx struct {
 
 func (r request) Colorize(s string) termenv.Style {
 	hash := md5.Sum([]byte(s))
-	hash[0] <<= 1 // make sure it's not too dark
-	hash[1] <<= 1
-	hash[3] <<= 1
 	color := fmt.Sprintf("#%x", hash[:3])
 	return termenv.String(s).Foreground(p.Color(color))
 }
@@ -115,7 +112,7 @@ func (r request) Tick() time.Duration {
 		t0 = time.Now()
 	}
 
-	return time.Now().Sub(t0) / time.Second
+	return time.Since(t0) / time.Second
 }
 
 type request struct {

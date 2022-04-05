@@ -77,16 +77,17 @@ func teardown() cli.AfterFunc {
 }
 
 func setsock(c *cli.Context, conn net.PacketConn) error {
-	sock = socket.New(conn, socket.Protocol{
-		HandleError:   errlogger(c),
-		HandleRequest: func(socket.Request, net.Addr) {},
-		Validate:      render(c, "multicast"),
-	})
+	sock = socket.New(conn,
+		socket.WithLogger(logger),
+		socket.WithErrHandler(errlogger(c)),
+		socket.WithValidator(render(c, "multicast")))
+
+	sock.Bind(func(r socket.Request) error { return nil }) // nop
 
 	return nil
 }
 
-func errlogger(c *cli.Context) func(error) {
+func errlogger(c *cli.Context) func(*socket.Socket, error) {
 	ctx, cancel := signal.NotifyContext(c.Context,
 		syscall.SIGINT,
 		syscall.SIGTERM)
@@ -95,16 +96,10 @@ func errlogger(c *cli.Context) func(error) {
 	const red = "#cc0000"
 	emsg := termenv.String("ERROR").Foreground(p.Color(red))
 
-	return func(err error) {
+	return func(_ *socket.Socket, err error) {
 		if ctx.Err() == nil {
 			fmt.Fprintf(c.App.Writer, "%s: %s\n", emsg, err)
 		}
-	}
-}
-
-func task(f cli.ActionFunc, c *cli.Context) func() error {
-	return func() error {
-		return f(c)
 	}
 }
 
