@@ -187,19 +187,16 @@ func (c *CIDR) Next(addr net.Addr) (ok bool) {
 	return
 }
 
-func (c *CIDR) nextIP(ip net.IP) bool {
-	for ; c.more(); c.next() {
-		if !c.skip() {
+func (c *CIDR) nextIP(ip net.IP) (ok bool) {
+	for c.i <= c.end && !ok {
+		if ok = !c.skip(); ok {
 			c.setIP4(ip) // TODO:  IPv6 support
 		}
 
+		c.next()
 	}
 
-	return false
-}
-
-func (c *CIDR) more() bool {
-	return c.i <= c.end
+	return
 }
 
 func (c *CIDR) next() {
