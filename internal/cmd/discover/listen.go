@@ -96,18 +96,18 @@ type templateCtx struct {
 	*record.Envelope
 }
 
-func (r request) Colorize(s string) termenv.Style {
+func (ctx templateCtx) Colorize(s string) termenv.Style {
 	hash := md5.Sum([]byte(s))
 	color := fmt.Sprintf("#%x", hash[:3])
 	return termenv.String(s).Foreground(p.Color(color))
 }
 
-func (r request) Size() (int, error) {
-	b, err := r.Envelope.Marshal()
+func (ctx templateCtx) Size() (int, error) {
+	b, err := ctx.Envelope.Marshal()
 	return len(b), err
 }
 
-func (r request) Tick() time.Duration {
+func (ctx templateCtx) Tick() time.Duration {
 	if t0.IsZero() {
 		t0 = time.Now()
 	}
@@ -146,7 +146,7 @@ func render(c *cli.Context, proto string) func(*record.Envelope, *socket.Record)
 				Request: socket.Request{Record: *r},
 			})
 
-		default:
+		case socket.TypeResponse:
 			return t.Execute(c.App.Writer, response{
 				templateCtx: templateCtx{
 					Proto:    proto,
@@ -155,7 +155,9 @@ func render(c *cli.Context, proto string) func(*record.Envelope, *socket.Record)
 				},
 				Response: socket.Response{Record: *r},
 			})
-		}
 
+		default:
+			panic(fmt.Errorf("%s", r.Type()))
+		}
 	}
 }
