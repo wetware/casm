@@ -29,7 +29,7 @@ type GradualSurveyor struct {
 	// uniformly from the interval (w/2, w), where 'w' is the wait
 	// duration.
 	DisableJitter bool
-	*Surveyor
+	Surveyor
 }
 
 func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
