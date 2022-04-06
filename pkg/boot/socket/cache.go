@@ -30,9 +30,18 @@ type Sealer func(record.Record) (*record.Envelope, error)
 // used to amortize the cost of signing discovery packets.
 type RecordCache lru.TwoQueueCache
 
-// NewCache creates a new RecordCache with the given size.  Panics
-// if size <= 0.
+// NewCache creates a new RecordCache with the given size.
+// The cache uses twin queues algorithm that tracks both
+// recently-added entries and recently-evicted ("ghost")
+// entries, in order to reduce churn.
+//
+// The cache MUST have a maximum size of at least 2.  If
+// size < 2, a default size of 8 is used.
 func NewCache(size int) *RecordCache {
+	if size < 2 {
+		size = 8
+	}
+
 	c, err := lru.New2Q(size)
 	if err != nil {
 		panic(err)
