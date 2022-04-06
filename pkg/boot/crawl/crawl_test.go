@@ -128,7 +128,7 @@ func TestCrawler_request_noadvert(t *testing.T) {
 		DoAndReturn(blockUntilClosed(sync)).
 		AnyTimes()
 
-	c := crawl.New(h, conn, rangeUDP(),
+	c := crawl.New(h, conn, rangeUDP(addr),
 		socket.WithLogger(logger))
 	assert.NoError(t, c.Close(), "should close gracefully")
 }
