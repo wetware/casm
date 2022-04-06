@@ -2,9 +2,9 @@
 
 Gossip-based sampling service for robust connectivity.
 
-| Lifecycle Stage | Maturity       | Status | Latest Revision |
-|-----------------|----------------|--------|-----------------|
-| 1A              | Working Draft  | Active | r1, 2021-08-26  |
+| Lifecycle Stage | Maturity                 | Status | Latest Revision |
+|-----------------|--------------------------|--------|-----------------|
+| 2A              | Candidate Recommendation | Active | r1, 2021-08-26  |
 
 Authors: [@aratz-lasa], [@lthibault]
 
