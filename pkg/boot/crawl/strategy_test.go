@@ -1,6 +1,8 @@
 package crawl_test
 
 import (
+	"net"
+	"net/netip"
 	"testing"
 
 	ma "github.com/multiformats/go-multiaddr"
@@ -11,21 +13,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStrategy(t *testing.T) {
+func TestCIDR(t *testing.T) {
 	t.Parallel()
-	t.Helper()
 
-	t.Run("CIDR", func(t *testing.T) {
-		t.Parallel()
+	maddr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/24")
 
-		addr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/24")
+	cidr, err := crawl.ParseCIDR(maddr)
+	require.NoError(t, err, "should succeed")
+	require.NotNil(t, cidr, "should return strategy")
 
-		cidr, err := crawl.ParseCIDR(addr)
-		require.NoError(t, err, "should succeed")
-		require.NotNil(t, cidr, "should return strategy")
+	c, err := cidr()
+	assert.NoError(t, err, "should succeed")
+	assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
 
-		c, err := cidr()
-		assert.NoError(t, err, "should succeed")
-		assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
-	})
+	seen := map[netip.Addr]struct{}{}
+	addr := &net.UDPAddr{IP: net.IPv4zero}
+
+	for c.Next(addr) {
+		ip, ok := netip.AddrFromSlice(addr.IP)
+		require.True(t, ok, "%s is not a valid IP address", addr.IP)
+		assert.NotContains(t, seen, ip, "duplicate address: %s", ip)
+
+		seen[ip] = struct{}{}
+	}
+
+	assert.Len(t, seen, 254,
+		"should contain 8-bit subnet without X.X.X.0 and X.X.X.255")
 }

@@ -11,7 +11,6 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/discovery"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
@@ -128,9 +127,8 @@ func TestCrawler_request_noadvert(t *testing.T) {
 		DoAndReturn(blockUntilClosed(sync)).
 		AnyTimes()
 
-	c := crawl.New(h, conn,
-		crawl.WithLogger(logger),
-		crawl.WithStrategy(rangeUDP()))
+	c := crawl.New(h, conn, rangeUDP(),
+		socket.WithLogger(logger))
 	assert.NoError(t, c.Close(), "should close gracefully")
 }
 
@@ -186,9 +184,8 @@ func TestCrawler_advertise(t *testing.T) {
 		DoAndReturn(blockUntilClosed(syncClose)).
 		AnyTimes()
 
-	c := crawl.New(h, conn,
-		crawl.WithLogger(logger),
-		crawl.WithStrategy(rangeUDP()))
+	c := crawl.New(h, conn, rangeUDP(),
+		socket.WithLogger(logger))
 	defer c.Close()
 
 	ttl, err := c.Advertise(ctx, "casm")
@@ -202,7 +199,7 @@ func TestCrawler_advertise(t *testing.T) {
 func TestCrawler_find_peers(t *testing.T) {
 	t.Parallel()
 
-	t.Skip("runs fine on its own; fails when all tests run")
+	t.Skip("skipped flaky test; works when run individually")
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -246,15 +243,14 @@ func TestCrawler_find_peers(t *testing.T) {
 		DoAndReturn(blockUntilClosed(syncClose)).
 		AnyTimes()
 
-	c := crawl.New(h, conn,
-		crawl.WithLogger(logger),
-		crawl.WithStrategy(rangeUDP(addr)))
+	c := crawl.New(h, conn, rangeUDP(addr),
+		socket.WithLogger(logger))
 	defer c.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	peers, err := c.FindPeers(ctx, "casm", discovery.Limit(3))
+	peers, err := c.FindPeers(ctx, "casm")
 	require.NoError(t, err, "should not return error")
 
 	var ps []peer.AddrInfo

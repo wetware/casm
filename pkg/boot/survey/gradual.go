@@ -29,7 +29,7 @@ type GradualSurveyor struct {
 	// uniformly from the interval (w/2, w), where 'w' is the wait
 	// duration.
 	DisableJitter bool
-	*Surveyor
+	Surveyor
 }
 
 func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
@@ -56,7 +56,7 @@ func (g GradualSurveyor) FindPeers(ctx context.Context, ns string, opt ...discov
 
 				found, err = g.Surveyor.FindPeers(ctxSurv, ns, append(opt, WithDistance(uint8(b.Attempt())))...)
 				if err != nil {
-					g.log.WithError(err).Debug("retry failed")
+					g.sock.Log().WithError(err).Debug("retry failed")
 				}
 
 			case info := <-found:

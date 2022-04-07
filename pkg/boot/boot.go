@@ -11,6 +11,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/wetware/casm/pkg/boot/crawl"
+	"github.com/wetware/casm/pkg/boot/socket"
 	"github.com/wetware/casm/pkg/boot/survey"
 )
 
@@ -36,9 +37,7 @@ func Discover(log log.Logger, h host.Host, maddr ma.Multiaddr) (DiscoveryCloser,
 			return nil, err
 		}
 
-		return crawl.New(h, conn,
-			crawl.WithLogger(log),
-			crawl.WithStrategy(s)), nil
+		return crawl.New(h, conn, s, socket.WithLogger(log)), nil
 
 	case multicast(maddr):
 		group, ifi, err := survey.ResolveMulticast(maddr)
@@ -51,7 +50,7 @@ func Discover(log log.Logger, h host.Host, maddr ma.Multiaddr) (DiscoveryCloser,
 			return nil, err
 		}
 
-		s := survey.New(h, conn, survey.WithLogger(log))
+		s := survey.New(h, conn, socket.WithLogger(log))
 
 		if !gradual(maddr) {
 			return s, nil

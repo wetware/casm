@@ -13,13 +13,10 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
-	"go.uber.org/multierr"
 
-	"github.com/lthibault/log"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/wetware/casm/pkg/boot/socket"
-	"github.com/wetware/casm/pkg/util/tracker"
 )
 
 const P_CIDR = 103
@@ -42,89 +39,58 @@ var (
 )
 
 type Crawler struct {
-	log     log.Logger
-	host    host.Host
-	tracker *tracker.HostAddrTracker
-
-	lim   *socket.RateLimiter
-	sock  *socket.Socket
-	cache *socket.RequestResponseCache
-	iter  Strategy
-
-	done   <-chan struct{}
-	cancel context.CancelFunc
+	host host.Host
+	sock *socket.Socket
+	iter Strategy
 }
 
-func New(h host.Host, conn net.PacketConn, opt ...Option) *Crawler {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	c := &Crawler{
-		host:    h,
-		done:    ctx.Done(),
-		cancel:  cancel,
-		tracker: tracker.New(h),
+func New(h host.Host, conn net.PacketConn, s Strategy, opt ...socket.Option) Crawler {
+	c := Crawler{
+		host: h,
+		iter: s,
+		sock: socket.New(conn, withDefault(h, opt)...),
 	}
 
-	for _, option := range withDefaults(opt) {
-		option(c)
-	}
-
-	c.tracker.AddCallback(func(*peer.PeerRecord) { c.cache.Reset() })
-
-	c.sock = socket.New(conn, socket.Protocol{
-		Validate:      socket.BasicValidator(h.ID()),
-		HandleError:   socket.BasicErrHandler(ctx, c.log),
-		HandleRequest: c.requestHandler(ctx),
-		// RateLimiter:   c.lim,  // FIXME:  blocks reads when waiting to write
-	})
-	c.sock.Start()
+	c.sock.Bind(c.handler())
 
 	return c
 }
 
-func (c *Crawler) Close() error {
-	c.cancel()
-	return multierr.Combine(c.tracker.Close(), c.sock.Close())
+func withDefault(h host.Host, opt []socket.Option) []socket.Option {
+	return append([]socket.Option{
+		socket.WithRateLimiter(socket.NewPacketLimiter(32, 8)),
+		socket.WithValidator(socket.BasicValidator(h.ID())),
+	}, opt...)
 }
 
-func (c *Crawler) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {
-	return func(r socket.Request, addr net.Addr) {
-		ns, err := r.Namespace()
-		if err != nil {
-			c.log.WithError(err).Debug("error reading request namespace")
-			return
-		}
+func (c Crawler) Close() error {
+	return c.sock.Close()
+}
 
-		if c.sock.Tracking(ns) {
-			e, err := c.cache.LoadResponse(c.sealer(), c.tracker, ns)
-			if err != nil {
-				c.log.WithError(err).Error("error loading response from cache")
-				return
-			}
-
-			if err = c.sock.Send(ctx, e, addr); err != nil {
-				c.log.WithError(err).Debug("error sending response")
-			}
-		}
+func (c Crawler) handler() socket.RequestHandler {
+	return func(r socket.Request) error {
+		return c.sock.SendResponse(c.sealer(), c.host, r.From, r.NS)
 	}
 }
 
-func (c *Crawler) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
+func (c Crawler) Advertise(_ context.Context, ns string, opt ...discovery.Option) (ttl time.Duration, err error) {
+	if len(c.host.Addrs()) == 0 {
+		return 0, errors.New("no listen addrs")
+	}
+
 	var opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
-	if err := opts.Apply(opt...); err != nil {
-		return 0, err
+	if err = opts.Apply(opt...); err != nil {
+		return
 	}
 
-	if err := c.tracker.Ensure(ctx); err != nil {
-		return 0, err
+	if err = c.sock.Track(ns, opts.Ttl); err == nil {
+		ttl = opts.Ttl
 	}
 
-	c.sock.Track(ctx, c.host, ns, opts.Ttl)
-
-	return opts.Ttl, nil
+	return
 }
 
-func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	opts := discovery.Options{Limit: 1}
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
@@ -135,19 +101,15 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		return nil, err
 	}
 
-	e, err := c.cache.LoadRequest(c.sealer(), c.host.ID(), ns)
-	if err != nil {
-		return nil, err
-	}
-
 	out, cancel := c.sock.Subscribe(ns, opts.Limit)
 	go func() {
 		defer cancel()
 
 		var addr net.UDPAddr
 		for c.active(ctx) && iter.Next(&addr) {
-			if err := c.sock.Send(ctx, e, &addr); err != nil {
-				c.log.
+			err := c.sock.SendRequest(ctx, c.sealer(), &addr, c.host.ID(), ns)
+			if err != nil {
+				c.sock.Log().
 					WithError(err).
 					WithField("to", &addr).
 					Debug("failed to send request packet")
@@ -158,17 +120,17 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		// Wait for response
 		select {
 		case <-ctx.Done():
-		case <-c.done:
+		case <-c.sock.Done():
 		}
 	}()
 
 	return out, nil
 }
 
-func (c *Crawler) active(ctx context.Context) (ok bool) {
+func (c Crawler) active(ctx context.Context) (ok bool) {
 	select {
 	case <-ctx.Done():
-	case <-c.done:
+	case <-c.sock.Done():
 	default:
 		ok = true
 	}
@@ -176,7 +138,7 @@ func (c *Crawler) active(ctx context.Context) (ok bool) {
 	return
 }
 
-func (c *Crawler) sealer() socket.Sealer {
+func (c Crawler) sealer() socket.Sealer {
 	return func(r record.Record) (*record.Envelope, error) {
 		return record.Seal(r, privkey(c.host))
 	}

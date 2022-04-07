@@ -9,22 +9,16 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/discovery"
-	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/record"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	mock_net "github.com/wetware/casm/internal/mock/net"
 	"github.com/wetware/casm/pkg/boot/socket"
 	"github.com/wetware/casm/pkg/boot/survey"
-	"github.com/wetware/casm/pkg/util/tracker"
+	"go.uber.org/multierr"
 )
-
-type test struct {
-	h host.Host
-	c *socket.RequestResponseCache
-	t *tracker.HostAddrTracker
-}
 
 func TestClose(t *testing.T) {
 	t.Parallel()
@@ -32,17 +26,20 @@ func TestClose(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	h, err := newTestHost()
-	require.NoError(t, err)
+	h := newTestHost()
 	defer h.Close()
 
 	conn := mock_net.NewMockPacketConn(ctrl)
 
-	conn.EXPECT().Close().Times(1)
-	conn.EXPECT().ReadFrom(gomock.Any()).AnyTimes()
+	conn.EXPECT().
+		Close().
+		Times(1)
+	conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		AnyTimes()
 
-	surveyor := survey.New(h, conn)
-	surveyor.Close()
+	err := survey.New(h, conn).Close()
+	assert.NoError(t, err, "surveyor should close gracefully")
 }
 
 func TestAdvertise(t *testing.T) {
@@ -62,7 +59,9 @@ func TestAdvertise(t *testing.T) {
 	)
 
 	tt := newTestTable(t, N)
-	defer closeTestTable(tt)
+	defer func() {
+		assert.NoError(t, tt.Close(), "test sockets should close gracefully")
+	}()
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -75,9 +74,20 @@ func TestAdvertise(t *testing.T) {
 	response, err := loadResponse(tt[0], ns)
 	require.NoError(t, err)
 
-	conn.EXPECT().ReadFrom(gomock.Any()).DoAndReturn(readIncomingRequest(request, addr)).MinTimes(1)
-	conn.EXPECT().WriteTo(response, addr).MinTimes(1)
-	conn.EXPECT().Close().Times(1)
+	conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		DoAndReturn(readIncomingRequest(request, addr)).
+		MinTimes(1)
+	conn.EXPECT().
+		WriteTo(response, addr).
+		MinTimes(1)
+	conn.EXPECT().
+		Close().
+		Times(1)
+	conn.EXPECT().
+		LocalAddr().
+		Return(addr).
+		AnyTimes()
 
 	surveyor := survey.New(tt[0].h, conn)
 	defer surveyor.Close()
@@ -104,7 +114,9 @@ func TestFindPeers(t *testing.T) {
 	)
 
 	tt := newTestTable(t, N)
-	defer closeTestTable(tt)
+	defer func() {
+		assert.NoError(t, tt.Close(), "test sockets should close gracefully")
+	}()
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -117,10 +129,20 @@ func TestFindPeers(t *testing.T) {
 	response, err := loadResponse(tt[1], ns)
 	require.NoError(t, err)
 
-	conn.EXPECT().LocalAddr().Return(addr).Times(1)
-	conn.EXPECT().WriteTo(request, addr).Times(1)
-	conn.EXPECT().ReadFrom(gomock.Any()).DoAndReturn(readIncomingRequest(response, addr)).MinTimes(1)
-	conn.EXPECT().Close().Times(1)
+	conn.EXPECT().
+		LocalAddr().
+		Return(addr).
+		Times(1)
+	conn.EXPECT().
+		WriteTo(request, addr).
+		Times(1)
+	conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		DoAndReturn(readIncomingRequest(response, addr)).
+		MinTimes(1)
+	conn.EXPECT().
+		Close().
+		Times(1)
 
 	surveyor := survey.New(tt[0].h, conn)
 	defer surveyor.Close()
@@ -138,57 +160,43 @@ func TestFindPeers(t *testing.T) {
 	require.Equal(t, 1, peersAmount)
 }
 
-func newTestTable(t *testing.T, N int) []test {
-	var (
-		tt  = make([]test, N)
-		err error
-	)
+type test struct {
+	h host.Host
+	c *socket.RecordCache
+}
 
-	for i := 0; i < N; i++ {
-		tt[i].h, err = newTestHost()
-		require.NoError(t, err)
+type testTable []test
 
-		_, err = waitReady(tt[i].h)
-		require.NoError(t, err)
+func newTestTable(t *testing.T, N int) testTable {
+	var tt = make(testTable, N)
 
-		tt[i].c, err = socket.NewCache(2)
-		require.NoError(t, err)
-
-		tt[i].t = tracker.New(tt[i].h)
-		tt[i].t.Ensure(context.Background())
+	for i := range tt {
+		tt[i].h = newTestHost()
+		tt[i].c = socket.NewCache(2)
 	}
+
 	return tt
 }
 
-func closeTestTable(tt []test) {
+func (tt testTable) Close() (err error) {
 	for _, t := range tt {
-		t.h.Close()
-		t.t.Close()
+		err = multierr.Combine(err, t.h.Close())
 	}
+
+	return
 }
 
-func newTestHost() (host.Host, error) {
+func newTestHost() host.Host {
 	h, err := libp2p.New(
 		libp2p.NoListenAddrs,
 		libp2p.NoTransports,
 		libp2p.Transport(inproc.New()),
 		libp2p.ListenAddrStrings("/inproc/~"))
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	return h, nil
-}
-
-func waitReady(h host.Host) (*record.Envelope, error) {
-	sub, err := h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated))
-	if err != nil {
-		return nil, err
-	}
-	defer sub.Close()
-
-	v := <-sub.Out()
-	return v.(event.EvtLocalAddressesUpdated).SignedPeerRecord, nil
+	return h
 }
 
 func readIncomingRequest(request []byte, from net.Addr) func([]byte) (int, net.Addr, error) {
@@ -209,7 +217,7 @@ func loadRequest(t test, ns string, distance uint8) ([]byte, error) {
 }
 
 func loadResponse(t test, ns string) ([]byte, error) {
-	response, err := t.c.LoadResponse(sealer(t.h), t.t, ns)
+	response, err := t.c.LoadResponse(sealer(t.h), t.h, ns)
 	if err != nil {
 		return nil, err
 	}

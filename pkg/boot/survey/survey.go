@@ -13,131 +13,81 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/record"
-	"go.uber.org/multierr"
-
-	"github.com/lthibault/log"
 
 	"github.com/wetware/casm/pkg/boot/socket"
-	"github.com/wetware/casm/pkg/util/tracker"
 )
-
-var ErrClosed = errors.New("closed")
 
 // Surveyor discovers peers through a surveyor/respondent multicast
 // protocol.
 type Surveyor struct {
-	log     log.Logger
-	host    host.Host
-	tracker *tracker.HostAddrTracker
-
-	lim   *socket.RateLimiter
-	sock  *socket.Socket
-	cache *socket.RequestResponseCache
-
-	done   <-chan struct{}
-	cancel context.CancelFunc
+	host host.Host
+	sock *socket.Socket
 }
 
 // New surveyor.  The supplied PacketConn SHOULD be bound to a multicast
 // group.  Use of JoinMulticastGroup to construct conn is RECOMMENDED.
-func New(h host.Host, conn net.PacketConn, opt ...Option) *Surveyor {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	s := &Surveyor{
-		host:    h,
-		done:    ctx.Done(),
-		cancel:  cancel,
-		tracker: tracker.New(h),
+func New(h host.Host, conn net.PacketConn, opt ...socket.Option) Surveyor {
+	s := Surveyor{
+		host: h,
+		sock: socket.New(conn, withDefault(h, opt)...),
 	}
 
-	for _, option := range withDefaults(opt) {
-		option(s)
-	}
-
-	s.tracker.AddCallback(func(*peer.PeerRecord) { s.cache.Reset() })
-
-	s.sock = socket.New(conn, socket.Protocol{
-		Validate:      socket.BasicValidator(h.ID()),
-		HandleError:   socket.BasicErrHandler(ctx, s.log),
-		HandleRequest: s.requestHandler(ctx),
-		// RateLimiter:   s.lim,  // FIXME:  blocks reads when waiting to write
-	})
-	s.sock.Start()
+	s.sock.Bind(s.handler())
 
 	return s
 }
 
-func (s *Surveyor) Close() error {
-	s.cancel()
-	return multierr.Combine(s.tracker.Close(), s.sock.Close())
+func withDefault(h host.Host, opt []socket.Option) []socket.Option {
+	return append([]socket.Option{
+		socket.WithRateLimiter(socket.NewPacketLimiter(16, 8)),
+		socket.WithValidator(socket.BasicValidator(h.ID())),
+	}, opt...)
 }
 
-func (s *Surveyor) requestHandler(ctx context.Context) func(socket.Request, net.Addr) {
-	return func(r socket.Request, addr net.Addr) {
-		id, err := r.From()
-		if err != nil {
-			s.log.WithError(err).Debug("invalid ID in request packet")
-			return
-		}
+func (s Surveyor) Close() error {
+	return s.sock.Close()
+}
 
-		// request comes from itself?
-		if id == s.host.ID() {
-			return
+func (s Surveyor) handler() socket.RequestHandler {
+	return func(r socket.Request) error {
+		id, err := r.Peer()
+		if err != nil {
+			return socket.ProtocolError{
+				Message: "invalid ID in request",
+				Cause:   err,
+				Meta:    r.Loggable(),
+			}
 		}
 
 		// distance too large?
-		if s.ignore(id, r.Distance()) {
-			return
+		if ignore(s.host.ID(), id, r.Distance()) {
+			return socket.ErrIgnore
 		}
 
-		ns, err := r.Namespace()
-		if err != nil {
-			s.log.WithError(err).Debug("invalid namespace in request packet")
-			return
-		}
-
-		if s.sock.Tracking(ns) {
-			e, err := s.cache.LoadResponse(s.sealer(), s.tracker, ns)
-			if err != nil {
-				s.log.WithError(err).Error("error loading response from cache")
-				return
-			}
-
-			// Send unicast response.
-			if err = s.sock.Send(ctx, e, addr); err != nil {
-				s.log.WithError(err).Debug("error sending unicast response")
-			}
-		}
+		return s.sock.SendSurveyResponse(s.sealer(), s.host, r.NS)
 	}
 }
 
-func (s *Surveyor) ignore(id peer.ID, d uint8) bool {
-	return xor(s.host.ID(), id)>>uint32(d) != 0
-}
+func (s Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (ttl time.Duration, err error) {
+	if len(s.host.Addrs()) == 0 {
+		return 0, errors.New("no listen addrs")
+	}
 
-func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (time.Duration, error) {
 	var opts = discovery.Options{Ttl: peerstore.TempAddrTTL}
-	if err := opts.Apply(opt...); err != nil {
-		return 0, err
+	if err = opts.Apply(opt...); err != nil {
+		return
 	}
 
-	if err := s.tracker.Ensure(ctx); err != nil {
-		return 0, err
+	if err = s.sock.Track(ns, opts.Ttl); err == nil {
+		ttl = opts.Ttl
 	}
 
-	s.sock.Track(ctx, s.host, ns, opts.Ttl)
-
-	return opts.Ttl, nil
+	return
 }
 
-func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+func (s Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	opts := discovery.Options{Limit: 1}
 	if err := opts.Apply(opt...); err != nil {
-		return nil, err
-	}
-
-	e, err := s.cache.LoadSurveyRequest(s.sealer(), s.host.ID(), ns, distance(opts))
-	if err != nil {
 		return nil, err
 	}
 
@@ -147,12 +97,13 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 
 		select {
 		case <-ctx.Done():
-		case <-s.done:
+		case <-s.sock.Done():
 		}
 	}()
 
 	// Send multicast request.
-	if err := s.sock.Send(ctx, e, s.sock.LocalAddr()); err != nil {
+	err := s.sock.SendSurveyRequest(ctx, s.sealer(), s.host.ID(), ns, distance(opts))
+	if err != nil {
 		cancel()
 		return nil, err
 	}
@@ -160,7 +111,7 @@ func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Op
 	return out, nil
 }
 
-func (s *Surveyor) sealer() socket.Sealer {
+func (s Surveyor) sealer() socket.Sealer {
 	return func(r record.Record) (*record.Envelope, error) {
 		return record.Seal(r, privkey(s.host))
 	}
@@ -168,6 +119,10 @@ func (s *Surveyor) sealer() socket.Sealer {
 
 func privkey(h host.Host) crypto.PrivKey {
 	return h.Peerstore().PrivKey(h.ID())
+}
+
+func ignore(local, remote peer.ID, d uint8) bool {
+	return xor(local, remote)>>uint32(d) != 0
 }
 
 func xor(id1, id2 peer.ID) uint32 {

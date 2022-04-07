@@ -10,7 +10,9 @@ struct Packet {
     namespace         @0 :Text;
 
     union {
-        request       @1 :PeerID;  # from
+        request          :group {
+            from      @1 :PeerID;
+        }
 
         survey           :group {
             from      @2 :PeerID;

@@ -1,6 +1,8 @@
 package socket
 
 import (
+	"fmt"
+
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
@@ -37,14 +39,29 @@ func (r Record) Namespace() (string, error) {
 	return boot.Packet(r).Namespace()
 }
 
-func (r Record) PeerID() (id peer.ID, err error) {
-	switch r.asPacket().Which() {
+func (r Record) Peer() (id peer.ID, err error) {
+	var s string
+	switch r.Type() {
+	case boot.Packet_Which_request:
+		if s, err = r.asPacket().Request().From(); err == nil {
+			id, err = peer.IDFromString(s)
+		}
+
+	case boot.Packet_Which_survey:
+		if s, err = r.asPacket().Survey().From(); err == nil {
+			id, err = peer.IDFromString(s)
+		}
+
 	case boot.Packet_Which_response:
-		return Response{r}.Peer()
+		if s, err = r.asPacket().Response().Peer(); err == nil {
+			id, err = peer.IDFromString(s)
+		}
 
 	default:
-		return Request{r}.From()
+		err = fmt.Errorf("unrecognized record type %s", r.Type())
 	}
+
+	return
 }
 
 // Domain is the "signature domain" used when signing and verifying a particular

@@ -4,9 +4,32 @@ import (
 	"context"
 	"net"
 
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	"golang.org/x/time/rate"
 )
+
+type RecordValidator func(*record.Envelope, *Record) error
+
+func BasicValidator(self peer.ID) RecordValidator {
+	return func(e *record.Envelope, r *Record) error {
+		peer, err := r.Peer()
+		if err != nil {
+			return err
+		}
+
+		if self != "" && peer == self {
+			return ErrIgnore
+		}
+
+		// envelope was signed by peer?
+		if !peer.MatchesPublicKey(e.PublicKey) {
+			err = record.ErrInvalidSignature
+		}
+
+		return err
+	}
+}
 
 // RateLimiter provides flow-control for a Socket.
 type RateLimiter struct {
@@ -45,25 +68,19 @@ func (r *RateLimiter) Reserve(ctx context.Context, n int) (err error) {
 	return
 }
 
-type packetConn struct {
-	lim *RateLimiter
+type recordConn struct {
+	lim      *RateLimiter
+	validate RecordValidator
 	net.PacketConn
 }
 
-func newPacketConn(conn net.PacketConn, lim *RateLimiter) packetConn {
-	return packetConn{
-		lim:        lim,
-		PacketConn: conn,
-	}
-}
-
-// Send writes the message m to addr.  Send does not support
-// write timeouts since the underlying PacketConn provides a
-// best-effort transmission semantics, and flushes its buffer
-// quickly.
+// Send writes the message m to addr.  Send does not support write
+// timeouts since PacketConn implementations are expected to flush
+// their write-buffers quickly. The context is used to abort while
+// waiting for the rate-limiter to allocate resources.
 //
 // Implementations MUST support concurrent calls to Send.
-func (conn packetConn) Send(ctx context.Context, e *record.Envelope, addr net.Addr) error {
+func (conn recordConn) Send(ctx context.Context, e *record.Envelope, addr net.Addr) error {
 	b, err := e.Marshal()
 	if err != nil {
 		return err
@@ -81,7 +98,7 @@ func (conn packetConn) Send(ctx context.Context, e *record.Envelope, addr net.Ad
 // along with the signed envelope.
 //
 // Callers MUST NOT make concurrent calls to Recv.
-func (conn packetConn) Scan(validate Validator, p *Record) (net.Addr, error) {
+func (conn recordConn) Scan(p *Record) (net.Addr, error) {
 	var buf [maxDatagramSize]byte
 	n, addr, err := conn.ReadFrom(buf[:])
 	if err != nil {
@@ -91,15 +108,15 @@ func (conn packetConn) Scan(validate Validator, p *Record) (net.Addr, error) {
 	e, err := record.ConsumeTypedEnvelope(buf[:n], p)
 	if err != nil {
 		return nil, ValidationError{
-			From:  addr,
 			Cause: err,
+			From:  addr,
 		}
 	}
 
-	if err = validate(e, p); err != nil {
+	if err = conn.validate(e, p); err != nil {
 		return nil, ValidationError{
-			From:  addr,
 			Cause: err,
+			From:  addr,
 		}
 	}
 
