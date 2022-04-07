@@ -86,7 +86,7 @@ PeX continuously updates a cache of random peers by gossipping with the peers cu
 
 Gossiping can be well understood by analogy.  Imagine a high-school where students talk to each other in the hall whenever they have a break. Each student encounters other randomly, and shares the rumour.  If a new rumour is first told in the morning, by the end of the day, almost every student will have heard about it.
 
-PeX operates on a similar principle to ensure that information about peers is evenly distributed across nodes.  Instead of swapping mere rumors, PeX participants exchange *bootstrap records*, containing the address and peer ID of nodes in the network.  PeX gossip shares two noteworthy properties with high-school rumor-mongering:
+PeX operates on a similar principle to ensure that information about peers is evenly distributed across nodes.  Instead of swapping mere rumors, PeX participants exchange *gossip records*, containing the address and peer ID of nodes in the network.  PeX gossip shares two noteworthy properties with high-school rumor-mongering:
 
 1. Gossiped information may be outdated, or even flat-out untrue.
 2. There are redundant exchanges.  Nodes, like students, do not know *a priori* whether their peers already have the information they are about to share.
@@ -169,36 +169,35 @@ view.IncreaseAge()
 ```
 
 #### View Merging Policies
-Pex makes use of three parameters to tune the policies for merging the view.
 
-- **S**(wapping): the number of items to be evicted from the head,
-  after merging local and remote views. The local view is put in front of the
-  remote one, so removing from the head, means prioritizing entries from the
-  remote view. This parameter is used to reduce the randomness in the network.
-  The higher the value, the more random the network will be.
-- **P**(rotection): the number of oldest entries to be protected from eviction.
-  This parameter is used to tune the speed at which disconnected/partitioned 
-  peer are removed from the network. The higher the value the slower the speed. 
-- **D**(ecay): the probability of evicting the protected oldest entries. 
-  `D` probability is applied by doing `rand.RandomFloat64<D`. If it results to
-  `True`, the youngest (among oldest) is evicted and the probability is applied
-  again. But if it results to `False`, no entry is evicted, and consequent
-  evictions applying `D` stop. This parameter is used to tune the speed at which
-  disconnected/partitioned peer are removed from the network. The higher the 
-  probability the higher the speed.
+PeX applies the three following policies, in sequence, to merge a view.  Each policy has an associated parameter, shown in bold.
+
+1. **S**(wapping): the number of items to be evicted from the head,
+   after merging local and remote views. The local view is put in front of the
+   remote one, so removing from the head, means prioritizing entries from the
+   remote view. This parameter is used to reduce the randomness in the network.
+   The higher the value, the more random the network will be.
+2. **P**(rotection): the number of oldest entries to be protected from eviction.
+   This parameter is used to tune the speed at which disconnected/partitioned 
+   peer are removed from the network. The higher the value, the slower the speed. 
+3. **D**(ecay): the probability of evicting entries in the "protected" buffer.
+   The decay policy is applied by repeatedly drawing from a uniform distribution
+   and comparing against the threshold `D`.  If a sample `d < D`, the youngest 
+   record in the protected buffer is evicted.  This process repeates until `d >= D`
+   or the protected buffer is empty.  In effect, the decay parameter `D` controls
+   the speed at which stale records are purged from the network.  Higher values of
+   `D` remove stale records more quickly, at the cost of partition-resistance.
 
 #### Node Age
-In order to implement the ploicies, it is necessary to track the age of each gossip 
-record contained in a node's view. To this end, `GossipRecord` contains a
-`Hop` field, _i.e._ a counter that is incremented by a peer when it receives 
-the record in the course of a gossip round.  The hop counter represents 
-the "age" of a node insofar as the number of gossip rounds 
-(and therefore network hops) of a record are a function of *t*. After every 
-gossiping exchange, the ages of the nodes stored in the resulting view are increased. 
 
-When a node sends its local view to another, the sender adds itself to the local 
-view with a Hop Counter of zero. This is a heartbeat mechanism. When adding
-itself, it will be the youngest peer of the local view that receives the other node.
+Multiple stages of the PeX protocol depend on a notion of a gossip record's _age_.
+To this end, `GossipRecord` contains an integer field called `Hop`, which is incremented
+when the record is received by a peer during a gossip round.  The value of this hop-counter
+is taken as the "age" of a record, as it increases over time.
+
+During the push-pull phase, each node appends its own record, with `Hop=0`, to the view
+it transmits its counterparty.  This serves as a heartbeat mechanism, ensuring that
+"young" records are perpetually injected into the cluster by active nodes.
 
 #### Record Sequence
 
@@ -207,12 +206,15 @@ itself, it will be the youngest peer of the local view that receives the other n
 1. Refer to themselves
 2. Are duplicates
 
-A `GossipRecord` is considered a duplicate iff it has the same `PeerID` field as another record in the union of local and remote views.  In order of priroity, preserve with:
+A record is considered a duplicate iff it has the same `PeerID` field as another record in the union of local and remote views.
+When duplicates are encountered, peers MUST preserve records with the following priority:
 
 1. A higher `Seq` number.
 2. A higher `Hop` count.
 
-This ensures hosts can update their network address when it changes.
+This behavior makes it possible for hosts to update their network address when it changes.  To do so, the host begins issuing a new
+gossip record with the updated address information, and an incremented `Seq` number.
+
 ### API
 
 #### Stream Identifier
@@ -220,35 +222,12 @@ This ensures hosts can update their network address when it changes.
 **PeX** streams are identified by a dynamic protocol ID with the pattern:
 
 ```
-/casm/pex/<version>/<ns>
+/casm/<version>/pex/<ns>
 ```
 
 The `<version>` path component MUST contain a valid [semantic version string](https://semver.org/spec/v2.0.0.html).  Hosts MUST reject connections from peers with incompatible versions.
 
 The `<ns>` component is an arbitrary string that designates a namespace.  This namespace string MUST be consistent across different layers of the CASM protocol stack.  It must notably match the namespace used by the clustering layer.
-
-#### Peer Exchange
-
-The **PeX** API is defined by four methods.  These are shown below in pseudocode using Go-like syntax.
-
-```go
-type PeerExchange interface {
-  // New peer exchange.  The cluster is identified by 'ns'.
-  New(ctx context.Context, h host.Host, ns string, opt ...Option) (*PeerExchange, error)	
-	
-  // Close stops all gossip activity and invalidates the peer exchange.
-  Close() error
-	
-  // FindPeers discovers peers providing a service
-  Advertise(ctx context.Context, ns string, opts ...Option) (time.Duration, error)
-
-// Advertise advertises a service
-  FindPeers(ctx context.Context, ns string, opts ...Option) (<-chan peer.AddrInfo, error)
-}
-```
-
-Note that `Advertise` and `FindPeers` implement the 
-[Discovery interface](https://github.com/libp2p/go-libp2p-discovery) of Libp2p.  
 
 #### Gossip Record
 
@@ -274,7 +253,7 @@ Future work will focus on implementing a peer scoring system similar to GossipSu
 
 #### Wire Format
 
-**PeX** uses a simple binary encoding to transmit data during gossip rounds.  Fixed-size values such as `Hop` are encoded using _unsigned_ 64-bit varints, and variable-length content is length-prefixed using _signed_ varints.
+PeX uses a simple binary encoding to transmit data during gossip rounds.  Fixed-size values such as `Hop` are encoded using _unsigned_ 64-bit varints, and variable-length content is length-prefixed using _signed_ varints.
 
 Thus, the wire format for a single `GosspRecord` is the following:
 
@@ -284,11 +263,11 @@ Thus, the wire format for a single `GosspRecord` is the following:
 +---------------+--------------+--------------------------------+
 ```
 
-The default encoding for `record.Envelope` is used (protocol buffers).
+The default encoding for `record.Envelope` is used (protocol buffer).
 
-Views are transmitted as a sequence of length-prefixed `GossipRecord` messages.  Receivers can check that they have received the expected number of records for a given view by validating that the final record refers to the sender and has a hop count of zero.  As noted above, all records MUST be signed by the peers they reference rather than the immediate sender.
+Views are transmitted as a sequence of length-prefixed `GossipRecord` messages.  Receivers SHOULD validate that they have received the expected number of records verifying that the final record (1) refers to the sender and (2) has a hop of zero.  As noted above, all records MUST be signed by the peers they reference rather than the immediate sender.
 
-The wire format for a view is shown below.  The `...` indicates that the pattern can repeat an arbitrary number of times.
+The wire format for a view is shown below.  The `...` indicates that the previous block can repeat an arbitrary number of times.
 
 ```
 +--------------+----------------------+-----+
@@ -296,14 +275,11 @@ The wire format for a view is shown below.  The `...` indicates that the pattern
 +--------------+----------------------+-----+
 ```
 
-To protect against DoS attacks, implementations SHOULD limit the length of encoded views received by neighbors to some fixed multiple of the maximum value size.  A value of 1024 (1 Kb) is RECOMMENDED.
+To protect against DoS attacks, implementations SHOULD limit the length of encoded views received by neighbors to some fixed multiple of the maximum value size.  A value of 1024 (1 Kb) per record is RECOMMENDED.
 
 ## Known Issues
 
 None (...so far!)
-
-## Alternative designs
-TODO:
 
 ## Core Team
 
