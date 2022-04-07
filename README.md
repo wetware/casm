@@ -27,15 +27,11 @@ Run `go get github.com/wetware/casm` with modules enabled.
 
 ### Usage
 
-CASM's functionality is grouped by package.  Developers will typically import one items under `pkg/*`, depending on application needs.  The following functionality is provided:
+CASM's functionality is grouped by package.  Developers will typically import one or more packages under `pkg/*`, depending on application needs.  The following functionality is provided:
 
-- `pkg/boot`:  network crawling and other strategies for ambient peer discovery.
+- `pkg/boot`:  strategies for bootstrapping clusters.
 - `pkg/pex`:  efficient, resilient gossip-based peer sampling protocol.
 - `pkg/cluster`:  unstructured clustering service with PA/EL guarantees.
-
-Planned features include:
-
-- [ ] CSP abstractions for scheduling and synchronizing processes
 
 ## Footnotes
 
