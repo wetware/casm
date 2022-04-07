@@ -84,40 +84,30 @@ PeX continuously updates a cache of random peers by gossipping with the peers cu
 
 ### Protocol Description
 
-Gossiping can be well understood by analogy.  Imagine a high-school where students talk to each other in the hall whenever they have a break. Each student encounters other randomly, and shares the rumour. If a new rumour is first told in the morning, by the end of the day, almost every student will have heard about it.
+Gossiping can be well understood by analogy.  Imagine a high-school where students talk to each other in the hall whenever they have a break. Each student encounters other randomly, and shares the rumour.  If a new rumour is first told in the morning, by the end of the day, almost every student will have heard about it.
 
-Instead of spreading mere rumors, PeX spreads records of nodes that are within the network.  Nevertheless, these records share two noteworthy properties with rumors:
+PeX operates on a similar principle to ensure that information about peers is evenly distributed across nodes.  Instead of swapping mere rumors, PeX participants exchange *bootstrap records*, containing the address and peer ID of nodes in the network.  PeX gossip shares two noteworthy properties with high-school rumor-mongering:
 
-1. They may be untrue.  The information may be outdated or false.
+1. Gossiped information may be outdated, or even flat-out untrue.
 2. There are redundant exchanges.  Nodes, like students, do not know *a priori* whether their peers already have the information they are about to share.
 
-In PeX, gossip occurs in synchronous *gossip rounds* between pairs of nodes.  Gossip rounds are initiated periodically by each peer, every *t* seconds.  The value of *t* SHOULD be jittered to avoid message storms.
+The role of PeX is to provide a uniform sampling of nodes as efficiently and securely as possible, given the above constraints.
 
-Gossip rounds comprise three steps:
+To achieve this, the PeX protocol proceeds in synchronous *gossip rounds* between pairs of nodes.  Nodes maintain an internal counter and initiate a gossip round every *t* seconds (_n.b._: it is RECOMMENDED that nodes jitter *t* to avoid message storms).  During a gossip round, the initiator picks a neighbor at random, sends his view to the neighbor and merges neighbor's view with his own, and then selects a subset of the merged view to become his new view.
+
+These three steps are known as:
 
 1. **Peer Selection**.  A node randomly selects one peer from its current view according to a _view selection policy_.  It MAY repeat this process if the selected node proves unreachable.
 2. **Push-Pull**.  The peers exchange their respective views.
 3. **View Merging**.  Each peer combines its current view with the freshly received view and selects duplicate entries.  If the length of a combined view exceeds _c_, the affected node selects a subset of records to form the final view according to a _merge policy_.
 
-We examine each phase of the protocol in detail below.
+We examine each step in more detail below.
 
-<!-- contacts with the neighbor, and they exchange their
-current set of neighbors (also named "views"). After the exchange, each node generates a
-new set of neighbors, by merging the received neighbours with
-the current ones. In order to implement this 50% of probability, a deterministic approach is used.
-The PeerIDs of the two gossiping nodes are compared. If the sender's ID is higher or lower than 
-receiver's, the head or random policies are used, respectively.
-
-
-This is how the **pex** protocol forms and maintains the overlay.
-Moreover, it also provides an API call for retrieving the current set of neighbors, and some piggybacked information about them.
- -->
- 
 #### Peer Selection
 
 PeX chooses the neighbor with whom to gossip randomly (`rand`).
 This provides a faster self-healing overlay than alternative policies
-such as choosing the youngest (`young`) or oldest (`old`) neighbor.
+such as choosing the youngest (`young`) or oldest (`old`) neighbor.<sup>1</sup>
 
 #### Push-Pull
 
@@ -125,14 +115,9 @@ After the peer selection, the selected and selector nodes connect with each
 other and send their views. However, they generally do not send the entire view, but instead
 select the *c-P* "youngest" records.  If, however, `len(view) <= P`, the peer  MUST transmit
 its entire view.  We define the notion of record age and provide additional details regarding
-the *P* parameter below.
+the *P* parameter in the section entitled _Node Age_, below.
 
 Finally, each peer transmits a record containing its own routing information.
-<!-- 
-At most, they send half of the maximum view size. The transmitted records are selected randomly,
-ignoring the oldest `P` nodes. However, in case there aren't enough nodes, 
-the oldest nodes are also sent. Finally, a descriptor of the sender is appended
-to the tail, before sending it. -->
 
 The pseudocode for the push-pull phase is as follows:
 ```
@@ -162,7 +147,7 @@ five steps:
    `S` is used to control priority given to the remote view entries over the records
    already known to a node.
 3. **Protect-and-Decay:** the oldest `P` items are moved into a separate buffer. Then,
-   `D` items are selected at random and discarded from removed from the main buffer.
+   `D` items are selected at random and discarded from the main buffer.
    The `P` oldest that have been set aside are effectively protected from eviction.
    This a crucial step in deriving PeX's strong partition-resistance properties.
 4. **Evict** items from the merged list at random until the combined size of the main
