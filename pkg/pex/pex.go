@@ -41,8 +41,7 @@ type PeerExchange struct {
 	h         host.Host
 	newParams func(ns string) GossipConfig
 
-	t            time.Time
-	advertisers  map[string]advertiser
+	advertisers  map[string]*advertiser
 	done         <-chan struct{}
 	thunk        chan<- func()
 	closer       io.Closer
@@ -77,7 +76,7 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 		h:            h,
 		done:         done,
 		thunk:        thunks,
-		advertisers:  make(map[string]advertiser),
+		advertisers:  make(map[string]*advertiser),
 		closer:       sub,
 		peersUpdated: e,
 		disc:         newDiscover(),
@@ -106,9 +105,9 @@ func New(h host.Host, opt ...Option) (*PeerExchange, error) {
 
 		for {
 			select {
-			case px.t = <-ticker.C:
+			case <-ticker.C:
 				for ns, ad := range px.advertisers {
-					if ad.Expired(px.t) {
+					if ad.Expired(time.Now()) {
 						ad.Gossiper.Stop()
 						px.disc.StopTracking(ns)
 						delete(px.advertisers, ns)
@@ -278,11 +277,12 @@ func (px *PeerExchange) getOrCreateGossiper(ctx context.Context, ns string) (*go
 	advertise := func() {
 		ad, ok := px.advertisers[ns]
 		if !ok {
+			ad = &advertiser{}
 			ad.Gossiper = px.newGossiper(ns)
 			px.advertisers[ns] = ad
 		}
 
-		ad.ResetTTL(px.t)
+		ad.ResetTTL(time.Now())
 		ch <- ad.Gossiper
 	}
 
@@ -303,7 +303,10 @@ func (px *PeerExchange) getGossiper(ctx context.Context, ns string) (*gossiper, 
 
 	select {
 	case px.thunk <- func() {
-		ch <- px.advertisers[ns].Gossiper
+		if px.advertisers[ns] != nil {
+			ch <- px.advertisers[ns].Gossiper
+		}
+		close(ch)
 	}:
 
 	case <-ctx.Done():
