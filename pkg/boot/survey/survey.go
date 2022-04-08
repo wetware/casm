@@ -86,7 +86,7 @@ func (s Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Opt
 }
 
 func (s Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	opts := discovery.Options{Limit: 1}
+	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
 	}
