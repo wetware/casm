@@ -3,6 +3,7 @@ package boot
 import (
 	"errors"
 	"io"
+	"net"
 
 	"github.com/lthibault/log"
 
@@ -32,7 +33,7 @@ func Discover(log log.Logger, h host.Host, maddr ma.Multiaddr) (DiscoveryCloser,
 			return nil, err
 		}
 
-		conn, err := manet.ListenPacket(maddr)
+		conn, err := listenPacket(maddr)
 		if err != nil {
 			return nil, err
 		}
@@ -60,6 +61,20 @@ func Discover(log log.Logger, h host.Host, maddr ma.Multiaddr) (DiscoveryCloser,
 	}
 
 	return nil, ErrUnknownBootProto
+}
+
+func listenPacket(maddr ma.Multiaddr) (net.PacketConn, error) {
+	network, address, err := manet.DialArgs(maddr)
+	if err != nil {
+		return nil, err
+	}
+
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+
+	return net.ListenPacket(network, ":"+port)
 }
 
 func crawler(maddr ma.Multiaddr) bool {

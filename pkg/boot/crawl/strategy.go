@@ -118,6 +118,11 @@ func NewCIDR(cidr string, port int) Strategy {
 	return func() (Range, error) {
 		ip, subnet, err := net.ParseCIDR(cidr)
 
+		// len(ip) == 32; resize if ipv4
+		if isIPv4(ip) {
+			ip = ip.To4()
+		}
+
 		c := &CIDR{
 			ip:     ip,
 			Port:   port,
@@ -172,31 +177,36 @@ func (c *CIDR) Reset() {
 }
 
 // Reset internal state, allowing p to be reused.  Does
-// not affect IP or Mask.
+// not affect IP or Mask.  The addr instance MUST NOT be
+// nil.
 func (c *CIDR) Next(addr net.Addr) (ok bool) {
 	switch a := addr.(type) {
 	case *net.UDPAddr:
 		a.Port = c.Port
-		ok = c.nextIP(a.IP)
+		a.IP, ok = c.nextIP(a.IP)
 
 	case *net.TCPAddr:
 		a.Port = c.Port
-		ok = c.nextIP(a.IP)
+		a.IP, ok = c.nextIP(a.IP)
 	}
 
 	return
 }
 
-func (c *CIDR) nextIP(ip net.IP) (ok bool) {
+func (c *CIDR) nextIP(ip net.IP) (_ net.IP, ok bool) {
+	if ip == nil {
+		ip = make(net.IP, len(c.ip))
+	}
+
 	for c.i <= c.end && !ok {
 		if ok = !c.skip(); ok {
-			c.setIP4(ip) // TODO:  IPv6 support
+			c.setIP(ip) // TODO:  IPv6 support
 		}
 
 		c.next()
 	}
 
-	return
+	return ip, ok
 }
 
 func (c *CIDR) next() {
@@ -210,6 +220,11 @@ func (c *CIDR) skip() bool {
 	return c.i^c.rand == c.begin || c.i^c.rand == c.end
 }
 
-func (c *CIDR) setIP4(ip net.IP) {
+func (c *CIDR) setIP(ip net.IP) {
+	// TODO:  IPv6 support
 	binary.BigEndian.PutUint32(ip, c.i^c.rand)
+}
+
+func isIPv4(ip net.IP) bool {
+	return ip.To4() != nil
 }
