@@ -277,8 +277,8 @@ func blockUntilClosed(sync <-chan struct{}) func([]byte) (int, net.Addr, error) 
 }
 
 var (
-	reqBytes, gradualBytes, resBytes []byte
-	initReq, initGradual, initRes    sync.Once
+	reqBytes []byte
+	initReq  sync.Once
 )
 
 func readIncomingRequest(from net.Addr) func([]byte) (int, net.Addr, error) {
