@@ -27,9 +27,9 @@ func TestCIDR(t *testing.T) {
 	assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
 
 	seen := map[netip.Addr]struct{}{}
-	addr := &net.UDPAddr{IP: net.IPv4zero}
 
-	for c.Next(addr) {
+	var addr net.UDPAddr
+	for c.Next(&addr) {
 		ip, ok := netip.AddrFromSlice(addr.IP)
 		require.True(t, ok, "%s is not a valid IP address", addr.IP)
 		assert.NotContains(t, seen, ip, "duplicate address: %s", ip)

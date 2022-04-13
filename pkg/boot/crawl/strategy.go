@@ -203,16 +203,10 @@ func (c *CIDR) nextIP(ip net.IP) (_ net.IP, ok bool) {
 			c.setIP(ip) // TODO:  IPv6 support
 		}
 
-		c.next()
+		c.i++
 	}
 
 	return ip, ok
-}
-
-func (c *CIDR) next() {
-	// Populate the current IP address.
-	c.i++
-	binary.BigEndian.PutUint32(c.ip, c.i^c.rand)
 }
 
 func (c *CIDR) skip() bool {
