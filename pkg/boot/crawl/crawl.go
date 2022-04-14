@@ -108,7 +108,9 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 		var addr net.UDPAddr
 		for c.active(ctx) && iter.Next(&addr) {
 			err := c.sock.SendRequest(ctx, c.sealer(), &addr, c.host.ID(), ns)
-			if err != nil {
+			switch err {
+			case nil, context.Canceled, context.DeadlineExceeded:
+			default:
 				c.sock.Log().
 					WithError(err).
 					WithField("to", &addr).
