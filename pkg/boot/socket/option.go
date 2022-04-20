@@ -1,7 +1,6 @@
 package socket
 
 import (
-	"errors"
 	"net"
 
 	"github.com/lthibault/log"
@@ -41,12 +40,10 @@ func WithErrHandler(h func(*Socket, error)) Option {
 		h = func(sock *Socket, err error) {
 			switch e := err.(type) {
 			case net.Error:
-				if errors.Is(err, net.ErrClosed) {
+				select {
+				case <-sock.Done():
+				default:
 					sock.Log().Error(err)
-				} else if e.Timeout() {
-					sock.Log().Debug("read timeout")
-				} else {
-					sock.Log().WithError(err).Error("network error")
 				}
 
 			case ProtocolError:

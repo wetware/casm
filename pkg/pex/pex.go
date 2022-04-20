@@ -306,6 +306,7 @@ func (px *PeerExchange) getGossiper(ctx context.Context, ns string) (*gossiper, 
 		if px.advertisers[ns] != nil {
 			ch <- px.advertisers[ns].Gossiper
 		}
+		close(ch)
 	}:
 
 	case <-ctx.Done():
