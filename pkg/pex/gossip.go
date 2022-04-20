@@ -213,9 +213,6 @@ func (g *gossiper) newHandler(ctx context.Context, log log.Logger) network.Strea
 		ctx, cancel := context.WithTimeout(ctx, g.config.Timeout)
 		defer cancel()
 
-		log.Debug("handler started")
-		defer func() { log.Debug("handler finished") }()
-
 		if err := g.PushPull(ctx, s); err != nil {
 			slog.WithError(err).Debug("peer exchange failed")
 		}
