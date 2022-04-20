@@ -98,6 +98,9 @@ type templateCtx struct {
 
 func (ctx templateCtx) Colorize(s string) termenv.Style {
 	hash := md5.Sum([]byte(s))
+	hash[0] = hash[0] << 1
+	hash[1] = hash[1] << 1
+	hash[2] = hash[2] << 1
 	color := fmt.Sprintf("#%x", hash[:3])
 	return termenv.String(s).Foreground(p.Color(color))
 }

@@ -82,14 +82,13 @@ func (s *Socket) Close() (err error) {
 
 	select {
 	case <-s.done:
-		return
 	default:
+		s.tick.Stop()
+		close(s.done)
+		err = s.conn.Close()
 	}
 
-	defer s.tick.Stop()
-	defer close(s.done)
-
-	return s.conn.Close()
+	return
 }
 
 func (s *Socket) Track(ns string, ttl time.Duration) (err error) {
