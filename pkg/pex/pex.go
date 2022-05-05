@@ -159,13 +159,13 @@ func (px *PeerExchange) Bootstrap(ctx context.Context, ns string, peers ...peer.
 // is in effect, but SHOULD NOT be relied upon, and is therefore not
 // documented.
 func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery.Option) (time.Duration, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	g, err := px.getOrCreateGossiper(ctx, ns)
 	if err != nil {
 		return 0, err
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, g.config.Timeout)
+	defer cancel()
 
 	ttl := jitterbug.
 		Uniform{Min: g.config.Tick / 2}.
