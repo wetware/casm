@@ -37,7 +37,6 @@ func (disc *discover) StopTracking(ns string) {
 
 	if cancel, ok := disc.advertising[ns]; ok {
 		cancel()
-		delete(disc.advertising, ns)
 	}
 }
 
@@ -68,6 +67,10 @@ func (disc *discover) startTracking(ctx context.Context, log log.Logger, ns stri
 				t.Reset(disc.advertise(ctx, log, ns))
 
 			case <-ctx.Done():
+				disc.mu.Lock()
+				defer disc.mu.Unlock()
+
+				delete(disc.advertising, ns)
 				return
 			}
 		}

@@ -195,7 +195,6 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 		}
 		// TODO: log error?
 	}
-
 	return ttl, nil // no peer was found to advertise to (it may be the first node to join the network)
 }
 
