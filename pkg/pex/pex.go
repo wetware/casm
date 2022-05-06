@@ -164,12 +164,11 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 		return 0, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, g.config.Timeout)
-	defer cancel()
-
 	ttl := jitterbug.
 		Uniform{Min: g.config.Tick / 2}.
 		Jitter(g.config.Tick)
+
+	ctx, _ = context.WithTimeout(ctx, ttl)
 
 	// First, try cached peers
 	cache, err := g.GetCachedPeers(ctx)
@@ -184,17 +183,19 @@ func (px *PeerExchange) Advertise(ctx context.Context, ns string, _ ...discovery
 	}
 
 	// If cache is empty or all peers fail, fall back on boot service.
+	// Try to gossip with peers until TTL times out.
 	peers, err := px.disc.Bootstrap(ctx, px.log.WithField("ns", ns), ns)
 	if err != nil {
 		return 0, err
 	}
 
-	for info := range peers {
-		if err = px.gossipRound(ctx, g, info); err == nil {
-			return ttl, nil
+	go func() {
+		for info := range peers {
+			if err = px.gossipRound(ctx, g, info); err == nil {
+				px.log.Error(err.Error())
+			}
 		}
-		// TODO: log error?
-	}
+	}()
 	return ttl, nil // no peer was found to advertise to (it may be the first node to join the network)
 }
 
