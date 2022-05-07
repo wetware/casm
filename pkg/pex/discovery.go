@@ -56,6 +56,13 @@ func (disc *discover) Bootstrap(ctx context.Context, log log.Logger, ns string) 
 func (disc *discover) startTracking(ctx context.Context, log log.Logger, ns string) {
 	ctx, disc.advertising[ns] = context.WithCancel(ctx)
 	go func() {
+		defer func() {
+			disc.mu.Lock()
+			defer disc.mu.Unlock()
+
+			delete(disc.advertising, ns)
+		}()
+
 		ttl := disc.advertise(ctx, log, ns)
 
 		t := time.NewTimer(ttl)
@@ -67,10 +74,6 @@ func (disc *discover) startTracking(ctx context.Context, log log.Logger, ns stri
 				t.Reset(disc.advertise(ctx, log, ns))
 
 			case <-ctx.Done():
-				disc.mu.Lock()
-				defer disc.mu.Unlock()
-
-				delete(disc.advertising, ns)
 				return
 			}
 		}
