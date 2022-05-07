@@ -200,7 +200,7 @@ func TestPex_NNodes(t *testing.T) {
 		infos, err := peers(ctx, ps[0], ns)
 		require.NoError(t, err)
 		return len(infos) == min(pex.DefaultMaxView, n-1)
-	}, time.Second*10, time.Millisecond*10)
+	}, time.Second*20, time.Millisecond*10)
 }
 
 func TestPeX_DisconnectedNode(t *testing.T) {
