@@ -26,8 +26,8 @@ type Surveyor struct {
 
 // New surveyor.  The supplied PacketConn SHOULD be bound to a multicast
 // group.  Use of JoinMulticastGroup to construct conn is RECOMMENDED.
-func New(h host.Host, conn net.PacketConn, opt ...socket.Option) Surveyor {
-	s := Surveyor{
+func New(h host.Host, conn net.PacketConn, opt ...socket.Option) *Surveyor {
+	s := &Surveyor{
 		host: h,
 		sock: socket.New(conn, withDefault(h, opt)...),
 	}
@@ -44,11 +44,11 @@ func withDefault(h host.Host, opt []socket.Option) []socket.Option {
 	}, opt...)
 }
 
-func (s Surveyor) Close() error {
+func (s *Surveyor) Close() error {
 	return s.sock.Close()
 }
 
-func (s Surveyor) handler() socket.RequestHandler {
+func (s *Surveyor) handler() socket.RequestHandler {
 	return func(r socket.Request) error {
 		id, err := r.Peer()
 		if err != nil {
@@ -68,7 +68,7 @@ func (s Surveyor) handler() socket.RequestHandler {
 	}
 }
 
-func (s Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (ttl time.Duration, err error) {
+func (s *Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Option) (ttl time.Duration, err error) {
 	if len(s.host.Addrs()) == 0 {
 		return 0, errors.New("no listen addrs")
 	}
@@ -85,7 +85,7 @@ func (s Surveyor) Advertise(ctx context.Context, ns string, opt ...discovery.Opt
 	return
 }
 
-func (s Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+func (s *Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (s Surveyor) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 	return out, nil
 }
 
-func (s Surveyor) sealer() socket.Sealer {
+func (s *Surveyor) sealer() socket.Sealer {
 	return func(r record.Record) (*record.Envelope, error) {
 		return record.Seal(r, privkey(s.host))
 	}

@@ -44,8 +44,8 @@ type Crawler struct {
 	iter Strategy
 }
 
-func New(h host.Host, conn net.PacketConn, s Strategy, opt ...socket.Option) Crawler {
-	c := Crawler{
+func New(h host.Host, conn net.PacketConn, s Strategy, opt ...socket.Option) *Crawler {
+	c := &Crawler{
 		host: h,
 		iter: s,
 		sock: socket.New(conn, withDefault(h, opt)...),
@@ -63,17 +63,17 @@ func withDefault(h host.Host, opt []socket.Option) []socket.Option {
 	}, opt...)
 }
 
-func (c Crawler) Close() error {
+func (c *Crawler) Close() error {
 	return c.sock.Close()
 }
 
-func (c Crawler) handler() socket.RequestHandler {
+func (c *Crawler) handler() socket.RequestHandler {
 	return func(r socket.Request) error {
 		return c.sock.SendResponse(c.sealer(), c.host, r.From, r.NS)
 	}
 }
 
-func (c Crawler) Advertise(_ context.Context, ns string, opt ...discovery.Option) (ttl time.Duration, err error) {
+func (c *Crawler) Advertise(_ context.Context, ns string, opt ...discovery.Option) (ttl time.Duration, err error) {
 	if len(c.host.Addrs()) == 0 {
 		return 0, errors.New("no listen addrs")
 	}
@@ -90,7 +90,7 @@ func (c Crawler) Advertise(_ context.Context, ns string, opt ...discovery.Option
 	return
 }
 
-func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
+func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
 	opts := discovery.Options{Limit: 1}
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
@@ -129,7 +129,7 @@ func (c Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opti
 	return out, nil
 }
 
-func (c Crawler) active(ctx context.Context) (ok bool) {
+func (c *Crawler) active(ctx context.Context) (ok bool) {
 	select {
 	case <-ctx.Done():
 	case <-c.sock.Done():
@@ -140,7 +140,7 @@ func (c Crawler) active(ctx context.Context) (ok bool) {
 	return
 }
 
-func (c Crawler) sealer() socket.Sealer {
+func (c *Crawler) sealer() socket.Sealer {
 	return func(r record.Record) (*record.Envelope, error) {
 		return record.Seal(r, privkey(c.host))
 	}
