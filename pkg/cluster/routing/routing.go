@@ -19,10 +19,40 @@ type Record interface {
 	Seq() uint64
 }
 
+// Iterator is a stateful object that enumerates routing
+// records.  Iterator's methods are NOT guaranteed to be
+// thread-safe, but implementations MUST permit multiple
+// iterators to operate concurently.
+//
+// Iterators are snapshots of the routing table and SHOULD
+// be consumed quickly.
 type Iterator interface {
+	// Next updates the iterator's internal state, causing
+	// Record() and Deadline() to return different values.
+	// This invalidates any previous Records produced by a
+	// call to Record().
 	Next()
+
+	// Record returns the current routing record.  If nil
+	// is returned, the iterator is exhausted. All method
+	// calls on an exhausted iterator, other than Finish,
+	// are undefined.
+	//
+	// A value returned by a call to Record is valid until
+	// the next call to Next or Finish.
 	Record() Record
+
+	// Deadline returns the local time at which the record
+	// will be removed from the routing table.   Note that
+	// deadlines are approximate, and that their precision
+	// MAY vary across implementations.
 	Deadline() time.Time
+
+	// Finish releases any resources owned by the iterator,
+	// invalidating any values returned by Record().
+	//
+	// Callers MUST call Finish before discarding an iterator
+	// that has not been exhausted via calls to Next().
 	Finish()
 }
 
