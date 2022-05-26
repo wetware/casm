@@ -391,6 +391,20 @@ func (mr *MockConnMockRecorder) RemotePublicKey() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemotePublicKey", reflect.TypeOf((*MockConn)(nil).RemotePublicKey))
 }
 
+// Scope mocks base method.
+func (m *MockConn) Scope() network.ConnScope {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Scope")
+	ret0, _ := ret[0].(network.ConnScope)
+	return ret0
+}
+
+// Scope indicates an expected call of Scope.
+func (mr *MockConnMockRecorder) Scope() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scope", reflect.TypeOf((*MockConn)(nil).Scope))
+}
+
 // Stat mocks base method.
 func (m *MockConn) Stat() network.ConnStats {
 	m.ctrl.T.Helper()
@@ -541,6 +555,20 @@ func (mr *MockStreamMockRecorder) Reset() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reset", reflect.TypeOf((*MockStream)(nil).Reset))
 }
 
+// Scope mocks base method.
+func (m *MockStream) Scope() network.StreamScope {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Scope")
+	ret0, _ := ret[0].(network.StreamScope)
+	return ret0
+}
+
+// Scope indicates an expected call of Scope.
+func (mr *MockStreamMockRecorder) Scope() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scope", reflect.TypeOf((*MockStream)(nil).Scope))
+}
+
 // SetDeadline mocks base method.
 func (m *MockStream) SetDeadline(arg0 time.Time) error {
 	m.ctrl.T.Helper()
@@ -556,9 +584,11 @@ func (mr *MockStreamMockRecorder) SetDeadline(arg0 interface{}) *gomock.Call {
 }
 
 // SetProtocol mocks base method.
-func (m *MockStream) SetProtocol(id protocol.ID) {
+func (m *MockStream) SetProtocol(id protocol.ID) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetProtocol", id)
+	ret := m.ctrl.Call(m, "SetProtocol", id)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // SetProtocol indicates an expected call of SetProtocol.
@@ -846,6 +876,20 @@ func (m *MockNetwork) Peerstore() peerstore.Peerstore {
 func (mr *MockNetworkMockRecorder) Peerstore() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Peerstore", reflect.TypeOf((*MockNetwork)(nil).Peerstore))
+}
+
+// ResourceManager mocks base method.
+func (m *MockNetwork) ResourceManager() network.ResourceManager {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResourceManager")
+	ret0, _ := ret[0].(network.ResourceManager)
+	return ret0
+}
+
+// ResourceManager indicates an expected call of ResourceManager.
+func (mr *MockNetworkMockRecorder) ResourceManager() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceManager", reflect.TypeOf((*MockNetwork)(nil).ResourceManager))
 }
 
 // SetStreamHandler mocks base method.
