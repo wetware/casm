@@ -117,12 +117,10 @@ type CIDR struct {
 func NewCIDR(cidr string, port int) Strategy {
 	return func() (Range, error) {
 		ip, subnet, err := net.ParseCIDR(cidr)
-
 		// len(ip) == 32; resize if ipv4
 		if isIPv4(ip) {
 			ip = ip.To4()
 		}
-
 		c := &CIDR{
 			ip:     ip,
 			Port:   port,
@@ -168,7 +166,6 @@ func (c *CIDR) Reset() {
 	c.mask = binary.BigEndian.Uint32(c.Subnet.Mask)
 	c.begin = binary.BigEndian.Uint32(c.Subnet.IP)
 	c.end = (c.begin & c.mask) | (c.mask ^ 0xffffffff) // final address
-
 	// Each IP will be masked with the nonce before knocking.
 	// This effectively randomizes the search.
 	c.rand = rand.Uint32() & (c.mask ^ 0xffffffff)
@@ -210,8 +207,10 @@ func (c *CIDR) nextIP(ip net.IP) (_ net.IP, ok bool) {
 }
 
 func (c *CIDR) skip() bool {
+	ip := make(net.IP, len(c.ip))
+	binary.BigEndian.PutUint32(ip, c.i^c.rand)
 	// Skip X.X.X.0 and X.X.X.255
-	return c.i^c.rand == c.begin || c.i^c.rand == c.end
+	return ip[len(ip)-1] == 0 || ip[len(ip)-1] == 255
 }
 
 func (c *CIDR) setIP(ip net.IP) {
