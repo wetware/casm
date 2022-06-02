@@ -41,6 +41,7 @@ func WithErrHandler(h func(*Socket, error)) Option {
 			select {
 			case <-sock.Done(): // if sock is closed, log as debug
 				sock.Log().Debug(err)
+				return
 			default:
 			}
 
