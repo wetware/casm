@@ -38,13 +38,16 @@ func WithValidator(v RecordValidator) Option {
 func WithErrHandler(h func(*Socket, error)) Option {
 	if h == nil {
 		h = func(sock *Socket, err error) {
+			select {
+			case <-sock.Done(): // if sock is closed, log as debug
+				sock.Log().Debug(err)
+				return
+			default:
+			}
+
 			switch e := err.(type) {
 			case net.Error:
-				select {
-				case <-sock.Done():
-				default:
-					sock.Log().Error(err)
-				}
+				sock.Log().Error(err)
 
 			case ProtocolError:
 				sock.Log().With(e).Debug(e.Message)
