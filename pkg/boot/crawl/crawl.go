@@ -91,7 +91,7 @@ func (c *Crawler) Advertise(_ context.Context, ns string, opt ...discovery.Optio
 }
 
 func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Option) (<-chan peer.AddrInfo, error) {
-	opts := discovery.Options{Limit: 1}
+	var opts discovery.Options
 	if err := opts.Apply(opt...); err != nil {
 		return nil, err
 	}
@@ -108,9 +108,7 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 		var addr net.UDPAddr
 		for c.active(ctx) && iter.Next(&addr) {
 			err := c.sock.SendRequest(ctx, c.sealer(), &addr, c.host.ID(), ns)
-			switch err {
-			case nil, context.Canceled, context.DeadlineExceeded:
-			default:
+			if err != nil {
 				c.sock.Log().
 					WithError(err).
 					WithField("to", &addr).

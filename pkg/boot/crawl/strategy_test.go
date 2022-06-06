@@ -15,28 +15,64 @@ import (
 
 func TestCIDR(t *testing.T) {
 	t.Parallel()
+	t.Helper()
 
-	maddr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/24")
+	t.Run("ExpectedRange", func(t *testing.T) {
+		t.Parallel()
 
-	cidr, err := crawl.ParseCIDR(maddr)
-	require.NoError(t, err, "should succeed")
-	require.NotNil(t, cidr, "should return strategy")
+		maddr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/24")
 
-	c, err := cidr()
-	assert.NoError(t, err, "should succeed")
-	assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
+		cidr, err := crawl.ParseCIDR(maddr)
+		require.NoError(t, err, "should succeed")
+		require.NotNil(t, cidr, "should return strategy")
 
-	seen := map[netip.Addr]struct{}{}
+		c, err := cidr()
+		assert.NoError(t, err, "should succeed")
+		assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
 
-	var addr net.UDPAddr
-	for c.Next(&addr) {
-		ip, ok := netip.AddrFromSlice(addr.IP)
-		require.True(t, ok, "%s is not a valid IP address", addr.IP)
-		assert.NotContains(t, seen, ip, "duplicate address: %s", ip)
+		seen := map[netip.Addr]struct{}{}
 
-		seen[ip] = struct{}{}
-	}
+		var addr net.UDPAddr
+		for c.Next(&addr) {
+			ip, ok := netip.AddrFromSlice(addr.IP)
+			require.True(t, ok, "%s is not a valid IP address", addr.IP)
+			assert.NotContains(t, seen, ip, "duplicate address: %s", ip)
 
-	assert.Len(t, seen, 254,
-		"should contain 8-bit subnet without X.X.X.0 and X.X.X.255")
+			seen[ip] = struct{}{}
+		}
+
+		assert.Len(t, seen, 254,
+			"should contain 8-bit subnet without X.X.X.0 and X.X.X.255")
+	})
+
+	t.Run("ComplexCIDR", func(t *testing.T) {
+		t.Parallel()
+
+		t.Skip("TODO - FIX CIDR ITERATION LOGIC")
+
+		maddr := ma.StringCast("/ip4/172.31.0.0/udp/8822/cidr/23") // n.b. /23
+
+		cidr, err := crawl.ParseCIDR(maddr)
+		require.NoError(t, err, "should succeed")
+		require.NotNil(t, cidr, "should return strategy")
+
+		c, err := cidr()
+		assert.NoError(t, err, "should succeed")
+		assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
+
+		seen := map[netip.Addr]struct{}{}
+
+		var addr net.UDPAddr
+		for c.Next(&addr) {
+			ip, ok := netip.AddrFromSlice(addr.IP)
+			require.True(t, ok, "%s is not a valid IP address", addr.IP)
+			assert.NotContains(t, seen, ip, "duplicate address: %s", ip)
+
+			seen[ip] = struct{}{}
+		}
+
+		want := netip.MustParseAddr("172.31.45.20")
+		assert.Contains(t, seen, want,
+			"%s not included in CIDR iteration range", want)
+	})
 }
