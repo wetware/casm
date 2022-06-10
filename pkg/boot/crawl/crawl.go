@@ -58,7 +58,7 @@ func New(h host.Host, conn net.PacketConn, s Strategy, opt ...socket.Option) *Cr
 
 func withDefault(h host.Host, opt []socket.Option) []socket.Option {
 	return append([]socket.Option{
-		socket.WithRateLimiter(socket.NewPacketLimiter(32, 8)),
+		socket.WithRateLimiter(socket.NewPacketLimiter(500, 8)),
 		socket.WithValidator(socket.BasicValidator(h.ID())),
 	}, opt...)
 }
