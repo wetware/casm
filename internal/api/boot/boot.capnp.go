@@ -9,7 +9,7 @@ import (
 	strconv "strconv"
 )
 
-type Packet struct{ capnp.Struct }
+type Packet capnp.Struct
 type Packet_request Packet
 type Packet_survey Packet
 type Packet_response Packet
@@ -40,165 +40,212 @@ const Packet_TypeID = 0xe12a1e555ca80e30
 
 func NewPacket(s *capnp.Segment) (Packet, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
-	return Packet{st}, err
+	return Packet(st), err
 }
 
 func NewRootPacket(s *capnp.Segment) (Packet, error) {
 	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
-	return Packet{st}, err
+	return Packet(st), err
 }
 
 func ReadRootPacket(msg *capnp.Message) (Packet, error) {
 	root, err := msg.Root()
-	return Packet{root.Struct()}, err
+	return Packet(root.Struct()), err
 }
 
 func (s Packet) String() string {
-	str, _ := text.Marshal(0xe12a1e555ca80e30, s.Struct)
+	str, _ := text.Marshal(0xe12a1e555ca80e30, capnp.Struct(s))
 	return str
 }
 
+func (s Packet) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Packet) DecodeFromPtr(p capnp.Ptr) Packet {
+	return Packet(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Packet) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+
 func (s Packet) Which() Packet_Which {
-	return Packet_Which(s.Struct.Uint16(0))
+	return Packet_Which(capnp.Struct(s).Uint16(0))
+}
+func (s Packet) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Packet) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Packet) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
 }
 func (s Packet) Namespace() (string, error) {
-	p, err := s.Struct.Ptr(0)
+	p, err := capnp.Struct(s).Ptr(0)
 	return p.Text(), err
 }
 
 func (s Packet) HasNamespace() bool {
-	return s.Struct.HasPtr(0)
+	return capnp.Struct(s).HasPtr(0)
 }
 
 func (s Packet) NamespaceBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(0)
+	p, err := capnp.Struct(s).Ptr(0)
 	return p.TextBytes(), err
 }
 
 func (s Packet) SetNamespace(v string) error {
-	return s.Struct.SetText(0, v)
+	return capnp.Struct(s).SetText(0, v)
 }
 
 func (s Packet) Request() Packet_request { return Packet_request(s) }
 
 func (s Packet) SetRequest() {
-	s.Struct.SetUint16(0, 0)
+	capnp.Struct(s).SetUint16(0, 0)
 }
 
+func (s Packet_request) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Packet_request) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Packet_request) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
 func (s Packet_request) From() (string, error) {
-	p, err := s.Struct.Ptr(1)
+	p, err := capnp.Struct(s).Ptr(1)
 	return p.Text(), err
 }
 
 func (s Packet_request) HasFrom() bool {
-	return s.Struct.HasPtr(1)
+	return capnp.Struct(s).HasPtr(1)
 }
 
 func (s Packet_request) FromBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(1)
+	p, err := capnp.Struct(s).Ptr(1)
 	return p.TextBytes(), err
 }
 
 func (s Packet_request) SetFrom(v string) error {
-	return s.Struct.SetText(1, v)
+	return capnp.Struct(s).SetText(1, v)
 }
 
 func (s Packet) Survey() Packet_survey { return Packet_survey(s) }
 
 func (s Packet) SetSurvey() {
-	s.Struct.SetUint16(0, 1)
+	capnp.Struct(s).SetUint16(0, 1)
 }
 
+func (s Packet_survey) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Packet_survey) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Packet_survey) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
 func (s Packet_survey) From() (string, error) {
-	p, err := s.Struct.Ptr(1)
+	p, err := capnp.Struct(s).Ptr(1)
 	return p.Text(), err
 }
 
 func (s Packet_survey) HasFrom() bool {
-	return s.Struct.HasPtr(1)
+	return capnp.Struct(s).HasPtr(1)
 }
 
 func (s Packet_survey) FromBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(1)
+	p, err := capnp.Struct(s).Ptr(1)
 	return p.TextBytes(), err
 }
 
 func (s Packet_survey) SetFrom(v string) error {
-	return s.Struct.SetText(1, v)
+	return capnp.Struct(s).SetText(1, v)
 }
 
 func (s Packet_survey) Distance() uint8 {
-	return s.Struct.Uint8(2)
+	return capnp.Struct(s).Uint8(2)
 }
 
 func (s Packet_survey) SetDistance(v uint8) {
-	s.Struct.SetUint8(2, v)
+	capnp.Struct(s).SetUint8(2, v)
 }
 
 func (s Packet) Response() Packet_response { return Packet_response(s) }
 
 func (s Packet) SetResponse() {
-	s.Struct.SetUint16(0, 2)
+	capnp.Struct(s).SetUint16(0, 2)
 }
 
+func (s Packet_response) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Packet_response) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Packet_response) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
 func (s Packet_response) Peer() (string, error) {
-	p, err := s.Struct.Ptr(1)
+	p, err := capnp.Struct(s).Ptr(1)
 	return p.Text(), err
 }
 
 func (s Packet_response) HasPeer() bool {
-	return s.Struct.HasPtr(1)
+	return capnp.Struct(s).HasPtr(1)
 }
 
 func (s Packet_response) PeerBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(1)
+	p, err := capnp.Struct(s).Ptr(1)
 	return p.TextBytes(), err
 }
 
 func (s Packet_response) SetPeer(v string) error {
-	return s.Struct.SetText(1, v)
+	return capnp.Struct(s).SetText(1, v)
 }
 
 func (s Packet_response) Addrs() (capnp.DataList, error) {
-	p, err := s.Struct.Ptr(2)
-	return capnp.DataList{List: p.List()}, err
+	p, err := capnp.Struct(s).Ptr(2)
+	return capnp.DataList(p.List()), err
 }
 
 func (s Packet_response) HasAddrs() bool {
-	return s.Struct.HasPtr(2)
+	return capnp.Struct(s).HasPtr(2)
 }
 
 func (s Packet_response) SetAddrs(v capnp.DataList) error {
-	return s.Struct.SetPtr(2, v.List.ToPtr())
+	return capnp.Struct(s).SetPtr(2, v.ToPtr())
 }
 
 // NewAddrs sets the addrs field to a newly
 // allocated capnp.DataList, preferring placement in s's segment.
 func (s Packet_response) NewAddrs(n int32) (capnp.DataList, error) {
-	l, err := capnp.NewDataList(s.Struct.Segment(), n)
+	l, err := capnp.NewDataList(capnp.Struct(s).Segment(), n)
 	if err != nil {
 		return capnp.DataList{}, err
 	}
-	err = s.Struct.SetPtr(2, l.List.ToPtr())
+	err = capnp.Struct(s).SetPtr(2, l.ToPtr())
 	return l, err
 }
 
 // Packet_List is a list of Packet.
-type Packet_List struct{ capnp.List }
+type Packet_List = capnp.StructList[Packet]
 
 // NewPacket creates a new list of Packet.
 func NewPacket_List(s *capnp.Segment, sz int32) (Packet_List, error) {
 	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3}, sz)
-	return Packet_List{l}, err
-}
-
-func (s Packet_List) At(i int) Packet { return Packet{s.List.Struct(i)} }
-
-func (s Packet_List) Set(i int, v Packet) error { return s.List.SetStruct(i, v.Struct) }
-
-func (s Packet_List) String() string {
-	str, _ := text.MarshalList(0xe12a1e555ca80e30, s.List)
-	return str
+	return capnp.StructList[Packet](l), err
 }
 
 // Packet_Future is a wrapper for a Packet promised by a client call.
@@ -206,7 +253,7 @@ type Packet_Future struct{ *capnp.Future }
 
 func (p Packet_Future) Struct() (Packet, error) {
 	s, err := p.Future.Struct()
-	return Packet{s}, err
+	return Packet(s), err
 }
 
 func (p Packet_Future) Request() Packet_request_Future { return Packet_request_Future{p.Future} }
@@ -216,7 +263,7 @@ type Packet_request_Future struct{ *capnp.Future }
 
 func (p Packet_request_Future) Struct() (Packet_request, error) {
 	s, err := p.Future.Struct()
-	return Packet_request{s}, err
+	return Packet_request(s), err
 }
 
 func (p Packet_Future) Survey() Packet_survey_Future { return Packet_survey_Future{p.Future} }
@@ -226,7 +273,7 @@ type Packet_survey_Future struct{ *capnp.Future }
 
 func (p Packet_survey_Future) Struct() (Packet_survey, error) {
 	s, err := p.Future.Struct()
-	return Packet_survey{s}, err
+	return Packet_survey(s), err
 }
 
 func (p Packet_Future) Response() Packet_response_Future { return Packet_response_Future{p.Future} }
@@ -236,35 +283,35 @@ type Packet_response_Future struct{ *capnp.Future }
 
 func (p Packet_response_Future) Struct() (Packet_response, error) {
 	s, err := p.Future.Struct()
-	return Packet_response{s}, err
+	return Packet_response(s), err
 }
 
-const schema_fa005a3c690f4a62 = "x\xdal\x921\x8b\x13A\x14\xc7\xff\xff7\x9b\xe4\xc0" +
-	"\xdbK\xd6\x8d\xd8\xa9\x85\x85\x86\xbb\xf3\xb4\xd2 \x9c\x8a" +
-	").p\x92'\xd8\x88\x85{\xc9\x08A/\xbb\xee\xec" +
-	")V\xa2\x1f\xc1\xcf`!\x88\xc8uv6\x82\"6" +
-	"\x0a\"he%\xe2'P\xd0\x91\xbd\x90 \xb2\xdd\xf0" +
-	"\xe6\xf1\xff\xfd\xe6\xbdi}?''k\xaf\x05\xd0#" +
-	"\xb5\xba\x7f\xf5\xe9\xe9\xf3\x85\xc7\xef\x1eB\xf7\x93~m" +
-	"\xe9\xc9\xb5+\x87:_q\xc04\x08\xc4\x1b|\x0b\xc6" +
-	"\x9b\xbc\x0b\xfa\x13\xdd\x1f\xbd\x17\x0f\xbe\xecVw>\xe3" +
-	"\x070\xde\xe5:\xe8/-\xff<\x98\xda\xcd7\xd5\x9d" +
-	"\xef\xf9\x19\x8c?\xeee\xce\xeft\x1f\xf9r\xab\xdf\x1c" +
-	"\x9f\xbd\xfa\xabg\x1a\x06\x88\xcf\xcb\xa3xC\x1a@\xdc" +
-	"\x93oX\xf1[iZ\xac\x0e\x93L&Yw\x90\x0c" +
-	"o\xdab\xd5\xed\xe4w\xec=@\x17L\xd0b\x9b\x02" +
-	"D\xc7;\x80\x1e5\xd45aDi\xd3\x00\xd1J\x1f" +
-	"\xd0eC=-l\xde\xc8\xd3m.B\xb8\x08\xfa\xd1" +
-	"\xd8\x15\xc9dh\x01\xb0\x0ea\x1d\xac\"\xe5\xf6\xf6\x8e" +
-	"u,4\x98\x92\x08Dag\x8fLm\xff\x1fZ\x19" +
-	"\xe0\xb2tb\x9c\x9d\xb9\x06U\xae\xb5\xd2\xf5\x14\xa0\xc7" +
-	"\x0c\xf5\xa2\xb0\x99Y\x9b\xcfb\x0f'\xa3Q\xee\xb8\x04" +
-	"\x0e\x0c\x19B\xca\xe3\x9c\xc5\x19\x8b\xc5\x80\xd4\x96\x09\x80" +
-	"\xa0\xd4L.\x03z\xddPo\x09Cz\xcf\x7fV\x19" +
-	"\x8d/@B\xf9S\x16\xe7?!\xd2.$4\xbf\xcb" +
-	"\xe2|\x95\xd1\x99>\xc4O\x92m\xeb\xb2d\x08\xda\x99" +
-	"\xd5\xfd\xe9h\x8a\xf5\xe92\xfc\xf4\xa1\xae\x1c\xe8\xdf\x00" +
-	"\x00\x00\xff\xffmt\x99b"
+const schema_fa005a3c690f4a62 = "x\xdal\x921\x8b\x13A\x14\xc7\xff\xff7{\xc9\x81" +
+	"\xb7\x97\xac\x1b\xb1S\x0b\x0b\x0dw\xe7i\xa5A8\x15" +
+	"S\\\xe0$O\xb0\x11\x0b\xf7\x92\x11\x82^v\xdd\xd9" +
+	"S\xacD?\x82\x9f\xc1B\x10\x91\xeb\xecl\x04El" +
+	"\x14D\xd0\xca\xca\xe2>\x81\x82\x8elB\x82\xc8v\xc3" +
+	"\x9b\xc7\xff\xf7\x9b\xf7\xa6\xb9\x7f!8\x1d\xbe\x15\x88\x1e" +
+	"[\xa8\xf97_\x9e\xbf\\|\xfa\xe11\xf4 \xe9\xd7" +
+	"\x97\x9f\xdd\xb8v\xa4\xfd\x1d\x87L\x9d@\xbc\xc9\xf7`" +
+	"\xbc\xc5\xfb\xa0?\xd5\xd9\xef\xbez\xf4m\xaf\xba\xf3\x05" +
+	"?\x81\xf1\x1e7@\x7fe\xe5\xe7\xe1\xd4n\xbd\xab\xee" +
+	"\xfc\xc8\xaf`\xfcy\x929\xbf\xd3\x03\xe4\xeb\xed^c" +
+	"t\xfe\xfa\xaf\xae\xa9\x1b \xbe(O\xe2M\xa9\x03q" +
+	"W~`\xd5o\xa7i\xb16H2\x19g\x9d~2" +
+	"\xb8m\x8b5\xb7\x9b\xdf\xb3\x0f\x00]4A\x93-\x0a" +
+	"\x10\x9dl\x03z\xdcP\xd7\x85\x11\xa5E\x03D\xab=" +
+	"@W\x0c\xf5\xac\xb0q+Ow\xb8\x04\xe1\x12\xe8\x87" +
+	"#W$\xe3\x81\x05\xc0\x1a\x845\xb0\x8a\x94\xdb\xbb\xbb" +
+	"\xd6\xb1\xd0`J\"\x10\x85\xed\x09\x99\xda\xfa?\xb42" +
+	"\xc0e\xe9\xd88;s\x0d\xaa\\\x17J\xd73\x80\x9e" +
+	"0\xd4\xcb\xc2Ffm>\x8b=\x9a\x0c\x87\xb9\xe32" +
+	"\xd87d\x08)\x8fs\x16g,\x16}R\x9b&\x00" +
+	"\x82R3\xb9\x0a\xe8MC\xbd#\x0c\xe9=\xffYe" +
+	"4\xba\x04\x09\xe5OY\x9c\xff\x84H;\x90\xd0\xfc." +
+	"\x8b\xf3UF\xe7z\x10?Nv\xac\xcb\x92\x01hg" +
+	"V\x0f\xa7\xa3)6\xa6\xcb\xf0\xd3\x87\xbar\xa0\x7f\x03" +
+	"\x00\x00\xff\xff\x8f\x0c\x99p"
 
 func init() {
 	schemas.Register(schema_fa005a3c690f4a62,

@@ -79,7 +79,7 @@ func (r Record) Codec() []byte { return EnvelopePayloadType }
 // MarshalRecord converts a Record instance to a []byte, so that it can be used as an
 // Envelope payload.
 func (r Record) MarshalRecord() ([]byte, error) {
-	return r.Message().MarshalPacked()
+	return boot.Packet(r).Message().MarshalPacked()
 }
 
 // UnmarshalRecord unmarshals a []byte payload into an instance of a particular Record type.
