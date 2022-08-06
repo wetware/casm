@@ -61,13 +61,9 @@ func WithMeta(meta pulse.Preparer) Option {
 	}
 }
 
-// WithReadiness specifies a criteron for considering the model
-// to be ready.  If r == nil, a the model is considered ready
-// when at least one peer is connected.  See pubsub.RouterReady
-// for additional details.
-//
-// If sync == true, the 'New()' will block until the model has
-// entered a ready state, or the context has expired.
+// WithReadiness specifies a criterion for considering the model
+// to be ready.  If r == nil, no criterion is applied and the is
+// always considered ready.
 func WithReadiness(r pubsub.RouterReady) Option {
 	if r == nil {
 		// r = pubsub.MinTopicSize(1)  // TODO:  consider enabling this
