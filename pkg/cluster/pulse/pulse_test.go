@@ -126,7 +126,7 @@ func TestValidator(t *testing.T) {
 }
 
 func newPeerID() peer.ID {
-	sk, _, err := crypto.GenerateECDSAKeyPair(rand.Reader)
+	sk, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	if err != nil {
 		panic(err)
 	}

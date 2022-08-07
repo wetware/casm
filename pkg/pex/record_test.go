@@ -69,6 +69,42 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	}
 }
 
+func BenchmarkGossipRecord_ReadWrite(b *testing.B) {
+	var (
+		err    error
+		buf    = bytes.NewBuffer(make([]byte, 0, 2<<12))
+		_, env = newTestRecord()
+		rec, _ = pex.NewGossipRecord(env)
+		enc    = capnp.NewPackedEncoder(buf)
+		dec    = capnp.NewPackedDecoder(buf)
+		m      *capnp.Message
+	)
+
+	b.Run("Write", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if err = enc.Encode(rec.Message()); err != nil {
+				panic(err)
+			}
+		}
+	})
+
+	b.Run("Read", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if m, err = dec.Decode(); err != nil {
+				panic(err)
+			}
+		}
+	})
+
+	b.Run("ReadMessage", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if err = rec.ReadMessage(m); err != nil {
+				panic(err)
+			}
+		}
+	})
+}
+
 func TestView_validation(t *testing.T) {
 	t.Parallel()
 	t.Helper()
@@ -150,7 +186,7 @@ func TestView_validation(t *testing.T) {
 }
 
 func newTestRecord() (*peer.PeerRecord, *record.Envelope) {
-	priv, pub, err := crypto.GenerateECDSAKeyPair(rand.Reader)
+	priv, pub, err := crypto.GenerateEd25519Key(rand.Reader)
 	if err != nil {
 		panic(err)
 	}

@@ -91,7 +91,7 @@ func (g *GossipRecord) ReadMessage(m *capnp.Message) error {
 		return nil
 	}
 
-	return ValidationError{
+	return &ValidationError{
 		Cause: fmt.Errorf("%w: peer id does not match public key for record",
 			record.ErrInvalidSignature),
 	}
