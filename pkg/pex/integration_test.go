@@ -63,3 +63,35 @@ func TestPex_NNodes(t *testing.T) {
 		return len(infos) == min(pex.DefaultMaxView, n-1)
 	}, time.Second*5, time.Millisecond*10)
 }
+
+func BenchmarkAdvertise(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const (
+		n  = 8
+		ns = "benchmark-advertise"
+	)
+
+	local := newTestHost()
+	defer local.Close()
+
+	remote := newTestHost()
+	defer remote.Close()
+
+	pxLocal, _ := pex.New(local, pex.WithBootstrapPeers(*host.InfoFromHost(remote)))
+	defer pxLocal.Close()
+
+	pxRemote, _ := pex.New(remote)
+	defer pxRemote.Close()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		_, err := pxLocal.Advertise(ctx, ns)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
