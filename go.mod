@@ -20,6 +20,7 @@ require (
 	github.com/lthibault/util v0.0.12
 	github.com/muesli/termenv v0.12.0
 	github.com/multiformats/go-multiaddr v0.6.0
+	github.com/pierrec/lz4/v4 v4.1.15
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.0
 	github.com/urfave/cli/v2 v2.11.1

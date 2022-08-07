@@ -13,17 +13,16 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	"github.com/lthibault/log"
+	"github.com/pierrec/lz4/v4"
 
 	ctxutil "github.com/lthibault/util/ctx"
 	syncutil "github.com/lthibault/util/sync"
 	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/boot"
-	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
 
-type StreamHandler interface {
-	SetStreamHandlerMatch(protocol.ID, func(string) bool, network.StreamHandler)
-	RemoveStreamHandler(pid protocol.ID)
+func proto(ns string) protocol.ID {
+	return casm.Subprotocol(ns, "pex")
 }
 
 // GossipConfig contains parameters for the PeX gossip algorithm.
@@ -61,12 +60,6 @@ type GossipConfig struct {
 	MaxMsgSize uint64
 }
 
-func (g GossipConfig) newDecoder(r io.Reader) *capnp.Decoder {
-	dec := capnp.NewPackedDecoder(r)
-	dec.MaxMessageSize = g.MaxMsgSize
-	return dec
-}
-
 type gossiper struct {
 	config       GossipConfig
 	store        gossipStore
@@ -79,12 +72,8 @@ type gossiper struct {
 
 func (px *PeerExchange) newGossiper(ns string) *gossiper {
 	var (
-		ctx, cancel   = context.WithCancel(ctxutil.C(px.done))
-		log           = px.log.WithField("ns", ns)
-		proto         = casm.Subprotocol(ns)
-		protoPacked   = casm.Subprotocol(ns, "packed")
-		matcher       = casm.NewMatcher(ns)
-		packedMatcher = matcher.Then(protoutil.Exactly("packed"))
+		ctx, cancel = context.WithCancel(ctxutil.C(px.done))
+		log         = px.log.WithField("ns", ns)
 	)
 
 	g := &gossiper{
@@ -93,20 +82,11 @@ func (px *PeerExchange) newGossiper(ns string) *gossiper {
 		peersUpdated: px.peersUpdated,
 		Stop: func() {
 			cancel()
-			px.h.RemoveStreamHandler(proto)
-			px.h.RemoveStreamHandler(protoPacked)
+			px.h.RemoveStreamHandler(proto(ns))
 		},
 	}
 
-	px.h.SetStreamHandlerMatch(
-		proto,
-		matcher.Match,
-		g.newHandler(ctx, log))
-
-	px.h.SetStreamHandlerMatch(
-		protoPacked,
-		packedMatcher.Match,
-		g.newHandler(ctx, log))
+	px.h.SetStreamHandler(proto(ns), g.newHandler(ctx, log))
 
 	return g
 }
@@ -128,14 +108,12 @@ func (g *gossiper) GetCachedPeers(ctx context.Context) (boot.StaticAddrs, error)
 	return info, err
 }
 
-func (g *gossiper) NewGossipRound(ctx context.Context, h host.Host, info peer.AddrInfo) (network.Stream, error) {
+func (g *gossiper) OpenStream(ctx context.Context, h host.Host, info peer.AddrInfo) (network.Stream, error) {
 	if err := h.Connect(ctx, info); err != nil {
 		return nil, err
 	}
 
-	return h.NewStream(ctx, info.ID,
-		casm.Subprotocol(g.String(), "packed"),
-		casm.Subprotocol(g.String()))
+	return h.NewStream(ctx, info.ID, proto(g.String()))
 }
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
@@ -159,25 +137,27 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 	j.Go(func() error {
 		defer s.CloseWrite()
 
+		enc := encoder{W: s}
+		defer enc.Close()
+
 		buffer := local.
 			Bind(head((g.config.MaxView / 2) - 1)).
 			Bind(appendLocal(g.store))
 
-		enc := capnp.NewPackedEncoder(s)
 		for _, gr := range buffer {
 			if err = enc.Encode(gr.Message()); err != nil {
-				break
+				return err
 			}
 		}
 
-		return err
+		return enc.Flush()
 	})
 
 	// pull
 	j.Go(func() error {
 		defer s.CloseRead()
 
-		dec := g.config.newDecoder(s)
+		dec := decoder{R: s, MaxMsgSize: g.config.MaxMsgSize}
 
 		for {
 			msg, err := dec.Decode()
@@ -194,6 +174,7 @@ func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
 			}
 			remote = append(remote, g)
 		}
+
 		return nil
 	})
 
@@ -312,4 +293,50 @@ func (g *gossiper) merge(local, remote View) (View, error) {
 	newLocal.incrHops()
 
 	return newLocal, nil
+}
+
+type encoder struct {
+	W io.Writer
+	w *lz4.Writer
+	e *capnp.Encoder
+}
+
+func (enc *encoder) Encode(m *capnp.Message) error {
+	if enc.e == nil {
+		enc.w = lz4.NewWriter(enc.W)
+		enc.e = capnp.NewEncoder(enc.w)
+	}
+
+	return enc.e.Encode(m)
+}
+
+func (enc *encoder) Flush() (err error) {
+	if enc.w != nil {
+		err = enc.w.Flush()
+	}
+
+	return
+}
+
+func (enc *encoder) Close() (err error) {
+	if enc.w != nil {
+		err = enc.w.Close()
+	}
+
+	return
+}
+
+type decoder struct {
+	R          io.Reader
+	MaxMsgSize uint64
+	d          *capnp.Decoder
+}
+
+func (dec *decoder) Decode() (*capnp.Message, error) {
+	if dec.d == nil {
+		dec.d = capnp.NewDecoder(lz4.NewReader(dec.R))
+		dec.d.MaxMessageSize = dec.MaxMsgSize
+	}
+
+	return dec.d.Decode()
 }

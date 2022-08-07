@@ -3,6 +3,7 @@ package pex_test
 import (
 	"bytes"
 	"crypto/rand"
+	"io"
 	"testing"
 
 	"capnproto.org/go/capnp/v3"
@@ -12,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/record"
 	ma "github.com/multiformats/go-multiaddr"
+	"github.com/pierrec/lz4/v4"
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/pex"
 )
@@ -45,13 +47,13 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	var buf bytes.Buffer
 
 	// marshal
-	err = capnp.NewPackedEncoder(&buf).Encode(want.Message())
+	err = capnp.NewEncoder(&buf).Encode(want.Message())
 	require.NoError(t, err)
 
-	t.Logf("message size (packed): %d", buf.Len())
+	logPayloadSize(t, &buf)
 
 	// unmarshal
-	msg, err := capnp.NewPackedDecoder(&buf).Decode()
+	msg, err := capnp.NewDecoder(&buf).Decode()
 	require.NoError(t, err)
 
 	var got pex.GossipRecord
@@ -69,38 +71,52 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	}
 }
 
-func BenchmarkGossipRecord_ReadWrite(b *testing.B) {
+func logPayloadSize(t *testing.T, buf *bytes.Buffer) {
+	t.Logf("uncompressed:  %d bytes", buf.Len())
+
+	var wbuf bytes.Buffer
+	w := lz4.NewWriter(&wbuf)
+
+	io.Copy(w, bytes.NewReader(buf.Bytes()))
+	t.Logf("lz4-compressed: %d bytes (diff=%.0f%%)",
+		wbuf.Len(),
+		(1.-float64(wbuf.Len())/float64(buf.Len()))*100.)
+
+	require.NoError(t, w.Close())
+
+	b, err := io.ReadAll(lz4.NewReader(&wbuf))
+	require.NoError(t, err)
+	require.Equal(t, buf.Bytes(), b)
+}
+
+func BenchmarkGossipRecord_MarshalUnmarshal(b *testing.B) {
 	var (
-		err    error
-		buf    = bytes.NewBuffer(make([]byte, 0, 2<<12))
+		buf    = bytes.NewBuffer(make([]byte, 0, 1024))
 		_, env = newTestRecord()
 		rec, _ = pex.NewGossipRecord(env)
-		enc    = capnp.NewPackedEncoder(buf)
-		dec    = capnp.NewPackedDecoder(buf)
 		m      *capnp.Message
 	)
 
+	enc := capnp.NewEncoder(buf)
 	b.Run("Write", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			if err = enc.Encode(rec.Message()); err != nil {
-				panic(err)
-			}
+			buf.Reset()
+			_ = enc.Encode(rec.Message())
 		}
 	})
 
+	rd := bytes.NewReader(buf.Bytes())
+	dec := capnp.NewDecoder(rd)
 	b.Run("Read", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			if m, err = dec.Decode(); err != nil {
-				panic(err)
-			}
+			m, _ = dec.Decode()
+			rd.Seek(0, io.SeekStart)
 		}
 	})
 
 	b.Run("ReadMessage", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			if err = rec.ReadMessage(m); err != nil {
-				panic(err)
-			}
+			_ = rec.ReadMessage(m)
 		}
 	})
 }

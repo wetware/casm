@@ -259,7 +259,7 @@ func (px *PeerExchange) gossipRound(ctx context.Context, g *gossiper, info peer.
 	ctx, cancel := context.WithTimeout(ctx, g.config.Timeout)
 	defer cancel()
 
-	s, err := g.NewGossipRound(ctx, px.h, info)
+	s, err := g.OpenStream(ctx, px.h, info)
 	if err != nil {
 		return err
 	}
