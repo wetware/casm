@@ -117,71 +117,8 @@ func (g *gossiper) OpenStream(ctx context.Context, h host.Host, info peer.AddrIn
 }
 
 func (g *gossiper) PushPull(ctx context.Context, s network.Stream) error {
-	var (
-		j             syncutil.Join
-		t, _          = ctx.Deadline()
-		remote, local View
-		err           error
-	)
-
-	if err := s.SetDeadline(t); err != nil {
-		return err
-	}
-
-	local, err = g.mutexGetPushView(ctx)
-	if err != nil {
-		return err
-	}
-
-	// push
-	j.Go(func() error {
-		defer s.CloseWrite()
-
-		enc := encoder{W: s}
-		defer enc.Close()
-
-		buffer := local.
-			Bind(head((g.config.MaxView / 2) - 1)).
-			Bind(appendLocal(g.store))
-
-		for _, gr := range buffer {
-			if err = enc.Encode(gr.Message()); err != nil {
-				return err
-			}
-		}
-
-		return enc.Flush()
-	})
-
-	// pull
-	j.Go(func() error {
-		defer s.CloseRead()
-
-		dec := decoder{R: s, MaxMsgSize: g.config.MaxMsgSize}
-
-		for {
-			msg, err := dec.Decode()
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				return err
-			}
-
-			g := new(GossipRecord) // TODO(performance):  pool?
-			if err = g.ReadMessage(msg); err != nil {
-				return err
-			}
-			remote = append(remote, g)
-		}
-
-		return nil
-	})
-
-	if err = j.Wait(); err == nil {
-		err = g.mutexMergeAndStore(ctx, local, remote)
-	}
-	return err
+	round := &gossipRound{g: g}
+	return round.Do(ctx, s)
 }
 
 func (g *gossiper) newHandler(ctx context.Context, log log.Logger) network.StreamHandler {
@@ -208,19 +145,6 @@ func streamFields(s network.Stream) log.F {
 		"stream": s.ID(),
 	}
 }
-func min(n1, n2 int) int {
-	if n1 <= n2 {
-		return n1
-	}
-	return n2
-}
-
-func max(n1, n2 int) int {
-	if n1 <= n2 {
-		return n2
-	}
-	return n1
-}
 
 func (g *gossiper) mutexGetPushView(ctx context.Context) (local View, err error) {
 	g.mu.Lock()
@@ -242,16 +166,16 @@ func (g *gossiper) mutexGetPushView(ctx context.Context) (local View, err error)
 	return
 }
 
-func (g *gossiper) mutexMergeAndStore(ctx context.Context, local, remote View) error {
+func (g *gossiper) mutexMergeAndStore(ctx context.Context, r *gossipRound) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	newLocal, err := g.merge(local, remote)
+	newLocal, err := g.merge(r.local, r.remote)
 	if err != nil {
 		return err
 	}
 
-	if err = g.store.StoreRecords(ctx, local, newLocal); err == nil {
+	if err = g.store.StoreRecords(ctx, r.local, newLocal); err == nil {
 		g.peersUpdated.Emit(EvtPeersUpdated(newLocal.PeerRecords()))
 	}
 
@@ -293,6 +217,91 @@ func (g *gossiper) merge(local, remote View) (View, error) {
 	newLocal.incrHops()
 
 	return newLocal, nil
+}
+
+// gossipRound encapsulates temporary state for a single gossip round.
+type gossipRound struct {
+	j             syncutil.Join
+	g             *gossiper
+	remote, local View
+}
+
+func (r *gossipRound) Do(ctx context.Context, s network.Stream) error {
+	if err := r.prepare(ctx, s); err != nil {
+		return err
+	}
+
+	if err := r.pushpull(s); err != nil {
+		return err
+	}
+
+	return r.mergeAndStore(ctx)
+}
+
+func (r *gossipRound) prepare(ctx context.Context, s network.Stream) (err error) {
+	t, _ := ctx.Deadline()
+	if err = s.SetDeadline(t); err == nil {
+		r.local, err = r.g.mutexGetPushView(ctx)
+	}
+
+	return
+}
+
+func (r *gossipRound) pushpull(s network.Stream) error {
+	r.j.Go(r.push(s))
+	r.j.Go(r.pull(s))
+	return r.j.Wait()
+}
+
+func (r *gossipRound) push(s network.Stream) func() error {
+	return func() error {
+		defer s.CloseWrite()
+
+		enc := encoder{W: s}
+		defer enc.Close()
+
+		buffer := r.local.
+			Bind(head((r.g.config.MaxView / 2) - 1)).
+			Bind(appendLocal(r.g.store))
+
+		for _, gr := range buffer {
+			if err := enc.Encode(gr.Message()); err != nil {
+				return err
+			}
+		}
+
+		return enc.Flush()
+	}
+}
+
+func (r *gossipRound) pull(s network.Stream) func() error {
+	return func() error {
+		defer s.CloseRead()
+
+		dec := decoder{R: s, MaxMsgSize: r.g.config.MaxMsgSize}
+
+		for {
+			msg, err := dec.Decode()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return err
+			}
+
+			g := new(GossipRecord) // TODO(performance):  pool?
+			if err = g.ReadMessage(msg); err != nil {
+				return err
+			}
+			r.remote = append(r.remote, g)
+		}
+
+		return nil
+	}
+}
+
+func (r *gossipRound) mergeAndStore(ctx context.Context) error {
+	return r.g.mutexMergeAndStore(ctx, r)
 }
 
 type encoder struct {
@@ -339,4 +348,18 @@ func (dec *decoder) Decode() (*capnp.Message, error) {
 	}
 
 	return dec.d.Decode()
+}
+
+func min(n1, n2 int) int {
+	if n1 <= n2 {
+		return n1
+	}
+	return n2
+}
+
+func max(n1, n2 int) int {
+	if n1 <= n2 {
+		return n2
+	}
+	return n1
 }
