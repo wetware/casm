@@ -2,141 +2,125 @@
 
 Gossip-based sampling service for robust connectivity.
 
-| Lifecycle Stage | Maturity                 | Status | Latest Revision |
-|-----------------|--------------------------|--------|-----------------|
-| 2A              | Candidate Recommendation | Active | r1, 2021-08-26  |
-
-Authors: [@aratz-lasa], [@lthibault]
-
-[@aratz-lasa]: https://github.com/aratz-lasa
-[@lthibault]: https://github.com/lthibault
-
-See libp2p's [lifecycle document][lifecycle-spec] for context about maturity level
-and spec status.
-
-[lifecycle-spec]: https://github.com/libp2p/specs/blob/master/00-framework-01-spec-lifecycle.md
 
 ## Table of Contents
 
 - [Peer Exchange (PeX)](#peer-exchange-pex)
   - [Table of Contents](#table-of-contents)
   - [Motivation](#motivation)
-  - [Protocol Specification](#protocol-specification)
-    - [Overview](#overview)
-    - [Conventions](#conventions)
-    - [Definitions](#definitions)
-    - [Gossiping](#gossiping)
-      - [Mechanism](#mechanism)
-      - [Peer Selection](#peer-selection)
-      - [Push-Pull](#push-pull)
-      - [View Merging](#view-merging)
-      - [View Merging Policies](#view-merging-policies)
-      - [Node Age](#node-age)
-      - [Record Sequence](#record-sequence)
-    - [API](#api)
-      - [Stream Identifier](#stream-identifier)
-      - [Peer Exchange](#peer-exchange)
-      - [Gossip Record](#gossip-record)
-      - [Wire Format](#wire-format)
-  - [Known Issues](#known-issues)
-  - [Core Team](#core-team)
+- [Protocol Specification](#protocol-specification)
+  - [Conventions](#conventions)
+  - [Definitions](#definitions)
+  - [Description](#description)
+  - [Record Age](#record-age)
+  - [Peer Selection](#peer-selection)
+  - [Push-Pull](#push-pull)
+  - [View Merging](#view-merging)
+    - [Record Deduplication](#record-deduplication)
+    - [Parameters](#parameters)
+- [API](#api)
+  - [Stream Identifier](#stream-identifier)
+  - [Gossip Record](#gossip-record)
+- [Known Issues](#known-issues)
+  - [Authors](#authors)
   - [References](#references)
 
 ## Motivation
 
-Once a host has successfully joined a cluster, it ceases to rely on the bootstrap service for peer-discovery, and instead relies on the cluster itself to discover new peers.  This process of "ambient peer discovery" is provided as an unstructured service called PeX (short for peer exchange).  In contrast to DHT and PubSub-based methods, PeX can be used to repair cluster partitions, or to rejoin a cluster after having been disconnected.
+When a CASM process is started, its first order of business is to join a cluster.  This is done by establishing a connection with at least one peer already in the cluster, which presents an obvious bootstrapping problem:  how does one discover the initial peer?
 
-The motivation for PeX is reliability.  CASM is designed with peer-to-peer, edge, mobile and IoT applications in mind.  Nodes are expected to change their network addresses and experience transient network outages frequently.  Such churn presents a challenge for software designers, who must ensure that nodes recover from partitioned states quickly, ideally without resorting to a centralized service.  Instead, hosts should maintain a “recovery cache” — a small, continuously-updated list of peers for partition repair and post hoc bootstrapping — and fall back on the bootstrap layer as a last resort.
+There exist many solutions — CASM for example supports the following modes of bootstrap discovery: IP crawling, UDP multicast, static bootstrap nodes, and federated services — but each is limited in its ability to scale.  Indeed, peer-to-peer systems like CASM were invented precisely to circumvent the scalability limits of such systems.  Thus, a key idea in CASM's design is that bootstrap services should be used as infrequently as possible.  Ideally, each node would only query its bootstrap service at first startup, and then rely on the cluster itself to dicover additional peers.
 
-The ideal recovery cache would exhibit the following properties:
+In reality, this proves easier said than done.  CASM is designed with datacenter, peer-to-peer, edge, mobile and IoT applications in mind.  Hosts are expected to perform reliably in the presence of network outages, roaming and network partitions, all of which can cause a host to become isolated from the rest of the cluster, at which point it must bootstrap again.
 
-1. **Persistence.**  Items should remain in the cache until they have been explicitly evicted or replaced with suitable alternatives.  Avoid explicit timeouts and ttls, which can make partitions permanent.
+PeX solves this problem by providing each host with a “recovery cache”: a small, continuously-updated list of peers that can be used for partition repair and subsequent bootstrapping.  It is provided as an unstructed peer-sampling service<sup>2</sup> that updates this cache in the background with little overhead.
 
-2. **Partition-Resistance.**  The cache should remain valid during a partiton and the speed at which peers in one partiton evict peers in othe another should be controllable.
+Key properties of the PeX protocol are:
 
-3. **Liveness.**  Changes to host addresses should quickly propagate through the network.  Dead peers should eventually disappear from cache.  New records should overwrite old records.
+1. **Partition-Resistance.**  The cache remains valid in the presence of network partitions.  The speed at which peers in one partiton "forget" about peers in another is controllable.
 
-4. **Unbiased Sampling.**  Peers should be equally likely to appear in a given cache instance.  This is essential to prevent the formation of partitions and to avoid overloading peers when partitions merge.
+2. **Persistence.**  Items remain in the cache until they have been explicitly evicted or replaced with suitable alternatives.  Explicit TTLs are avoided, since these can ossify partitions.
 
-5. **Scalability.**  The global system should stabilize in better-than-linear time.
+3. **Liveness.**  Changes to host addresses are propagated through the network quickly, and dead peers are eventually evicted from cache.
 
-Crucially, the PubSub router and the Kademlia DHT fail to satisfy one or more of these requirements.
+4. **Unbiased Sampling.**  Peers are be equally likely to appear in all cache instances.  This is essential to prevent the formation of partitions and to avoid overloading peers when partitions merge.
 
-## Protocol Specification
+5. **Scalability.**  The global system should stabilize in better-than-linear time.  Resource usage should increase sub-linearly with respect to cluster size.
 
-PeX provides a random sample of networked peers to applications.  It adheres to libp2p's [Discovery](https://github.com/libp2p/go-libp2p-core/blob/master/discovery/discovery.go) API, allowing it to seamlessly integrate with existing application.  In particular, it is suitable for use with PubSub.
+6. **Churn Tolerance.**  The cache is unaffected by repeated cluster merges and the protocol cannot enter an invalid state under such conditions.
 
-PeX continuously updates a cache of random peers by gossipping with the peers currently in the cache.  The result is an unstructured overlay network, similar to the one described in *[Gossip-Based Peer Sampling](https://dl.acm.org/doi/abs/10.1145/1275517.1275520)*.
+# Protocol Specification
 
-### Conventions
+## Conventions
 
 >The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED",  "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) and [RFC 2119](https://datatracker.ietf.org/doc/html/rfc8174).
 
-### Definitions
-- **Overlay**: a network that is layered on top of another network. The nodes within the overlay can be seen as connected to other nodes via logical paths or links, which correspond to a path in the underlying network.
+## Definitions
+- **Overlay**: a network formed by references to peers in the ensemble of caches across all peers.  The overlay is a graph structure in which each vertex is a host, and a link between two hosts exists iff host A contains host B in its cache.
 - **Peer**: a physical host in the overlay.  Synonymous with node.
-- **Neighbor/Neighborhod**: adjacent nodes in the overlay.  These nodes are directly connected via a libp2p transport connection, without any intermediate hops in the overlay.  A node's neighborhood is the set of its neighbors.
-- **View**:  A node's view of the cluster is a set of [`GossipRecord`](#gossip-record) instances, which contains addressing information.  Importantly, the view is assumed to be small with respect to the overall size of the cluster.  Throughout the specification, the maximum view size for each node is defined by the cluster-wide constant `c`.
-- **Gossiping**: a broadcast mechanism in which peers relay messages to their neighbors.
+- **Neighbor/Neighborhod**: adjacent nodes in the overlay.  A node's neighborhood is the set of its neighbors.
+- **View**:  The set of set of cache entries for a particular peer.
+- **Gossip**: a broadcast mechanism in which peers relay messages to their neighbors.
+- **Gossip Record**:  synonym of "cache entry".  Contains addressing information for a particular host, along with an age field and a sequence number.
 - **Gossip Round**:  a single exchange of gossip with a neighbor.
 - **Merge Policy**: in the context of a gossip round, this refers to strategy for selecting a new view from the union of one's local view and a view received from a peer.
 - **Eviction**:  the process of removing an entry from the local view of a peer.  The term "eviction" may also be applied in the context of an entire cluster to refer to the process by which an accumulation of evictions by individual nodes results in the record being purged from a given partition.
 
-### Protocol Description
+## Description
+
+At its core, PeX is a peer-sampling service that provides clients with a uniformly-random subset of peer addresses.  It adheres to libp2p's [Discovery](https://github.com/libp2p/go-libp2p-core/blob/master/discovery/discovery.go) API, allowing it to integrate seemlessly with existing applications.  In particular, it is suitable for use with PubSub, which powers CASM's core clustering service.
+
+PeX maintains a bounded cache of peer addresses.  Updates to the cache are performed by gossipping with peers currently in the cache.  The result is an unstructured overlay network, similar to the one described in *[Gossip-Based Peer Sampling](https://dl.acm.org/doi/abs/10.1145/1275517.1275520)*.
 
 Gossiping can be well understood by analogy.  Imagine a high-school where students talk to each other in the hall whenever they have a break. Each student encounters other randomly, and shares the rumour.  If a new rumour is first told in the morning, by the end of the day, almost every student will have heard about it.
 
-PeX operates on a similar principle to ensure that information about peers is evenly distributed across nodes.  Instead of swapping mere rumors, PeX participants exchange *gossip records*, containing the address and peer ID of nodes in the network.  PeX gossip shares two noteworthy properties with high-school rumor-mongering:
+PeX operates on a similar principle to ensure that information about peers is evenly distributed across hosts.  Instead of swapping mere rumors, PeX participants exchange *gossip records*, containing the address and peer ID of hosts in the network.  PeX gossip shares two noteworthy properties with high-school rumor-mongering:
 
 1. Gossiped information may be outdated, or even flat-out untrue.
-2. There are redundant exchanges.  Nodes, like students, do not know *a priori* whether their peers already have the information they are about to share.
+2. There are redundant exchanges.  Hosts, like students, do not know *a priori* whether their peers already have the information they are about to share.
 
-The role of PeX is to provide a uniform sampling of nodes as efficiently and securely as possible, given the above constraints.
+The role of PeX is to provide a uniform sampling of peers as efficiently and securely as possible, given the above constraints.  To achieve this, the PeX protocol proceeds in synchronous *gossip rounds* between pairs of hosts, which are initiated by each peer at regular intervals.  During each gossip round, the initiator picks a peer from it's cache and connects to it.  The peers then send their respective cache contents to each other, and merge it with their own and retaining up to some maximum number of peers.
 
-To achieve this, the PeX protocol proceeds in synchronous *gossip rounds* between pairs of nodes.  Nodes maintain an internal counter and initiate a gossip round every *t* seconds (_n.b._: it is RECOMMENDED that nodes jitter *t* to avoid message storms).  During a gossip round, the initiator picks a neighbor at random, sends his view to the neighbor and merges neighbor's view with his own, and then selects a subset of the merged view to become his new view.
+Gossip rounds are initiated at regular intervals by all peers.  It is not necessary for this interval to be identical for all peers.  Implementations SHOULD jitter the interval to reduce contention for network resources.
 
-These three steps are known as:
+A gossip round unfolds in three steps.
 
-1. **Peer Selection**.  A node randomly selects one peer from its current view according to a _view selection policy_.  It MAY repeat this process if the selected node proves unreachable.
+1. **Peer Selection**.  The initiator selects a peer from its cache at random connects to it.
 2. **Push-Pull**.  The peers exchange their respective views.
-3. **View Merging**.  Each peer combines its current view with the freshly received view and selects duplicate entries.  If the length of a combined view exceeds _c_, the affected node selects a subset of records to form the final view according to a _merge policy_.
+3. **View Merging**.  Each peer combines its current view the one it has received to form its new view.
 
-We examine each step in more detail below.
+These steps are examined in more detail in subsequent sections.
 
-#### Peer Selection
+## Record Age
 
-PeX chooses the neighbor with whom to gossip randomly (`rand`).
-This provides a faster self-healing overlay than alternative policies
-such as choosing the youngest (`young`) or oldest (`old`) neighbor.<sup>1</sup>
+Multiple stages of the PeX protocol depend on a notion of a gossip record's _age_. To this end, gossip records contains an integer field called `Hop`, which is incremented when the record is received by a peer during a gossip round.  The value of this hop-counter is taken as the "age" of a record, as it increases over time.
 
-#### Push-Pull
+During the push-pull phase, each node appends its own record, with `Hop=0`, to the view it transmits its counterparty.  This serves as a heartbeat mechanism, ensuring that "young" records are perpetually injected into the cluster by active nodes.  As we will see, "old" records are probabilistically culled, ensuring liveness.
 
-After the peer selection, the selected and selector nodes connect with each
-other and send their views. However, they generally do not send the entire view, but instead
-select the *c-P* "youngest" records.  If, however, `len(view) <= P`, the peer  MUST transmit
-its entire view.  We define the notion of record age and provide additional details regarding
-the *P* parameter in the section entitled _Node Age_, below.
+## Peer Selection
 
-Finally, each peer transmits a record containing its own routing information.
+The initiator randomly draws an entry from its cache and and opens a [PeX protocol stream](#stream-identifier) to the corresponding peer.  Implementations SHOULD repeat this process if the selected node proves unreachable but MUST NOT evict it from the cache at this stage.  Implementations SHOULD NOT initiate more than one gossip round at a time.
+
+The randomized selection policy provides faster partition-healing than alternative, such as selecting the youngest or oldest neighbor.<sup>2</sup>
+
+## Push-Pull
+
+Each host sends a subset of its view to the other.  Let *c* be the maximum cache size (a value of `32` is RECOMMENDED). The subset is selected by taking the *c-P* "youngest" records, and appending the sender's own record.  For the avoidance of doubt, a peer MUST transmit its entire view if `len(view) <= P`, and MUST always append its own routing record to the stream.  The final item in the stream MUST have an age of `0`.
 
 The pseudocode for the push-pull phase is as follows:
 ```
 view.RandomShuffle()
 view.MoveToTailOldest(P)
 buffer = view.Head((c/2)-1)
-buffer.append(MyDescriptor) 
+buffer.append(MyRoutingRecord) 
 Push(buffer)
 ```
 
-It is important to note that the random shuffling and moving oldest entries
-to the tail is done in-place. That is to say, the order of the elements in
-the view is permanently changed. This is crucial for other mechanisms
-during view merging (e.g. Swapping).
+It is important to note that the random shuffling and moving oldest entries to the tail is performed in-place. That is to say, the order of the elements in the view is permanently changed. This is crucial for other mechanisms during view merging (e.g. swapping).
 
-#### View Merging
+## View Merging
 
-View merging is the most complex and delicate phase of the PeX protocol. It comprises
-five steps:
+View merging is the most delicate phase of the PeX protocol. It comprises five steps:
 
 1. **Merge** the received and local views by joining them into a single list and
    removing duplicate entries. Local entries are put first, in front of the remote
@@ -168,9 +152,25 @@ view.append(oldest)
 view.IncreaseAge()
 ```
 
-#### View Merging Policies
+Each step is described in detail below.
 
-PeX applies the three following policies, in sequence, to merge a view.  Each policy has an associated parameter, shown in bold.
+### Record Deduplication
+
+**PeX** leverages the `Seq` counter in libp2p's `peer.Record` during view merging to deduplicate records and ensure the latest addressing information is preserved.  When merging views, hosts MUST evict records that:
+
+1. Refer to themselves
+2. Are duplicates
+
+A record is considered a duplicate iff it has the same `PeerID` field as another record in the union of local and remote views.
+
+When duplicates are encountered, peers MUST preserve records with the following priority:
+
+1. A higher `Seq` number.
+2. A higher `Hop` count.
+
+This behavior makes it possible for hosts to update their network address when it changes.  To do so, the host begins issuing a new gossip record with the updated address information, and an incremented `Seq` number.
+
+### Parameters
 
 1. **S**(wapping): the number of items to be evicted from the head,
    after merging local and remote views. The local view is put in front of the
@@ -188,36 +188,10 @@ PeX applies the three following policies, in sequence, to merge a view.  Each po
    the speed at which stale records are purged from the network.  Higher values of
    `D` remove stale records more quickly, at the cost of partition-resistance.
 
-#### Node Age
 
-Multiple stages of the PeX protocol depend on a notion of a gossip record's _age_.
-To this end, `GossipRecord` contains an integer field called `Hop`, which is incremented
-when the record is received by a peer during a gossip round.  The value of this hop-counter
-is taken as the "age" of a record, as it increases over time.
+# API
 
-During the push-pull phase, each node appends its own record, with `Hop=0`, to the view
-it transmits its counterparty.  This serves as a heartbeat mechanism, ensuring that
-"young" records are perpetually injected into the cluster by active nodes.
-
-#### Record Sequence
-
-**PeX** leverages the `Seq` counter in libp2p's `peer.Record` during view merging to deduplicate records and ensure the latest addressing information is preserved.  When merging views, peers should evict records that:
-
-1. Refer to themselves
-2. Are duplicates
-
-A record is considered a duplicate iff it has the same `PeerID` field as another record in the union of local and remote views.
-When duplicates are encountered, peers MUST preserve records with the following priority:
-
-1. A higher `Seq` number.
-2. A higher `Hop` count.
-
-This behavior makes it possible for hosts to update their network address when it changes.  To do so, the host begins issuing a new
-gossip record with the updated address information, and an incremented `Seq` number.
-
-### API
-
-#### Stream Identifier
+## Stream Identifier
 
 **PeX** streams are identified by a dynamic protocol ID with the pattern:
 
@@ -229,64 +203,44 @@ The `<version>` path component MUST contain a valid [semantic version string](ht
 
 The `<ns>` component is an arbitrary string that designates a namespace.  This namespace string MUST be consistent across different layers of the CASM protocol stack.  It must notably match the namespace used by the clustering layer.
 
-#### Gossip Record
+## Gossip Record
 
-Gossip records are the messages that are exchanged during gossip rounds.  Each gossip record is signed by the peer that initially emits it.  Thus, each record's signature matches the `PeerID` field in its `peer.PeerRecord`.
+The schema for gossip records is defined in `api/pex.capnp`.
 
-```go
-type GossipRecord struct {
-	Hop uint64
-	peer.PeerRecord
-	*record.Envelope
+```capnp
+struct Gossip {
+    # Gossip is a PeX cache entry, containing addressing
+    # information for a cluster peer.
+
+    hop @0 :UInt64;
+    # hop is a counter that increases monotonically each
+    # time the Gossip record is received.  It is used to
+    # determine the "network age" of the record.
+    #
+    # Hop MUST be set to zero for the last Gossip record
+    # in a stream.  All other Gossip records in a stream
+    # must have hop > 1.
+
+    envelope @1 :Data;
+    # signed envelope containing a lip2p PeerRecord.  The
+    # envelope of the last Gossip record in a stream MUST
+    # contain the sender's peer record. Envelopes MUST be
+    # signed by the key matching the PeerRecord's peer.ID.
 }
 ```
 
-When receiving a remote view, implementations MUST validate the following:
+Views are transmitted as an LZ4 compressed stream of *un*packed `Gossip` structs, using standard Cap'n Proto framing.
 
-1. The last record MUST have `Hop == 0`.
-2. All other records MUST have `Hop > 0`.
-3. Records MUST be signed the peer `GossipRecord.PeerID`.
-4. The last record sent MUST be signed by the sender.
-
-Future work will focus on implementing a peer scoring system similar to GossipSub, which will punish peers who send invalid views by refusing to gossip with them.
-
-
-#### Wire Format
-
-PeX uses a simple binary encoding to transmit data during gossip rounds.  Fixed-size values such as `Hop` are encoded using _unsigned_ 64-bit varints, and variable-length content is length-prefixed using _signed_ varints.
-
-Thus, the wire format for a single `GosspRecord` is the following:
-
-```
-+---------------+--------------+--------------------------------+
-| Seq (uvarint) | len (varint) | signed record.Envelope (bytes) |
-+---------------+--------------+--------------------------------+
-```
-
-The default encoding for `record.Envelope` is used (protocol buffer).
-
-Views are transmitted as a sequence of length-prefixed `GossipRecord` messages.  Receivers SHOULD validate that they have received the expected number of records verifying that the final record (1) refers to the sender and (2) has a hop of zero.  As noted above, all records MUST be signed by the peers they reference rather than the immediate sender.
-
-The wire format for a view is shown below.  The `...` indicates that the previous block can repeat an arbitrary number of times.
-
-```
-+--------------+----------------------+-----+
-| len (varint) | GossipRecord (bytes) | ... |
-+--------------+----------------------+-----+
-```
-
-To protect against DoS attacks, implementations SHOULD limit the length of encoded views received by neighbors to some fixed multiple of the maximum value size.  A value of 1024 (1 Kb) per record is RECOMMENDED.
-
-## Known Issues
+# Known Issues
 
 None (...so far!)
 
-## Core Team
-
+## Authors
 - [@lthibault](https://github.com/lthibault)
 - [@aratz-lasa](https://github.com/aratz-lasa) ★
 
 ★ Project Lead
 
 ## References
-1. 	Jelasity, Márk, et al. "Gossip-based peer sampling." ACM Transactions on Computer Systems (TOCS) 25.3 (2007): 8-es.
+1. Jelasity, Márk, et al. "Gossip-based peer sampling." ACM Transactions on Computer Systems (TOCS) 25.3 (2007): 8-es.
+1. Manterola-Lasa, Aratz, Diego Casado-Mansilla, and Diego López-de-Ipiña. "UnsServ: unstructured peer-to-peer library for deploying services in smart environments." 2020 5th International Conference on Smart and Sustainable Technologies (SpliTech). IEEE, 2020.
