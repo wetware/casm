@@ -32,7 +32,7 @@ func TestModel(t *testing.T) {
 		pubsub.WithDirectPeers([]peer.AddrInfo{*host.InfoFromHost(h1)}))
 	require.NoError(t, err)
 
-	n0, err := cluster.New(ctx, ps0, cluster.WithTTL(time.Millisecond*100))
+	n0, err := cluster.New(ps0, cluster.WithTTL(time.Millisecond*100))
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, n0.Close())
@@ -43,7 +43,7 @@ func TestModel(t *testing.T) {
 		pubsub.WithDirectPeers([]peer.AddrInfo{*host.InfoFromHost(h0)}))
 	require.NoError(t, err)
 
-	n1, err := cluster.New(ctx, ps1, cluster.WithTTL(time.Millisecond*100))
+	n1, err := cluster.New(ps1, cluster.WithTTL(time.Millisecond*100))
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, n1.Close())
@@ -91,7 +91,7 @@ func TestModel_announce_join(t *testing.T) {
 		},
 		// Initialize cluster
 		func(i int, h host.Host) (err error) {
-			ns[i], err = cluster.New(ctx, ps[i],
+			ns[i], err = cluster.New(ps[i],
 				// Ensure only the initial join heartbeat is emitted
 				cluster.WithTTL(time.Hour))
 			return
@@ -143,7 +143,7 @@ func TestModel_announce_live(t *testing.T) {
 			return
 		},
 		func(i int, h host.Host) (err error) {
-			ns[i], err = cluster.New(ctx, ps[i],
+			ns[i], err = cluster.New(ps[i],
 				cluster.WithTTL(time.Millisecond*150))
 			return
 		})

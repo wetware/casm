@@ -5,7 +5,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/jpillora/backoff"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/wetware/casm/pkg/cluster/pulse"
@@ -33,18 +32,18 @@ type View interface {
 type Node struct {
 	ns string
 	rt RoutingTable
-	a  announcer
+	a  *announcer
 	s  service.Set
 }
 
 // New cluster model.  It is safe to cancel 'ctx' after 'New' returns.
-func New(ctx context.Context, ps PubSub, opt ...Option) (*Node, error) {
-	n := &Node{}
+func New(ps PubSub, opt ...Option) (*Node, error) {
+	n := &Node{a: newAnnouncer()}
 	for _, option := range withDefault(opt) {
 		option(n)
 	}
 
-	n.s = service.Set{n.newTopic(ps), &n.a, &clock{timer: n.rt}}
+	n.s = service.Set{n.newTopic(ps), n.a, &clock{timer: n.rt}}
 	return n, n.s.Start()
 }
 
@@ -64,9 +63,7 @@ func (n *Node) Loggable() map[string]interface{} {
 }
 
 func (n *Node) newTopic(ps PubSub) service.Service {
-	var (
-		cancel pubsub.RelayCancelFunc
-	)
+	var cancel pubsub.RelayCancelFunc
 
 	return service.Set{
 		// Update routing table via topic validator
@@ -125,14 +122,4 @@ func (c *clock) Start() error {
 func (c *clock) Close() error {
 	close(c.cq)
 	return nil
-}
-
-type loggableBackoff struct{ backoff.Backoff }
-
-func (b loggableBackoff) Loggable() map[string]interface{} {
-	return map[string]interface{}{
-		"attempt": int(b.Attempt()),
-		"dur":     b.ForAttempt(b.Attempt()),
-		"max_dur": b.Max,
-	}
 }

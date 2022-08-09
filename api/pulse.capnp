@@ -6,34 +6,34 @@ $Go.package("pulse");
 $Go.import("github.com/wetware/casm/internal/api/pulse");
 
 
-# Heartbeat messages are periodically broadcast in a pubsub
-# topic whose name is the cluster's namespace string. This
-# is used to track the liveness of peers in a cluster, as
-# well as to build a routing table so that peers can connect
-# to each other.  User-defined metadata can piggyback off of
-# these messages.  A common case is to include the node's
-# hostname.
 struct Heartbeat {
-    # Time-to-live:  the duration of time during which the
-    # heartbeat is to be considered valid.
-    ttl @0 :Int64;
+    # Heartbeat messages are used to implement an unstructured p2p
+    # clustering service.  Hosts periodically emit heartbeats on a
+    # pubsub topic (the "namespace") and construct a routing table
+    # based on heartbeats received by other peers.
+    #
+    # Additional metadata can piggyback off of heartbeat messages,
+    # allowing indexed operations on the routing table.
 
-    # Heartbeat messages may contain arbitrary metadata.
-    #
-    # - Use 'text' when sending human-readable values, or
-    #   text-encoded data like JSON and XML.
-    # - Use 'binary' when sending non-capnp binary data,
-    #   for example using CBOR, MSGPACK or Protocol Buffers.
-    #
-    # - Use 'pointer' to transmit an arbitrary Cap'n Proto
-    #   pointer type.
-    #
-    # This data will be broadcast to all pears at each heartbeat,
-    # so users are encoraged to be very terse.
-    meta :union {
-        none @1 :Void;
-        text @2 :Text;
-        binary @3 :Data;
-        pointer @4 :AnyPointer;
+    ttl      @0 :UInt32;
+    # Time-to-live, in milliseconds. The originator is considered
+    # failed if a subsequent heartbeat is not received within ttl.
+    
+    id       @1 :UInt32;
+    # An opaque identifier that uniquely distinguishes an instance
+    # of a host. This identifier is randomly generated each time a
+    # host boots.
+
+    hostname @2 :Text;
+    # The hostname of the underlying host, as reported by the OS.
+    # Users MUST NOT assume hostnames to be unique or non-empty.
+
+    meta     @3 :List(Field);
+    # A set of optional, arbitrary metadata fields.  The total size
+    # of meta SHOULD be kept as small as possible.
+
+    struct Field {
+        key   @0 :Text;
+        value @1 :Text;
     }
 }

@@ -6,46 +6,20 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	text "capnproto.org/go/capnp/v3/encoding/text"
 	schemas "capnproto.org/go/capnp/v3/schemas"
-	strconv "strconv"
 )
 
 type Heartbeat capnp.Struct
-type Heartbeat_meta Heartbeat
-type Heartbeat_meta_Which uint16
-
-const (
-	Heartbeat_meta_Which_none    Heartbeat_meta_Which = 0
-	Heartbeat_meta_Which_text    Heartbeat_meta_Which = 1
-	Heartbeat_meta_Which_binary  Heartbeat_meta_Which = 2
-	Heartbeat_meta_Which_pointer Heartbeat_meta_Which = 3
-)
-
-func (w Heartbeat_meta_Which) String() string {
-	const s = "nonetextbinarypointer"
-	switch w {
-	case Heartbeat_meta_Which_none:
-		return s[0:4]
-	case Heartbeat_meta_Which_text:
-		return s[4:8]
-	case Heartbeat_meta_Which_binary:
-		return s[8:14]
-	case Heartbeat_meta_Which_pointer:
-		return s[14:21]
-
-	}
-	return "Heartbeat_meta_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
-}
 
 // Heartbeat_TypeID is the unique identifier for the type Heartbeat.
 const Heartbeat_TypeID = 0x83bca0e4d70e0e82
 
 func NewHeartbeat(s *capnp.Segment) (Heartbeat, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
 	return Heartbeat(st), err
 }
 
 func NewRootHeartbeat(s *capnp.Segment) (Heartbeat, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
 	return Heartbeat(st), err
 }
 
@@ -81,97 +55,62 @@ func (s Heartbeat) Message() *capnp.Message {
 func (s Heartbeat) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Heartbeat) Ttl() int64 {
-	return int64(capnp.Struct(s).Uint64(0))
+func (s Heartbeat) Ttl() uint32 {
+	return capnp.Struct(s).Uint32(0)
 }
 
-func (s Heartbeat) SetTtl(v int64) {
-	capnp.Struct(s).SetUint64(0, uint64(v))
+func (s Heartbeat) SetTtl(v uint32) {
+	capnp.Struct(s).SetUint32(0, v)
 }
 
-func (s Heartbeat) Meta() Heartbeat_meta { return Heartbeat_meta(s) }
-
-func (s Heartbeat_meta) Which() Heartbeat_meta_Which {
-	return Heartbeat_meta_Which(capnp.Struct(s).Uint16(8))
-}
-func (s Heartbeat_meta) IsValid() bool {
-	return capnp.Struct(s).IsValid()
+func (s Heartbeat) Id() uint32 {
+	return capnp.Struct(s).Uint32(4)
 }
 
-func (s Heartbeat_meta) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
+func (s Heartbeat) SetId(v uint32) {
+	capnp.Struct(s).SetUint32(4, v)
 }
 
-func (s Heartbeat_meta) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s Heartbeat_meta) SetNone() {
-	capnp.Struct(s).SetUint16(8, 0)
-
-}
-
-func (s Heartbeat_meta) Text() (string, error) {
-	if capnp.Struct(s).Uint16(8) != 1 {
-		panic("Which() != text")
-	}
+func (s Heartbeat) Hostname() (string, error) {
 	p, err := capnp.Struct(s).Ptr(0)
 	return p.Text(), err
 }
 
-func (s Heartbeat_meta) HasText() bool {
-	if capnp.Struct(s).Uint16(8) != 1 {
-		return false
-	}
+func (s Heartbeat) HasHostname() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Heartbeat_meta) TextBytes() ([]byte, error) {
+func (s Heartbeat) HostnameBytes() ([]byte, error) {
 	p, err := capnp.Struct(s).Ptr(0)
 	return p.TextBytes(), err
 }
 
-func (s Heartbeat_meta) SetText(v string) error {
-	capnp.Struct(s).SetUint16(8, 1)
+func (s Heartbeat) SetHostname(v string) error {
 	return capnp.Struct(s).SetText(0, v)
 }
 
-func (s Heartbeat_meta) Binary() ([]byte, error) {
-	if capnp.Struct(s).Uint16(8) != 2 {
-		panic("Which() != binary")
+func (s Heartbeat) Meta() (Heartbeat_Field_List, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return Heartbeat_Field_List(p.List()), err
+}
+
+func (s Heartbeat) HasMeta() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Heartbeat) SetMeta(v Heartbeat_Field_List) error {
+	return capnp.Struct(s).SetPtr(1, v.ToPtr())
+}
+
+// NewMeta sets the meta field to a newly
+// allocated Heartbeat_Field_List, preferring placement in s's segment.
+func (s Heartbeat) NewMeta(n int32) (Heartbeat_Field_List, error) {
+	l, err := NewHeartbeat_Field_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return Heartbeat_Field_List{}, err
 	}
-	p, err := capnp.Struct(s).Ptr(0)
-	return []byte(p.Data()), err
-}
-
-func (s Heartbeat_meta) HasBinary() bool {
-	if capnp.Struct(s).Uint16(8) != 2 {
-		return false
-	}
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Heartbeat_meta) SetBinary(v []byte) error {
-	capnp.Struct(s).SetUint16(8, 2)
-	return capnp.Struct(s).SetData(0, v)
-}
-
-func (s Heartbeat_meta) Pointer() (capnp.Ptr, error) {
-	if capnp.Struct(s).Uint16(8) != 3 {
-		panic("Which() != pointer")
-	}
-	return capnp.Struct(s).Ptr(0)
-}
-
-func (s Heartbeat_meta) HasPointer() bool {
-	if capnp.Struct(s).Uint16(8) != 3 {
-		return false
-	}
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Heartbeat_meta) SetPointer(v capnp.Ptr) error {
-	capnp.Struct(s).SetUint16(8, 3)
-	return capnp.Struct(s).SetPtr(0, v)
+	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
+	return l, err
 }
 
 // Heartbeat_List is a list of Heartbeat.
@@ -179,7 +118,7 @@ type Heartbeat_List = capnp.StructList[Heartbeat]
 
 // NewHeartbeat creates a new list of Heartbeat.
 func NewHeartbeat_List(s *capnp.Segment, sz int32) (Heartbeat_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
 	return capnp.StructList[Heartbeat](l), err
 }
 
@@ -191,43 +130,129 @@ func (p Heartbeat_Future) Struct() (Heartbeat, error) {
 	return Heartbeat(s), err
 }
 
-func (p Heartbeat_Future) Meta() Heartbeat_meta_Future { return Heartbeat_meta_Future{p.Future} }
+type Heartbeat_Field capnp.Struct
 
-// Heartbeat_meta_Future is a wrapper for a Heartbeat_meta promised by a client call.
-type Heartbeat_meta_Future struct{ *capnp.Future }
+// Heartbeat_Field_TypeID is the unique identifier for the type Heartbeat_Field.
+const Heartbeat_Field_TypeID = 0xd79cdf84dc4551cb
 
-func (p Heartbeat_meta_Future) Struct() (Heartbeat_meta, error) {
+func NewHeartbeat_Field(s *capnp.Segment) (Heartbeat_Field, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return Heartbeat_Field(st), err
+}
+
+func NewRootHeartbeat_Field(s *capnp.Segment) (Heartbeat_Field, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return Heartbeat_Field(st), err
+}
+
+func ReadRootHeartbeat_Field(msg *capnp.Message) (Heartbeat_Field, error) {
+	root, err := msg.Root()
+	return Heartbeat_Field(root.Struct()), err
+}
+
+func (s Heartbeat_Field) String() string {
+	str, _ := text.Marshal(0xd79cdf84dc4551cb, capnp.Struct(s))
+	return str
+}
+
+func (s Heartbeat_Field) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Heartbeat_Field) DecodeFromPtr(p capnp.Ptr) Heartbeat_Field {
+	return Heartbeat_Field(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Heartbeat_Field) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Heartbeat_Field) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Heartbeat_Field) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Heartbeat_Field) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Heartbeat_Field) Key() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s Heartbeat_Field) HasKey() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Heartbeat_Field) KeyBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Heartbeat_Field) SetKey(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s Heartbeat_Field) Value() (string, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.Text(), err
+}
+
+func (s Heartbeat_Field) HasValue() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Heartbeat_Field) ValueBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Heartbeat_Field) SetValue(v string) error {
+	return capnp.Struct(s).SetText(1, v)
+}
+
+// Heartbeat_Field_List is a list of Heartbeat_Field.
+type Heartbeat_Field_List = capnp.StructList[Heartbeat_Field]
+
+// NewHeartbeat_Field creates a new list of Heartbeat_Field.
+func NewHeartbeat_Field_List(s *capnp.Segment, sz int32) (Heartbeat_Field_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	return capnp.StructList[Heartbeat_Field](l), err
+}
+
+// Heartbeat_Field_Future is a wrapper for a Heartbeat_Field promised by a client call.
+type Heartbeat_Field_Future struct{ *capnp.Future }
+
+func (p Heartbeat_Field_Future) Struct() (Heartbeat_Field, error) {
 	s, err := p.Future.Struct()
-	return Heartbeat_meta(s), err
+	return Heartbeat_Field(s), err
 }
 
-func (p Heartbeat_meta_Future) Pointer() *capnp.Future {
-	return p.Future.Field(0, nil)
-}
-
-const schema_c2974e3dc137fcee = "x\xdaD\xcd\xb1J#Q\x18\x05\xe0s\xfe;\x93l" +
-	"1\x93d\x92aw\xbb\x85e\xb70\x90\xa0\x85\x88\x01" +
-	"Q\xb4\xb1\x12oag\xe1D/$\x90L\xc6xE" +
-	"\xad\x04\xc5g\xb0\x15\xc4\x17\xb0\xb6\xd1\x97\x10\xac\x05;" +
-	"A\xc4B\x88^\x19A\xf37?\x1c8\xdf\xa9\\," +
-	"xS\xe1/\x81\xe8\xdf~\xc1\x1d\x95J\xb7\xf7gW" +
-	"\xc7\xd0\x01\xc5=\x8ef\xae\xe7VNo\xe0\xb3\x08D" +
-	"O\x97\xd1k\xfe_\xf6@\xb7\xbdt\xa2\xce\xc3\xff\xcf" +
-	"\xd0?)\xe3\xde\x1a\x8b\xf4\xe8\xd5\xa6y\x07\xd6f\xf9" +
-	"\x80\x86\xcbv{;\xa6\xb9\x990K\xb3\xd6\xb2I\x86" +
-	"\x7fl\xdb$v\x95\xd4?\x94\x07x\x04\xa2\x89\xbf\x80" +
-	"\xfe\xa7\xa8'\x85\xf9\x8d\x07\xa2F\x1dR\xb4\xb6G\x1f" +
-	"B\x1f,\xf7\x8dM\xbeU\xf9R?\xd1f\xdf(\x9b" +
-	"\xe8\x8a\xf2\x02\xe7b\xe6rR\x07\xf4\xba\xa2\xee\x08C" +
-	"\xbe\xbb\x98\x02D&O7\x14uO\x18\xca\x9b\x8b\xa9" +
-	"\x80\xa8\xdb\x02\xf4\x96\xa2\xce\x84\xa1\x1a\xb9\x98\x1e\x10\xf5" +
-	"\x17\x01\xddQ\xd4VXN\x07\xa9A\xa1l\xcd\xbee" +
-	"\x00a\x00\xce\xb7\xbbi2<`\x08a\x08\x1ef\x83" +
-	"nj\xcd\x90U\x08\xab\xe0G\x00\x00\x00\xff\xff=\x18" +
-	"W\xc9"
+const schema_c2974e3dc137fcee = "x\xdaL\x8f1K#Q\x14\x85\xcfyo\xb2\x93\"" +
+	"\x9b\xcd#a\xb3l\x13\x10\x0b\x15\x124\x08\x82 \xd8" +
+	"\x18\xc4Br{\x0bG\xf3 \x83\x93\x18\xcdD\xb1U" +
+	"\x0b\xff\x81\x8d\x85\xbfA\xb0\xb3\xd1\xd6\x1f\x90F\x10D" +
+	"\x10\x1b!\x85\x85 \x8cL`\x92t\xe7\x1d\xde\xbd\xf7" +
+	"\xfbr\xb7\xab\xce\xc2\xef\xa2\x82\x92\x7f\xa9_\xd1i6" +
+	"\xdb\x7f\xbd\xbe;\x83d\xc8\xe8\xe3{\xe9~e\xf3\xf2" +
+	"\x01)\xe5\x02fpc\xbe\x8a@\x9e|\x03\xa3GY" +
+	"{:\x7f\xbe\xea\xc3\xfc\xe5xn\xf83\xff\xce\x97\xfc" +
+	"'\xe34\xe01\xcaQ\xa7\x17tme\xd7c\xa7\xdd" +
+	"Y^\xb7\xdea)\xdc\xb1^(\x0e'\xf7\xb0Z\xaa" +
+	"\xf96hHN;\x80C\xc0xS\x80liJS" +
+	"\xd1\x90\x05\xc6\xa5\xfd\x0f\xc8\xb6\xa6\x04\x8aT\x05*\xc0" +
+	"\xf8\x1b\x8045%T4\x9a\x05j\xc0\x1c\xcc\x01\x12" +
+	"h\xca\x85\xa2\x1b\x86\x01\xd3PL\x83\xdao$1j" +
+	"\xeew\xc3\xb6\xd7\xb2\x00\x98\x81b\x06\xfc\xd3\xb2\xa1\xc7" +
+	",X\xd7dn\x0c\x08\xc6\xe5HF%2C\x97J" +
+	"\xcdwm\xd0\xa8\x93\x92\x1e\xe1\xcf\xc6\xf8\xd3\x9a2?" +
+	"\x81_\xae\x022\xa3)\x8b\x8a\xee\x9e=I\xce\x96\x8e" +
+	"\xbc\xa0g\x93\xd7O\x00\x00\x00\xff\xffl\xda^\x7f"
 
 func init() {
 	schemas.Register(schema_c2974e3dc137fcee,
 		0x83bca0e4d70e0e82,
-		0xf3250da303854371)
+		0xd79cdf84dc4551cb)
 }

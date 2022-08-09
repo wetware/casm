@@ -5,6 +5,7 @@ import (
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/lthibault/log"
+	api "github.com/wetware/casm/internal/api/pulse"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
@@ -26,8 +27,14 @@ func WithTTL(d time.Duration) Option {
 		d = time.Second * 10
 	}
 
+	if d < time.Millisecond {
+		d = time.Millisecond
+	}
+
 	return func(m *Node) {
-		m.a.ttl = d
+		ms := d / time.Millisecond
+		api.Heartbeat(m.a.h.Heartbeat).
+			SetTtl(uint32(ms))
 	}
 }
 
@@ -51,13 +58,14 @@ func WithRoutingTable(t RoutingTable) Option {
 	}
 }
 
+// WithMeta specifies the heartbeat metadata by means of a Preparer,
+// which is responsible for assigning metadata to the heartbeat. The
+// preparer is called prior to each heartbeat emission.
+//
+// If meta == nil, no metadata is assigned.
 func WithMeta(meta pulse.Preparer) Option {
-	if meta == nil {
-		meta = defaultMeta{}
-	}
-
-	return func(m *Node) {
-		m.a.p = meta
+	return func(n *Node) {
+		n.a.p = meta
 	}
 }
 
@@ -86,7 +94,3 @@ func withDefault(opt []Option) []Option {
 		WithReadiness(nil),
 	}, opt...)
 }
-
-type defaultMeta struct{}
-
-func (defaultMeta) Prepare(pulse.Heartbeat) {}
