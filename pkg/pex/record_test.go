@@ -47,13 +47,13 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 	var buf bytes.Buffer
 
 	// marshal
-	err = capnp.NewEncoder(&buf).Encode(want.Message())
+	err = capnp.NewPackedEncoder(&buf).Encode(want.Message())
 	require.NoError(t, err)
 
 	logPayloadSize(t, &buf)
 
 	// unmarshal
-	msg, err := capnp.NewDecoder(&buf).Decode()
+	msg, err := capnp.NewPackedDecoder(&buf).Decode()
 	require.NoError(t, err)
 
 	var got pex.GossipRecord
@@ -74,19 +74,14 @@ func TestGossipRecord_MarshalUnmarshal(t *testing.T) {
 func logPayloadSize(t *testing.T, buf *bytes.Buffer) {
 	t.Logf("uncompressed:  %d bytes", buf.Len())
 
-	var wbuf bytes.Buffer
-	w := lz4.NewWriter(&wbuf)
+	var c lz4.Compressor
+	wbuf := make([]byte, lz4.CompressBlockBound(buf.Len()))
 
-	io.Copy(w, bytes.NewReader(buf.Bytes()))
-	t.Logf("lz4-compressed: %d bytes (diff=%.0f%%)",
-		wbuf.Len(),
-		(1.-float64(wbuf.Len())/float64(buf.Len()))*100.)
-
-	require.NoError(t, w.Close())
-
-	b, err := io.ReadAll(lz4.NewReader(&wbuf))
+	n, err := c.CompressBlock(buf.Bytes(), wbuf)
 	require.NoError(t, err)
-	require.Equal(t, buf.Bytes(), b)
+
+	t.Logf("lz4-compressed: %d bytes (diff=%.0f%%)", n,
+		(1.-float64(n)/float64(buf.Len()))*100.)
 }
 
 func BenchmarkGossipRecord_MarshalUnmarshal(b *testing.B) {

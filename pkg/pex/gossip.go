@@ -313,7 +313,7 @@ type encoder struct {
 func (enc *encoder) Encode(m *capnp.Message) error {
 	if enc.e == nil {
 		enc.w = lz4.NewWriter(enc.W)
-		enc.e = capnp.NewEncoder(enc.w)
+		enc.e = capnp.NewPackedEncoder(enc.w)
 	}
 
 	return enc.e.Encode(m)
@@ -343,7 +343,7 @@ type decoder struct {
 
 func (dec *decoder) Decode() (*capnp.Message, error) {
 	if dec.d == nil {
-		dec.d = capnp.NewDecoder(lz4.NewReader(dec.R))
+		dec.d = capnp.NewPackedDecoder(lz4.NewReader(dec.R))
 		dec.d.MaxMessageSize = dec.MaxMsgSize
 	}
 
