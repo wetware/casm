@@ -30,6 +30,11 @@ func (h Heartbeat) Loggable() map[string]any {
 	}
 }
 
+func (h Heartbeat) SetTTL(d time.Duration) {
+	ms := d / time.Millisecond
+	h.SetTtl(uint32(ms))
+}
+
 func (h Heartbeat) TTL() (d time.Duration) {
 	if d = time.Millisecond * time.Duration(h.Ttl()); d == 0 {
 		d = DefaultTTL

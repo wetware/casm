@@ -18,8 +18,8 @@ func TestHeartbeat_MarshalUnmarshal(t *testing.T) {
 		h = pulse.NewHeartbeat()
 	}, "heartbeat uses single-segment arena and should never panic")
 
-	h.SetTtl(42)
-	require.Equal(t, time.Millisecond*42, h.TTL())
+	h.SetTTL(time.Millisecond)
+	require.Equal(t, time.Millisecond, h.TTL())
 
 	err := h.SetHostname("test.node.local")
 	require.NoError(t, err, "should set hostname")

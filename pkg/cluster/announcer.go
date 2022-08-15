@@ -120,11 +120,6 @@ func (e *emitter) Emit(ctx context.Context, p publisher, opt ...pubsub.PubOpt) e
 	return err
 }
 
-func (e *emitter) SetTTL(d time.Duration) {
-	ms := d / time.Millisecond
-	e.SetTtl(uint32(ms))
-}
-
 func (e *emitter) NewTicker() *jitterbug.Ticker {
 	return jitterbug.New(e.TTL()/2, jitterbug.Uniform{
 		Min:    e.TTL() / 10,
@@ -150,8 +145,8 @@ func (e *emitter) next() ([]byte, error) {
 }
 
 func (e *emitter) prepare() (err error) {
-	if err := e.setHostname(); err == nil {
-		e.setMeta()
+	if err = e.setHostname(); err == nil {
+		err = e.setMeta()
 	}
 
 	return
@@ -168,10 +163,12 @@ func (e *emitter) setHostname() (err error) {
 	return
 }
 
-func (e *emitter) setMeta() {
+func (e *emitter) setMeta() (err error) {
 	if e.Preparer != nil {
-		e.Preparer.Prepare(&e.setter)
+		err = e.Preparer.Prepare(&e.setter)
 	}
+
+	return
 }
 
 type setter struct{ pulse.Heartbeat }
