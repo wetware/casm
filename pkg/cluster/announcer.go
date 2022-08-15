@@ -14,19 +14,15 @@ import (
 	"github.com/lthibault/log"
 	ctxutil "github.com/lthibault/util/ctx"
 
-	api "github.com/wetware/casm/internal/api/pulse"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 )
 
 type announcer struct {
-	cq    chan struct{}
-	ready pubsub.RouterReady
-
 	log log.Logger
+	cq  chan struct{}
 	t   *pubsub.Topic
 
 	mu sync.Mutex
-	p  pulse.Preparer
 	h  heartbeat
 }
 
@@ -101,13 +97,13 @@ func (a *announcer) announce(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	b, err := a.h.Next(a.p)
+	b, err := a.h.Next()
 	if err != nil {
 		return err
 	}
 
 	// Publish may return nil if the context shuts down.
-	return a.t.Publish(ctx, b, pubsub.WithReadiness(a.ready))
+	return a.t.Publish(ctx, b)
 }
 
 type heartbeat struct {
@@ -131,12 +127,12 @@ func (h heartbeat) NewBackoff() *loggableBackoff {
 	}}
 }
 
-func (h *heartbeat) Next(p pulse.Preparer) ([]byte, error) {
+func (h *heartbeat) Next() ([]byte, error) {
 	if err := h.prepare(); err != nil {
 		return nil, err
 	}
 
-	return h.MarshalBinary()
+	return h.Message().MarshalPacked()
 }
 
 func (h *heartbeat) prepare() (err error) {
@@ -151,7 +147,7 @@ func (h *heartbeat) setHostname() (err error) {
 	if !h.hasHostname() {
 		var name string
 		if name, err = os.Hostname(); err == nil {
-			err = api.Heartbeat(h.Heartbeat).SetHostname(name)
+			err = h.SetHostname(name)
 		}
 	}
 
@@ -159,7 +155,7 @@ func (h *heartbeat) setHostname() (err error) {
 }
 
 func (h *heartbeat) hasHostname() bool {
-	return api.Heartbeat(h.Heartbeat).HasHostname()
+	return h.HasHostname()
 }
 
 func (h *heartbeat) setMeta() {
@@ -168,11 +164,7 @@ func (h *heartbeat) setMeta() {
 	}
 }
 
-func (h *heartbeat) SetHostname(name string) {
-	panic("NOT IMPLEMENTED")
-}
-
-func (h *heartbeat) SetMeta(meta map[string]string) {
+func (h *heartbeat) SetMeta(meta map[string]string) error {
 	panic("NOT IMPLEMENTED")
 }
 

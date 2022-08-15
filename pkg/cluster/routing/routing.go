@@ -1,9 +1,12 @@
 package routing
 
 import (
+	"errors"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/lthibault/treap"
 )
@@ -54,6 +57,70 @@ type Iterator interface {
 	// Callers MUST call Finish before discarding an iterator
 	// that has not been exhausted via calls to Next().
 	Finish()
+}
+
+type Meta capnp.TextList
+
+func (m Meta) Len() int {
+	return capnp.TextList(m).Len()
+}
+
+func (m Meta) Get(key string) (string, error) {
+	for i := 0; i < m.Len(); i++ {
+		s, err := capnp.TextList(m).At(i)
+		if err != nil {
+			return "", err
+		}
+
+		if strings.HasPrefix(s, key) {
+			field, err := parseField(s)
+			if err != nil {
+				return "", err
+			}
+
+			return field.Value(), nil
+
+		}
+	}
+
+	return "", nil
+}
+
+func (m Meta) Index() (indexes [][]byte, err error) {
+	indexes = make([][]byte, m.Len())
+	for i := range indexes {
+		if indexes[i], err = capnp.TextList(m).BytesAt(i); err != nil {
+			break
+		}
+	}
+
+	return
+}
+
+type field struct {
+	s   string
+	idx int
+}
+
+func parseField(s string) (field, error) {
+	idx := strings.Index(s, "=")
+	if idx < 0 {
+		return field{}, errors.New("separator not found")
+	}
+
+	if idx == 0 {
+		return field{}, errors.New("missing key")
+	}
+
+	return field{s: s, idx: idx}, nil
+}
+
+func (s field) Key() string {
+	return s.s[:s.idx]
+}
+
+func (s field) Value() string {
+	return s.s[s.idx+1:]
 }
 
 type treapIter struct{ *treap.Iterator }

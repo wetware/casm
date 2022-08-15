@@ -49,6 +49,57 @@ func (mr *MockRoutingTableMockRecorder) Upsert(arg0 interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Upsert", reflect.TypeOf((*MockRoutingTable)(nil).Upsert), arg0)
 }
 
+// MockSetter is a mock of Setter interface.
+type MockSetter struct {
+	ctrl     *gomock.Controller
+	recorder *MockSetterMockRecorder
+}
+
+// MockSetterMockRecorder is the mock recorder for MockSetter.
+type MockSetterMockRecorder struct {
+	mock *MockSetter
+}
+
+// NewMockSetter creates a new mock instance.
+func NewMockSetter(ctrl *gomock.Controller) *MockSetter {
+	mock := &MockSetter{ctrl: ctrl}
+	mock.recorder = &MockSetterMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSetter) EXPECT() *MockSetterMockRecorder {
+	return m.recorder
+}
+
+// SetHostname mocks base method.
+func (m *MockSetter) SetHostname(arg0 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetHostname", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetHostname indicates an expected call of SetHostname.
+func (mr *MockSetterMockRecorder) SetHostname(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHostname", reflect.TypeOf((*MockSetter)(nil).SetHostname), arg0)
+}
+
+// SetMeta mocks base method.
+func (m *MockSetter) SetMeta(arg0 map[string]string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetMeta", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetMeta indicates an expected call of SetMeta.
+func (mr *MockSetterMockRecorder) SetMeta(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMeta", reflect.TypeOf((*MockSetter)(nil).SetMeta), arg0)
+}
+
 // MockPreparer is a mock of Preparer interface.
 type MockPreparer struct {
 	ctrl     *gomock.Controller
@@ -73,7 +124,7 @@ func (m *MockPreparer) EXPECT() *MockPreparerMockRecorder {
 }
 
 // Prepare mocks base method.
-func (m *MockPreparer) Prepare(arg0 pulse.Heartbeat) {
+func (m *MockPreparer) Prepare(arg0 pulse.Setter) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Prepare", arg0)
 }

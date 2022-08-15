@@ -3,9 +3,7 @@ package cluster
 import (
 	"time"
 
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/lthibault/log"
-	api "github.com/wetware/casm/internal/api/pulse"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
@@ -33,8 +31,7 @@ func WithTTL(d time.Duration) Option {
 
 	return func(m *Node) {
 		ms := d / time.Millisecond
-		api.Heartbeat(m.a.h.Heartbeat).
-			SetTtl(uint32(ms))
+		m.a.h.SetTtl(uint32(ms))
 	}
 }
 
@@ -65,22 +62,7 @@ func WithRoutingTable(t RoutingTable) Option {
 // If meta == nil, no metadata is assigned.
 func WithMeta(meta pulse.Preparer) Option {
 	return func(n *Node) {
-		n.a.p = meta
-	}
-}
-
-// WithReadiness specifies a criterion for considering the model
-// to be ready.  If r == nil, no criterion is applied and the is
-// always considered ready.
-func WithReadiness(r pubsub.RouterReady) Option {
-	if r == nil {
-		r = func(pubsub.PubSubRouter, string) (bool, error) {
-			return true, nil // nop
-		}
-	}
-
-	return func(m *Node) {
-		m.a.ready = r
+		n.a.h.Preparer = meta
 	}
 }
 
@@ -91,6 +73,5 @@ func withDefault(opt []Option) []Option {
 		WithLogger(nil),
 		WithRoutingTable(nil),
 		WithMeta(nil),
-		WithReadiness(nil),
 	}, opt...)
 }

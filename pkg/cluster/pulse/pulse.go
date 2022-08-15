@@ -19,8 +19,8 @@ type RoutingTable interface {
 }
 
 type Setter interface {
-	SetHostname(string)
-	SetMeta(map[string]string)
+	SetHostname(string) error
+	SetMeta(map[string]string) error
 }
 
 type Preparer interface {
@@ -72,6 +72,6 @@ func (r *record) Hostname() (string, error) {
 	return r.ValidatorData.(*Heartbeat).Hostname()
 }
 
-func (r *record) Meta() (Meta, error) {
+func (r *record) Meta() (routing.Meta, error) {
 	return r.ValidatorData.(*Heartbeat).Meta()
 }

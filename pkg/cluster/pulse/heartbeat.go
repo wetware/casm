@@ -6,54 +6,45 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/wetware/casm/internal/api/pulse"
+
+	api "github.com/wetware/casm/internal/api/routing"
+	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
-type Heartbeat pulse.Heartbeat
+const DefaultTTL = time.Second * 10
+
+type Heartbeat struct{ api.Heartbeat }
 
 func NewHeartbeat() Heartbeat {
 	_, seg := capnp.NewSingleSegmentMessage(nil)
-	h, err := pulse.NewRootHeartbeat(seg)
-	if err != nil {
-		panic(err)
-	}
+	h, _ := api.NewRootHeartbeat(seg) // single segment never fails
+	h.SetInstance(rand.Uint32())
 
-	h.SetId(rand.Uint32())
-
-	return Heartbeat(h)
+	return Heartbeat{h}
 }
 
 func (h Heartbeat) Loggable() map[string]any {
 	return map[string]any{
 		"ttl":      h.TTL(),
-		"instance": h.ID(),
+		"instance": h.Instance(),
 	}
 }
 
-func (h Heartbeat) TTL() time.Duration {
-	ms := pulse.Heartbeat(h).Ttl()
-	return time.Millisecond * time.Duration(ms)
+func (h Heartbeat) TTL() (d time.Duration) {
+	if d = time.Millisecond * time.Duration(h.Ttl()); d == 0 {
+		d = DefaultTTL
+	}
+
+	return
 }
 
-func (h Heartbeat) ID() uint32 {
-	return pulse.Heartbeat(h).Id()
-}
-
-func (h Heartbeat) Hostname() (string, error) {
-	return pulse.Heartbeat(h).Hostname()
-}
-
-func (h Heartbeat) Meta() (Meta, error) {
-	meta, err := pulse.Heartbeat(h).Meta()
-	return Meta(meta), err
-}
-
-func (h Heartbeat) Message() *capnp.Message {
-	return pulse.Heartbeat(h).Message()
+func (h Heartbeat) Meta() (routing.Meta, error) {
+	meta, err := h.Heartbeat.Meta()
+	return routing.Meta(meta), err
 }
 
 func (h *Heartbeat) ReadMessage(m *capnp.Message) (err error) {
-	*(*pulse.Heartbeat)(h), err = pulse.ReadRootHeartbeat(m)
+	h.Heartbeat, err = api.ReadRootHeartbeat(m)
 	return
 }
 
@@ -65,40 +56,4 @@ func (h *Heartbeat) Bind(msg *pubsub.Message) (err error) {
 	}
 
 	return
-}
-
-func (h Heartbeat) MarshalBinary() ([]byte, error) {
-	return pulse.Heartbeat(h).Message().MarshalPacked()
-}
-
-func (h *Heartbeat) UnmarshalBinary(b []byte) error {
-	msg, err := capnp.UnmarshalPacked(b)
-	if err == nil {
-		*(*pulse.Heartbeat)(h), err = pulse.ReadRootHeartbeat(msg)
-	}
-
-	return err
-}
-
-type Meta pulse.Heartbeat_Field_List
-
-func (m Meta) Len() int {
-	return pulse.Heartbeat_Field_List(m).Len()
-}
-
-func (m Meta) Get(key string) (string, error) {
-	for i := 0; i < m.Len(); i++ {
-		field := pulse.Heartbeat_Field_List(m).At(i)
-
-		k, err := field.Key()
-		if err != nil {
-			return "", err
-		}
-
-		if k == key {
-			return field.Value()
-		}
-	}
-
-	return "", nil
 }
