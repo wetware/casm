@@ -22,7 +22,7 @@ func WithNamespace(ns string) Option {
 
 func WithTTL(d time.Duration) Option {
 	if d <= 0 {
-		d = time.Second * 10
+		d = pulse.DefaultTTL
 	}
 
 	if d < time.Millisecond {
