@@ -67,6 +67,10 @@ func (r *record) Seq() uint64 {
 	return binary.BigEndian.Uint64((*pubsub.Message)(r).GetSeqno())
 }
 
+func (r *record) Instance() uint32 {
+	return r.ValidatorData.(*Heartbeat).Instance()
+}
+
 func (r *record) Hostname() (string, error) {
 	return r.ValidatorData.(*Heartbeat).Hostname()
 }

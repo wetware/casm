@@ -19,12 +19,14 @@ require (
 	github.com/lthibault/log v1.2.2
 	github.com/lthibault/treap v0.1.4
 	github.com/lthibault/util v0.0.12
+	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/termenv v0.12.0
 	github.com/multiformats/go-multiaddr v0.6.0
 	github.com/pierrec/lz4/v4 v4.1.15
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.0
 	github.com/urfave/cli/v2 v2.11.1
+	go.uber.org/atomic v1.9.0
 	go.uber.org/fx v1.17.1
 	go.uber.org/multierr v1.8.0
 	golang.org/x/net v0.0.0-20220805013720-a33c5aa5df48
@@ -103,7 +105,6 @@ require (
 	github.com/mikioh/tcpinfo v0.0.0-20190314235526-30a79bb1804b // indirect
 	github.com/mikioh/tcpopt v0.0.0-20190314235656-172688c1accc // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
-	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/multiformats/go-base32 v0.0.4 // indirect
 	github.com/multiformats/go-base36 v0.1.0 // indirect
 	github.com/multiformats/go-multiaddr-dns v0.3.1 // indirect
@@ -135,7 +136,6 @@ require (
 	github.com/whyrusleeping/timecache v0.0.0-20160911033111-cfcb2f1abfee // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.opencensus.io v0.23.0 // indirect
-	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/dig v1.15.0 // indirect
 	go.uber.org/zap v1.21.0 // indirect
 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa // indirect

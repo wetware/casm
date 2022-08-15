@@ -20,6 +20,17 @@ type Record interface {
 	Peer() peer.ID
 	TTL() time.Duration
 	Seq() uint64
+	Instance() uint32
+	Hostname() (string, error)
+	Meta() (Meta, error)
+}
+
+type PeerIndexer interface {
+	PeerBytes() ([]byte, error)
+}
+
+type HostnameIndexer interface {
+	HostnameBytes() ([]byte, error)
 }
 
 // Iterator is a stateful object that enumerates routing
