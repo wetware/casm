@@ -19,12 +19,11 @@ type RoutingTable interface {
 }
 
 type Setter interface {
-	SetHostname(string) error
 	SetMeta(map[string]string) error
 }
 
 type Preparer interface {
-	Prepare(Setter)
+	Prepare(Setter) error
 }
 
 func NewValidator(rt RoutingTable) pubsub.ValidatorEx {

@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"sync"
@@ -21,19 +22,17 @@ type announcer struct {
 	log log.Logger
 	cq  chan struct{}
 	t   *pubsub.Topic
-
-	mu sync.Mutex
-	h  heartbeat
+	*emitter
 }
 
 func newAnnouncer() *announcer {
 	return &announcer{
-		h: heartbeat{Heartbeat: pulse.NewHeartbeat()},
+		cq:      make(chan struct{}),
+		emitter: newEmitter(),
 	}
 }
 
 func (a *announcer) Start() (err error) {
-	a.cq = make(chan struct{})
 	a.log = a.log.With(a)
 	go a.tick()
 
@@ -46,7 +45,7 @@ func (a *announcer) Close() error {
 }
 
 func (a *announcer) Loggable() map[string]any {
-	fields := a.h.Loggable()
+	fields := a.emitter.Loggable()
 	fields["ns"] = a.t.String()
 	return fields
 }
@@ -55,16 +54,16 @@ func (a *announcer) tick() {
 	a.log.Debug("started heartbeat loop")
 	defer a.log.Debug("exited heartbeat loop")
 
-	ticker := a.h.NewTicker()
+	ticker := a.NewTicker()
 	defer ticker.Stop()
 
 	var (
 		ctx context.Context = ctxutil.C(a.cq)
-		b                   = a.h.NewBackoff()
+		b                   = a.NewBackoff()
 	)
 
 	for ctx.Err() == nil {
-		if err := a.announce(ctx); err != nil {
+		if err := a.Emit(ctx, a.t); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
@@ -93,79 +92,107 @@ func (a *announcer) tick() {
 	}
 }
 
-func (a *announcer) announce(ctx context.Context) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+type emitter struct {
+	mu sync.Mutex
+	pulse.Preparer
+	setter
+}
 
-	b, err := a.h.Next()
-	if err != nil {
-		return err
+func newEmitter() *emitter {
+	return &emitter{
+		setter: setter{pulse.NewHeartbeat()},
+	}
+}
+
+type publisher interface {
+	Publish(context.Context, []byte, ...pubsub.PubOpt) error
+}
+
+func (e *emitter) Emit(ctx context.Context, p publisher, opt ...pubsub.PubOpt) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	b, err := e.next()
+	if err == nil {
+		err = p.Publish(ctx, b, opt...)
 	}
 
-	// Publish may return nil if the context shuts down.
-	return a.t.Publish(ctx, b)
+	return err
 }
 
-type heartbeat struct {
-	pulse.Preparer
-	pulse.Heartbeat
+func (e *emitter) SetTTL(d time.Duration) {
+	ms := d / time.Millisecond
+	e.SetTtl(uint32(ms))
 }
 
-func (h heartbeat) NewTicker() *jitterbug.Ticker {
-	return jitterbug.New(h.TTL()/2, jitterbug.Uniform{
-		Min:    h.TTL() / 10,
+func (e *emitter) NewTicker() *jitterbug.Ticker {
+	return jitterbug.New(e.TTL()/2, jitterbug.Uniform{
+		Min:    e.TTL() / 10,
 		Source: rand.New(rand.NewSource(rand.Int63())),
 	})
 }
 
-func (h heartbeat) NewBackoff() *loggableBackoff {
+func (e *emitter) NewBackoff() *loggableBackoff {
 	return &loggableBackoff{backoff.Backoff{
 		Factor: 2,
-		Min:    h.TTL() / 10,
+		Min:    e.TTL() / 10,
 		Max:    time.Minute * 15,
 		Jitter: true,
 	}}
 }
 
-func (h *heartbeat) Next() ([]byte, error) {
-	if err := h.prepare(); err != nil {
+func (e *emitter) next() ([]byte, error) {
+	if err := e.prepare(); err != nil {
 		return nil, err
 	}
 
-	return h.Message().MarshalPacked()
+	return e.Message().MarshalPacked()
 }
 
-func (h *heartbeat) prepare() (err error) {
-	if err := h.setHostname(); err == nil {
-		h.setMeta()
+func (e *emitter) prepare() (err error) {
+	if err := e.setHostname(); err == nil {
+		e.setMeta()
 	}
 
 	return
 }
 
-func (h *heartbeat) setHostname() (err error) {
-	if !h.hasHostname() {
+func (e *emitter) setHostname() (err error) {
+	if !e.HasHostname() {
 		var name string
 		if name, err = os.Hostname(); err == nil {
-			err = h.SetHostname(name)
+			err = e.SetHostname(name)
 		}
 	}
 
 	return
 }
 
-func (h *heartbeat) hasHostname() bool {
-	return h.HasHostname()
-}
-
-func (h *heartbeat) setMeta() {
-	if h.Preparer != nil {
-		h.Preparer.Prepare(h)
+func (e *emitter) setMeta() {
+	if e.Preparer != nil {
+		e.Preparer.Prepare(&e.setter)
 	}
 }
 
-func (h *heartbeat) SetMeta(meta map[string]string) error {
-	panic("NOT IMPLEMENTED")
+type setter struct{ pulse.Heartbeat }
+
+func (s setter) SetMeta(meta map[string]string) error {
+	size := len(meta)
+	fields, err := s.NewMeta(int32(size))
+	if err != nil {
+		return err
+	}
+
+	for key, value := range meta {
+		size--
+
+		err = fields.Set(size, fmt.Sprintf("%s=%s", key, value))
+		if err != nil {
+			break
+		}
+	}
+
+	return err
 }
 
 type loggableBackoff struct{ backoff.Backoff }

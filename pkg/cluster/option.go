@@ -30,8 +30,7 @@ func WithTTL(d time.Duration) Option {
 	}
 
 	return func(m *Node) {
-		ms := d / time.Millisecond
-		m.a.h.SetTtl(uint32(ms))
+		m.a.SetTTL(d)
 	}
 }
 
@@ -62,7 +61,7 @@ func WithRoutingTable(t RoutingTable) Option {
 // If meta == nil, no metadata is assigned.
 func WithMeta(meta pulse.Preparer) Option {
 	return func(n *Node) {
-		n.a.h.Preparer = meta
+		n.a.Preparer = meta
 	}
 }
 

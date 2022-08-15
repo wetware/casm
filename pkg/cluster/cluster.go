@@ -52,8 +52,8 @@ func (n *Node) String() string       { return n.ns }
 func (n *Node) Topic() *pubsub.Topic { return n.a.t }
 func (n *Node) View() View           { return n.rt }
 
-func (n *Node) Bootstrap(ctx context.Context) (err error) {
-	return n.a.announce(ctx)
+func (n *Node) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
+	return n.a.Emit(ctx, n.a.t, opt...)
 }
 
 func (n *Node) Loggable() map[string]interface{} {
