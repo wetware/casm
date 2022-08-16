@@ -29,8 +29,8 @@ func schema(clock *atomic.Time) *memdb.TableSchema {
 				Name:    "instance",
 				Indexer: instanceIndexer(),
 			},
-			"hostname": {
-				Name:    "hostname",
+			"host": {
+				Name:    "host",
 				Indexer: hostnameIndexer{},
 			},
 			"meta": {
@@ -46,9 +46,9 @@ type peerIndexer struct{}
 
 func (peerIndexer) FromObject(obj any) (bool, []byte, error) {
 	switch rec := obj.(type) {
-	case PeerIndexer:
+	case PeerIndex:
 		index, err := rec.PeerBytes()
-		return true, index, err
+		return err == nil, index, err
 
 	case Record:
 		id := rec.Peer()
@@ -70,7 +70,7 @@ func (peerIndexer) FromArgs(args ...any) ([]byte, error) {
 	case peer.ID:
 		return []byte(id), nil
 
-	case PeerIndexer:
+	case PeerIndex:
 		return id.PeerBytes()
 	}
 
@@ -124,9 +124,8 @@ type timeIndexer atomic.Time
 
 func (ix *timeIndexer) FromObject(obj any) (bool, []byte, error) {
 	if rec, ok := obj.(Record); ok {
-		ttl := (*atomic.Time)(ix).Load().Add(rec.TTL())
-		index, err := ttl.MarshalBinary()
-		return true, index, err
+		t := (*atomic.Time)(ix).Load().Add(rec.TTL())
+		return true, timeToBytes(t), nil
 	}
 
 	return false, nil, errType(obj)
@@ -138,7 +137,20 @@ func (timeIndexer) FromArgs(args ...any) ([]byte, error) {
 		return nil, err
 	}
 
-	return t.MarshalBinary()
+	return timeToBytes(t), nil
+}
+
+func timeToBytes(t time.Time) []byte {
+	ms := t.UnixNano()
+	return []byte{
+		byte(ms >> 56),
+		byte(ms >> 48),
+		byte(ms >> 40),
+		byte(ms >> 32),
+		byte(ms >> 24),
+		byte(ms >> 16),
+		byte(ms >> 8),
+		byte(ms)}
 }
 
 func argsToTime(args ...any) (time.Time, error) {
@@ -157,12 +169,12 @@ type hostnameIndexer struct{}
 
 func (hostnameIndexer) FromObject(obj any) (bool, []byte, error) {
 	switch rec := obj.(type) {
-	case HostnameIndexer:
-		index, err := rec.HostnameBytes()
+	case HostIndex:
+		index, err := rec.HostBytes()
 		return true, index, err
 
 	case Record:
-		name, err := rec.Hostname()
+		name, err := rec.Host()
 		return true, []byte(name), err
 	}
 
@@ -193,8 +205,13 @@ func argsToString(args ...any) (string, error) {
 type metaIndexer struct{}
 
 func (metaIndexer) FromObject(obj any) (bool, [][]byte, error) {
-	if rec, ok := obj.(Record); ok {
-		meta, err := rec.Meta()
+	switch x := obj.(type) {
+	case MetaIndex:
+		indexes, err := x.MetaBytes()
+		return len(indexes) > 0, indexes, err
+
+	case Record:
+		meta, err := x.Meta()
 		if err != nil || meta.Len() == 0 {
 			return false, nil, err
 		}

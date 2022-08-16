@@ -17,7 +17,6 @@ require (
 	github.com/lthibault/go-libp2p-inproc-transport v0.2.2
 	github.com/lthibault/jitterbug/v2 v2.2.2
 	github.com/lthibault/log v1.2.2
-	github.com/lthibault/treap v0.1.4
 	github.com/lthibault/util v0.0.12
 	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/termenv v0.12.0

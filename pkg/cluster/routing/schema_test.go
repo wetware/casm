@@ -2,6 +2,7 @@ package routing
 
 import (
 	"encoding/binary"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -10,15 +11,14 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
-	randutil "github.com/wetware/casm/pkg/util/rand"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	t0   = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
-	rand = randutil.NewSharedSeeded()
+	t0      = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
+	randsrc = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 func TestPeerIndex(t *testing.T) {
@@ -101,24 +101,34 @@ func TestTimeIdexer(t *testing.T) {
 		assert.NoError(t, err, "should index record")
 		assert.True(t, ok, "record should have TTL index")
 
-		var got time.Time
-		err = got.UnmarshalBinary(index)
-		require.NoError(t, err, "must unmarshal index")
-		assert.Equal(t, t0.Add(ttl), got,
-			"index should be gob-encoded t0 + TTL")
+		ms := int64(binary.BigEndian.Uint64(index))
+		assert.Equal(t, t0.Add(ttl).UnixNano(), ms,
+			"index should be big-endian uint64 representing nanoseconds")
 	})
 
 	t.Run("FromArgs", func(t *testing.T) {
 		index, err := (*timeIndexer)(clock).FromArgs(t0)
 		assert.NoError(t, err, "should parse argument")
 
-		want, err := t0.MarshalBinary()
-		require.NoError(t, err, "must gob-encode t0")
-		assert.Equal(t, want, index, "index should be gob-encoded time")
+		want := make([]byte, 8)
+		binary.BigEndian.PutUint64(want, uint64(t0.UnixNano()))
+
+		assert.Equal(t, want, index,
+			"index should be big-endian uint64 representing nanoseconds")
+	})
+
+	t.Run("OrderIsPreserved", func(t *testing.T) {
+		ix0, err := (*timeIndexer)(clock).FromArgs(t0)
+		require.NoError(t, err)
+
+		ix1, err := (*timeIndexer)(clock).FromArgs(t0.Add(time.Millisecond))
+		require.NoError(t, err)
+
+		require.Less(t, ix0, ix1, "should preserve time ordering (ix0 < ix1)")
 	})
 }
 
-func TestHostnameIndexer(t *testing.T) {
+func TestHostIndexer(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
@@ -179,7 +189,7 @@ func TestMetaIndexer(t *testing.T) {
 }
 
 func newPeerID() peer.ID {
-	sk, _, err := crypto.GenerateEd25519Key(rand)
+	sk, _, err := crypto.GenerateEd25519Key(randsrc)
 	if err != nil {
 		panic(err)
 	}
@@ -201,11 +211,11 @@ type testRecord struct {
 	ttl  time.Duration
 }
 
-func (r testRecord) Peer() peer.ID             { return r.id }
-func (r testRecord) Seq() uint64               { return r.seq }
-func (r testRecord) Hostname() (string, error) { return r.host, nil }
-func (r testRecord) Instance() uint32          { return r.ins }
-func (r testRecord) Meta() (Meta, error)       { return r.meta, nil }
+func (r testRecord) Peer() peer.ID         { return r.id }
+func (r testRecord) Seq() uint64           { return r.seq }
+func (r testRecord) Host() (string, error) { return r.host, nil }
+func (r testRecord) Instance() uint32      { return r.ins }
+func (r testRecord) Meta() (Meta, error)   { return r.meta, nil }
 func (r testRecord) TTL() time.Duration {
 	if r.ttl == 0 {
 		return time.Second

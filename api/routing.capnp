@@ -26,7 +26,7 @@ struct Heartbeat {
     # of a host. This identifier is randomly generated each time a
     # host boots.
 
-    hostname @2 :Text;
+    host     @2 :Text;
     # The hostname of the underlying host, as reported by the OS.
     # Users MUST NOT assume hostnames to be unique or non-empty.
 
@@ -37,3 +37,52 @@ struct Heartbeat {
     # first occurrenc of the '=' separator.  Subsequent occurrences
     # are treated as part of the value.
 }
+
+
+#interface View {
+#    # A View is a read-only snapshot of a particular host's routing
+#    # table. Views are not updated, and should therefore be queried
+#    # and discarded promptly.
+#
+#    lookup  @0 (selector :Selector) -> (result :MaybeRecord);
+#    iter    @1 (handler :Sender, selector :Selector, limit :UInt32) -> ();
+#    
+#    interface Sender {
+#        send @0 (record :Record) -> stream;
+#    }
+#
+#    struct Selector {
+#        union {
+#            match      @0 :Index;
+#            range         :group {
+#                min    @1 :Index;
+#                max    @2 :Index;
+#            }
+#        }
+#    }
+#
+#    struct Index {
+#        union {
+#            peer       @0 :PeerID;
+#            peerPrefix @1 :PeerID;
+#            host       @2 :Text;
+#            hostPrefix @3 :Text;
+#            meta       @4 :List(Text);        # key=value
+#            metaPrefix @5 :List(Text);
+#        }
+#    }
+#
+#    struct Record {
+#        peer      @0 :PeerID;
+#        heartbeat @1 :Heartbeat;
+#    }
+#
+#    struct MaybeRecord {
+#        union {
+#            nothing @0 :Void;
+#            just    @1 :Record;
+#        }
+#    }
+#
+#    using PeerID = Text;
+#}

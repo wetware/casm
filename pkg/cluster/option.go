@@ -46,7 +46,7 @@ func WithLogger(l log.Logger) Option {
 
 func WithRoutingTable(t RoutingTable) Option {
 	if t == nil {
-		t = routing.New()
+		t = routing.New(time.Now())
 	}
 
 	return func(m *Node) {
