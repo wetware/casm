@@ -6,6 +6,7 @@ require (
 	capnproto.org/go/capnp/v3 v3.0.0-alpha.5
 	github.com/coreos/go-semver v0.3.0
 	github.com/golang/mock v1.6.0
+	github.com/hashicorp/go-memdb v1.3.3
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/ipfs/go-datastore v0.5.1
 	github.com/jpillora/backoff v1.0.0
@@ -57,6 +58,7 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/huin/goupnp v1.0.2 // indirect
 	github.com/ipfs/go-cid v0.2.0 // indirect
