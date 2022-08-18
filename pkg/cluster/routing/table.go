@@ -65,7 +65,7 @@ func (table Table) dropExpired(wx stm.Txn, t time.Time) {
 }
 
 // Upsert inserts a record in the routing table, updating it
-// if it already exists.  Returns true if rec is stale.
+// if it already exists.  Returns false if rec is stale.
 func (table Table) Upsert(rec Record) bool {
 	// Some records are stale, so avoid locking until we're
 	// sure to write.
