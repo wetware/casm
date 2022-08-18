@@ -155,7 +155,7 @@ func BenchmarkRoutingTable_upsert(b *testing.B) {
 		b.ResetTimer()
 
 		for i := 0; i < b.N; i++ {
-			_ = table.Upsert(recs[0])
+			_ = table.Upsert(recs[i])
 		}
 	})
 }
