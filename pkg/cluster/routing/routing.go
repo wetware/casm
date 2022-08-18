@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 )
 
+// Record is an entry in the routing table.
 type Record interface {
 	Peer() peer.ID
 	TTL() time.Duration
@@ -18,6 +19,9 @@ type Record interface {
 	Meta() (Meta, error)
 }
 
+// Query provides traversal options over an immutable snapshot of the
+// routing-table's state.  Implementations MUST satisfy the invariant
+// that Query's methods be free of side-effects.
 type Query interface {
 	Get(Index) (Iterator, error)
 	GetReverse(Index) (Iterator, error)
@@ -57,24 +61,28 @@ type MetaIndex interface {
 // thread-safe, but implementations MUST permit multiple
 // iterators to operate concurently.
 //
-// Iterators are snapshots of the routing table and SHOULD
-// be consumed quickly.
+// Implementations MAY operate on immutable snapshots of
+// routing-table state, so callers SHOULD consume record
+// streams promptly.
 type Iterator interface {
-	// Next updates the iterator's internal state, causing
-	// Deadline() to return a different value when called.
-	// If Next() returns nil, the iterator is exhausted.
-	//
-	// The returned record is valid until the next call to
-	// Next().
+	// Next pops a record from the head of the stream and
+	// returns it to the caller. Subsequent calls to Next
+	// will return a different record. When the stream is
+	// exhausted, Next returns nil.
 	Next() Record
 }
 
+// Meta is an indexed set of key-value pairs describing
+// arbitrary metadata.
 type Meta capnp.TextList
 
+// Len returns the number of metadata fields present in
+// the set.
 func (m Meta) Len() int {
 	return capnp.TextList(m).Len()
 }
 
+// At returns the metadata field at index i.
 func (m Meta) At(i int) (Field, error) {
 	s, err := capnp.TextList(m).At(i)
 	if err != nil {
@@ -84,6 +92,9 @@ func (m Meta) At(i int) (Field, error) {
 	return parseField(s)
 }
 
+// Get returns the value associated with the supplied key.
+// If the key is not found, Get returns ("", nil).  Errors
+// are reserved for failures in reading or parsing fields.
 func (m Meta) Get(key string) (string, error) {
 	for i := 0; i < m.Len(); i++ {
 		field, err := m.At(i)
@@ -99,6 +110,7 @@ func (m Meta) Get(key string) (string, error) {
 	return "", nil
 }
 
+// Index returns a set of indexes for the metadata fields.
 func (m Meta) Index() (indexes [][]byte, err error) {
 	indexes = make([][]byte, m.Len())
 	for i := range indexes {
@@ -110,6 +122,7 @@ func (m Meta) Index() (indexes [][]byte, err error) {
 	return
 }
 
+// Field is a key-value pair.
 type Field struct {
 	Key, Value string
 }
