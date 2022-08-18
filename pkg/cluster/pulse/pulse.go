@@ -56,21 +56,45 @@ func bind(msg *pubsub.Message) (*record, error) {
 }
 
 func (r *record) TTL() time.Duration {
-	return r.ValidatorData.(*Heartbeat).TTL()
+	return r.heartbeat().TTL()
 }
 
 func (r *record) Peer() peer.ID {
 	return (*pubsub.Message)(r).GetFrom()
 }
 
+func (r *record) PeerBytes() ([]byte, error) {
+	return (*pubsub.Message)(r).From, nil
+}
+
 func (r *record) Seq() uint64 {
 	return binary.BigEndian.Uint64((*pubsub.Message)(r).GetSeqno())
 }
 
-func (r *record) Hostname() (string, error) {
-	return r.ValidatorData.(*Heartbeat).Hostname()
+func (r *record) Instance() uint32 {
+	return r.heartbeat().Instance()
+}
+
+func (r *record) Host() (string, error) {
+	return r.heartbeat().Host()
+}
+
+func (r *record) HostBytes() ([]byte, error) {
+	return r.heartbeat().HostBytes()
 }
 
 func (r *record) Meta() (routing.Meta, error) {
-	return r.ValidatorData.(*Heartbeat).Meta()
+	return r.heartbeat().Meta()
 }
+
+func (r *record) heartbeat() *Heartbeat {
+	return r.ValidatorData.(*Heartbeat)
+}
+
+// func (r *record) Bind(rec api.View_Record) (err error) {
+// 	if err = rec.SetPeer(string(r.Peer())); err == nil {
+// 		err = rec.SetHeartbeat(r.heartbeat().Heartbeat)
+// 	}
+
+// 	return
+// }

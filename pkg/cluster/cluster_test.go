@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/cluster"
+	"github.com/wetware/casm/pkg/cluster/routing"
+	"github.com/wetware/casm/pkg/cluster/view"
 )
 
 func TestModel(t *testing.T) {
@@ -153,7 +155,8 @@ func TestModel_announce_live(t *testing.T) {
 	assert.Eventually(t,
 		func() bool {
 			for _, info := range as {
-				if _, ok := ns[n-1].View().Lookup(info.ID); !ok {
+				r, err := ns[n-1].View().Lookup(selectPeer(info.ID))
+				if err != nil && r == nil {
 					return false
 				}
 			}
@@ -171,8 +174,13 @@ func not(h host.Host) func(peer.AddrInfo) bool {
 }
 
 func peers(n *cluster.Node) (ps peer.IDSlice) {
-	for it := n.View().Iter(); it.Record() != nil; it.Next() {
-		ps = append(ps, it.Record().Peer())
+	it, err := n.View().Iter(view.Match(all{}))
+	if err != nil {
+		panic(err)
+	}
+
+	for r := it.Next(); r != nil; r = it.Next() {
+		ps = append(ps, r.Peer())
 	}
 
 	return
@@ -224,3 +232,19 @@ func newTestHost() host.Host {
 
 	return h
 }
+
+func selectPeer(id peer.ID) view.Selector {
+	return view.Match(peerIndex(id))
+}
+
+type peerIndex peer.ID
+
+func (peerIndex) String() string                 { return "id" }
+func (ix peerIndex) PeerBytes() ([]byte, error)  { return []byte(ix), nil }
+func (ix peerIndex) Match(r routing.Record) bool { return peer.ID(ix) == r.Peer() }
+
+type all struct{}
+
+func (all) String() string              { return "id" }
+func (all) PeerBytes() ([]byte, error)  { return nil, nil }
+func (all) Match(r routing.Record) bool { return true }

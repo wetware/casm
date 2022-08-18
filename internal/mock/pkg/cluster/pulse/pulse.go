@@ -72,20 +72,6 @@ func (m *MockSetter) EXPECT() *MockSetterMockRecorder {
 	return m.recorder
 }
 
-// SetHostname mocks base method.
-func (m *MockSetter) SetHostname(arg0 string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetHostname", arg0)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetHostname indicates an expected call of SetHostname.
-func (mr *MockSetterMockRecorder) SetHostname(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHostname", reflect.TypeOf((*MockSetter)(nil).SetHostname), arg0)
-}
-
 // SetMeta mocks base method.
 func (m *MockSetter) SetMeta(arg0 map[string]string) error {
 	m.ctrl.T.Helper()
@@ -124,9 +110,11 @@ func (m *MockPreparer) EXPECT() *MockPreparerMockRecorder {
 }
 
 // Prepare mocks base method.
-func (m *MockPreparer) Prepare(arg0 pulse.Setter) {
+func (m *MockPreparer) Prepare(arg0 pulse.Setter) error {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Prepare", arg0)
+	ret := m.ctrl.Call(m, "Prepare", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // Prepare indicates an expected call of Prepare.

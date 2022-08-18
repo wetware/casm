@@ -5,10 +5,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
+	"github.com/wetware/casm/pkg/cluster/view"
 	"github.com/wetware/casm/pkg/util/service"
 )
 
@@ -19,15 +19,14 @@ type PubSub interface {
 }
 
 type RoutingTable interface {
-	View
 	Advance(time.Time)
 	Upsert(routing.Record) (created bool)
+	NewQuery() routing.Query
 }
 
-type View interface {
-	Iter() routing.Iterator
-	Lookup(peer.ID) (routing.Record, bool)
-}
+// type RecordBinder interface {
+// 	Bind(api.View_Record) error // TODO(soon): api.View_Record is not exported
+// }
 
 type Node struct {
 	ns string
@@ -50,7 +49,7 @@ func New(ps PubSub, opt ...Option) (*Node, error) {
 func (n *Node) Close() error         { return n.s.Close() }
 func (n *Node) String() string       { return n.ns }
 func (n *Node) Topic() *pubsub.Topic { return n.a.t }
-func (n *Node) View() View           { return n.rt }
+func (n *Node) View() view.View      { return view.View{Query: n.rt.NewQuery()} }
 
 func (n *Node) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
 	return n.a.Emit(ctx, n.a.t, opt...)

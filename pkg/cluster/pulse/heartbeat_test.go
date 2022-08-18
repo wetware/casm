@@ -21,7 +21,7 @@ func TestHeartbeat_MarshalUnmarshal(t *testing.T) {
 	h.SetTTL(time.Millisecond)
 	require.Equal(t, time.Millisecond, h.TTL())
 
-	err := h.SetHostname("test.node.local")
+	err := h.SetHost("test.node.local")
 	require.NoError(t, err, "should set hostname")
 
 	fields, err := h.NewMeta(3)

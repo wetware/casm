@@ -58,7 +58,7 @@ func TestEmitter(t *testing.T) {
 
 		t.Run("CheckHostname", func(t *testing.T) {
 			hostname, _ := os.Hostname()
-			name, err := e.Hostname()
+			name, err := e.Host()
 			require.NoError(t, err, "should return hostname")
 			require.Equal(t, hostname, name,
 				"hostname should match host")

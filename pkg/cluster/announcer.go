@@ -145,18 +145,18 @@ func (e *emitter) next() ([]byte, error) {
 }
 
 func (e *emitter) prepare() (err error) {
-	if err = e.setHostname(); err == nil {
+	if err = e.setHost(); err == nil {
 		err = e.setMeta()
 	}
 
 	return
 }
 
-func (e *emitter) setHostname() (err error) {
-	if !e.HasHostname() {
+func (e *emitter) setHost() (err error) {
+	if !e.HasHost() {
 		var name string
 		if name, err = os.Hostname(); err == nil {
-			err = e.SetHostname(name)
+			err = e.SetHost(name)
 		}
 	}
 

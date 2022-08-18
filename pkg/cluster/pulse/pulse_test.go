@@ -2,8 +2,9 @@ package pulse_test
 
 import (
 	"context"
-	"crypto/rand"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p-core/crypto"
@@ -11,122 +12,104 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pb "github.com/libp2p/go-libp2p-pubsub/pb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	mock_pulse "github.com/wetware/casm/internal/mock/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 )
 
-// var t0 = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
+var reader = rand.New(rand.NewSource(42))
 
 func TestValidator(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	t.Run("Heartbeat", func(t *testing.T) {
-		t.Parallel()
-		t.Helper()
+	t.Run("Accept_upserted_record", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
 
-		t.Run("Reject_unmarshal_fails", func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
+		hb := pulse.NewHeartbeat()
+		hb.SetTTL(time.Hour)
 
-			rt := mock_pulse.NewMockRoutingTable(ctrl)
-			validate := pulse.NewValidator(rt)
+		b, err := hb.Message().MarshalPacked()
+		require.NoError(t, err)
 
-			res := validate(context.Background(), newPeerID(),
-				&pubsub.Message{Message: &pb.Message{}})
-			assert.Equal(t, pubsub.ValidationReject, res)
-		})
+		id := newPeerID()
+		msg := &pubsub.Message{Message: &pb.Message{
+			From:  []byte(id),
+			Seqno: []byte{0, 0, 0, 0, 0, 0, 0, 1}, // Seq=1
+			Data:  b,
+		}}
 
-		// t.Run("Ignore_stale_record", func(t *testing.T) {
-		// 	a, err := newAnnouncement(capnp.SingleSegment(nil))
-		// 	require.NoError(t, err)
+		rt := mock_pulse.NewMockRoutingTable(ctrl)
+		rt.EXPECT().
+			Upsert(gomock.Any()).
+			Return(true).
+			Times(1)
 
-		// 	hb, err := a.NewHeartbeat()
-		// 	require.NoError(t, err)
+		validate := pulse.NewValidator(rt)
 
-		// 	hb.SetTTL(time.Hour)
+		res := validate(context.Background(), id, msg)
+		require.Equal(t, pubsub.ValidationAccept, res)
 
-		// 	b, err := a.MarshalBinary()
-		// 	require.NoError(t, err)
-
-		// 	id := newPeerID()
-		// 	msg := &pubsub.Message{Message: &pb.Message{
-		// 		From:  []byte(id),
-		// 		Seqno: []byte{0, 0, 0, 0, 0, 0, 0, 8},
-		// 		Data:  b,
-		// 	}}
-
-		// 	res := validate(context.Background(), id, msg)
-		// 	require.Equal(t, pubsub.ValidationAccept, res)
-
-		// 	msg.Seqno = []byte{0, 0, 0, 0, 0, 0, 0, 1}
-		// 	res = validate(context.Background(), id, msg)
-		// 	require.Equal(t, pubsub.ValidationIgnore, res)
-		// })
 	})
 
-	// 	t.Run("JoinLeave", func(t *testing.T) {
-	// 		t.Helper()
+	t.Run("Reject_malformed_record", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
 
-	// 		for _, tt := range []struct {
-	// 			which cluster.Announcement_Which
-	// 			id    peer.ID
-	// 			want  pubsub.ValidationResult
-	// 		}{
-	// 			{
-	// 				which: cluster.Announcement_Which_join,
-	// 				id:    newPeerID(),
-	// 				want:  pubsub.ValidationAccept,
-	// 			},
-	// 			{
-	// 				which: cluster.Announcement_Which_leave,
-	// 				id:    newPeerID(),
-	// 				want:  pubsub.ValidationAccept,
-	// 			},
-	// 		} {
-	// 			t.Run(tt.which.String(), func(t *testing.T) {
-	// 				ctrl := gomock.NewController(t)
-	// 				defer ctrl.Finish()
+		rt := mock_pulse.NewMockRoutingTable(ctrl)
+		validate := pulse.NewValidator(rt)
 
-	// 				e := mock_libp2p.NewMockEmitter(ctrl)
-	// 				e.EXPECT().
-	// 					Emit(gomock.AssignableToTypeOf(EvtMembershipChanged{})).
-	// 					Return(nil).
-	// 					Times(1)
+		msg := &pubsub.Message{Message: &pb.Message{}}
+		res := validate(context.Background(), newPeerID(), msg)
+		assert.Equal(t, pubsub.ValidationReject, res)
+	})
 
-	// 				validate := m.NewValidator(e)
+	t.Run("Ignore_stale_record", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
 
-	// 				a, err := newAnnouncement(capnp.SingleSegment(nil))
-	// 				require.NoError(t, err)
+		hb := pulse.NewHeartbeat()
+		hb.SetTTL(time.Hour)
 
-	// 				switch tt.which {
-	// 				case cluster.Announcement_Which_join:
-	// 					err = a.SetJoin(tt.id)
-	// 				case cluster.Announcement_Which_leave:
-	// 					err = a.SetLeave(tt.id)
-	// 				}
+		b, err := hb.Message().MarshalPacked()
+		require.NoError(t, err)
 
-	// 				require.NoError(t, err)
+		id := newPeerID()
+		first := &pubsub.Message{Message: &pb.Message{
+			From:  []byte(id),
+			Seqno: []byte{0, 0, 0, 0, 0, 0, 0, 8}, // Seq=8
+			Data:  b,
+		}}
 
-	// 				b, err := a.MarshalBinary()
-	// 				require.NoError(t, err)
+		second := &pubsub.Message{Message: &pb.Message{
+			From:  []byte(id),
+			Seqno: []byte{0, 0, 0, 0, 0, 0, 0, 1}, // Seq=1
+			Data:  b,
+		}}
 
-	// 				id := newPeerID()
-	// 				msg := &pubsub.Message{Message: &pb.Message{
-	// 					From:  []byte(id),
-	// 					Seqno: []byte{0, 0, 0, 0, 0, 0, 0, 1},
-	// 					Data:  b,
-	// 				}}
+		rt := mock_pulse.NewMockRoutingTable(ctrl)
+		rt.EXPECT().
+			Upsert(gomock.Any()).
+			Return(true).
+			Times(1)
+		rt.EXPECT().
+			Upsert(gomock.Any()).
+			Return(false).
+			Times(1)
 
-	// 				got := validate(context.Background(), tt.id, msg)
-	// 				require.Equal(t, tt.want, got)
-	// 			})
-	// 		}
-	// 	})
+		validate := pulse.NewValidator(rt)
+
+		res := validate(context.Background(), id, first)
+		require.Equal(t, pubsub.ValidationAccept, res)
+
+		res = validate(context.Background(), id, second)
+		require.Equal(t, pubsub.ValidationIgnore, res)
+	})
 }
 
 func newPeerID() peer.ID {
-	sk, _, err := crypto.GenerateEd25519Key(rand.Reader)
+	sk, _, err := crypto.GenerateEd25519Key(reader)
 	if err != nil {
 		panic(err)
 	}

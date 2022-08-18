@@ -628,8 +628,6 @@ github.com/lthibault/jitterbug/v2 v2.2.2 h1:v4+0tqryaI/TlYzgYE0Vhz7ha6Jtz4yRjmBP
 github.com/lthibault/jitterbug/v2 v2.2.2/go.mod h1:evaHKX+60nFbFnEvGNPybQMJ5vXay9auziApDGo47Sw=
 github.com/lthibault/log v1.2.2 h1:t/annjqaDlUPQlHBbPV2dlD4T8c4R7UPJIXda7C3j3k=
 github.com/lthibault/log v1.2.2/go.mod h1:Qf1+O6GWWx7bLGFGkGTfUMDCvJ/uz2R7Vqa2U1AzD1U=
-github.com/lthibault/treap v0.1.4 h1:wl4J9/PP0zFDMQzG5SshEv6AXqawxgTgRxsRPs6INw4=
-github.com/lthibault/treap v0.1.4/go.mod h1:lkAEtwwWT4AtrM6APG4Y2MktVKUoT6hHcJHe/gxF1ho=
 github.com/lthibault/util v0.0.12 h1:JDulMYR1TudCGBOob14p6q6ak6/zovl20uU4Pj7umuA=
 github.com/lthibault/util v0.0.12/go.mod h1:cGZBEILcwYh+UkEdWKgP1vEOlayHa5dh2ay8yixCJQ0=
 github.com/lucas-clemente/quic-go v0.23.0/go.mod h1:paZuzjXCE5mj6sikVLMvqXk8lJV2AsqtJ6bDhjEfxx0=
