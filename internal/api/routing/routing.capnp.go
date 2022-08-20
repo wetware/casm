@@ -5,7 +5,13 @@ package routing
 import (
 	capnp "capnproto.org/go/capnp/v3"
 	text "capnproto.org/go/capnp/v3/encoding/text"
+	fc "capnproto.org/go/capnp/v3/flowcontrol"
 	schemas "capnproto.org/go/capnp/v3/schemas"
+	server "capnproto.org/go/capnp/v3/server"
+	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
+	context "context"
+	fmt "fmt"
+	strconv "strconv"
 )
 
 type Heartbeat capnp.Struct
@@ -130,22 +136,1603 @@ func (p Heartbeat_Future) Struct() (Heartbeat, error) {
 	return Heartbeat(s), err
 }
 
-const schema_c2974e3dc137fcee = "x\xda4\xc81J\x03A\x14\x06\xe0\xff\x7f\xb31)" +
-	"\xe2$\x03{\x02KA\xc1J\x10\x04K\xb1\x90\xbc\xde" +
-	"f\x8c\x83\x1bH6k\xf2\xbc\x80i\xbc\x81\xad\x07\x11" +
-	"\xc4\x05\x0b\x0bk/ \xd8y\x02ad\x05\xab\x0f\xbe" +
-	"\xf1\xe6\xa48\xd8~&D\xcb\xdeV\xbe\xf3\xfe\xe3\xf3" +
-	"\xf1i\x03\xf5d\xfe\xfe9|9>\x7fh\xd1\x93>" +
-	"\x10^\xdb\xf0\xde\xf9\xf6\x85\xbd\xbcZ\xde\xda\xac\xbe\xde" +
-	"\x97il\xea\xe6\xe84\xc5\x95]\xa6h\x98\x90:v" +
-	"\x05P\x10\x08q\x07\xd0\x0bG\xad\x84\x81,\xd9e:" +
-	"\x03\xf4\xcaQ\x1b!\xa5\xa4\x00a\xb1\x0bh\xe5\xa8&" +
-	"\x0c\x8e%\x1d\x10n\xba\x9c;\xea\xbd\xb0o6\xe7\x00" +
-	"\xc2\x01\x98g\xf5\xdab=M\x00\xfeoT-\xd7\xc6" +
-	"!\x84Cp\xb4H\x16\xe9\xc1\x89\xe3\xdfy\xf07\x00" +
-	"\x00\xff\xff\xe5\x9d0\x10"
+type View capnp.Client
+
+// View_TypeID is the unique identifier for the type View.
+const View_TypeID = 0xb8cc1b0ba89ddfd2
+
+func (c View) Lookup(ctx context.Context, params func(View_lookup_Params) error) (View_lookup_Results_Future, capnp.ReleaseFunc) {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xb8cc1b0ba89ddfd2,
+			MethodID:      0,
+			InterfaceName: "routing.capnp:View",
+			MethodName:    "lookup",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(View_lookup_Params(s)) }
+	}
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return View_lookup_Results_Future{Future: ans.Future()}, release
+}
+func (c View) Iter(ctx context.Context, params func(View_iter_Params) error) (View_iter_Results_Future, capnp.ReleaseFunc) {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xb8cc1b0ba89ddfd2,
+			MethodID:      1,
+			InterfaceName: "routing.capnp:View",
+			MethodName:    "iter",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 2}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(View_iter_Params(s)) }
+	}
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return View_iter_Results_Future{Future: ans.Future()}, release
+}
+
+// String returns a string that identifies this capability for debugging
+// purposes.  Its format should not be depended on: in particular, it
+// should not be used to compare clients.  Use IsSame to compare clients
+// for equality.
+func (c View) String() string {
+	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+}
+
+// AddRef creates a new Client that refers to the same capability as c.
+// If c is nil or has resolved to null, then AddRef returns nil.
+func (c View) AddRef() View {
+	return View(capnp.Client(c).AddRef())
+}
+
+// Release releases a capability reference.  If this is the last
+// reference to the capability, then the underlying resources associated
+// with the capability will be released.
+//
+// Release will panic if c has already been released, but not if c is
+// nil or resolved to null.
+func (c View) Release() {
+	capnp.Client(c).Release()
+}
+
+// Resolve blocks until the capability is fully resolved or the Context
+// expires.
+func (c View) Resolve(ctx context.Context) error {
+	return capnp.Client(c).Resolve(ctx)
+}
+
+func (c View) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Client(c).EncodeAsPtr(seg)
+}
+
+func (View) DecodeFromPtr(p capnp.Ptr) View {
+	return View(capnp.Client{}.DecodeFromPtr(p))
+}
+
+// IsValid reports whether c is a valid reference to a capability.
+// A reference is invalid if it is nil, has resolved to null, or has
+// been released.
+func (c View) IsValid() bool {
+	return capnp.Client(c).IsValid()
+}
+
+// IsSame reports whether c and other refer to a capability created by the
+// same call to NewClient.  This can return false negatives if c or other
+// are not fully resolved: use Resolve if this is an issue.  If either
+// c or other are released, then IsSame panics.
+func (c View) IsSame(other View) bool {
+	return capnp.Client(c).IsSame(capnp.Client(other))
+}
+
+// Update the flowcontrol.FlowLimiter used to manage flow control for
+// this client. This affects all future calls, but not calls already
+// waiting to send. Passing nil sets the value to flowcontrol.NopLimiter,
+// which is also the default.
+func (c View) SetFlowLimiter(lim fc.FlowLimiter) {
+	capnp.Client(c).SetFlowLimiter(lim)
+}
+
+// Get the current flowcontrol.FlowLimiter used to manage flow control
+// for this client.
+func (c View) GetFlowLimiter() fc.FlowLimiter {
+	return capnp.Client(c).GetFlowLimiter()
+} // A View_Server is a View with a local implementation.
+type View_Server interface {
+	Lookup(context.Context, View_lookup) error
+
+	Iter(context.Context, View_iter) error
+}
+
+// View_NewServer creates a new Server from an implementation of View_Server.
+func View_NewServer(s View_Server) *server.Server {
+	c, _ := s.(server.Shutdowner)
+	return server.New(View_Methods(nil, s), s, c)
+}
+
+// View_ServerToClient creates a new Client from an implementation of View_Server.
+// The caller is responsible for calling Release on the returned Client.
+func View_ServerToClient(s View_Server) View {
+	return View(capnp.NewClient(View_NewServer(s)))
+}
+
+// View_Methods appends Methods to a slice that invoke the methods on s.
+// This can be used to create a more complicated Server.
+func View_Methods(methods []server.Method, s View_Server) []server.Method {
+	if cap(methods) == 0 {
+		methods = make([]server.Method, 0, 2)
+	}
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xb8cc1b0ba89ddfd2,
+			MethodID:      0,
+			InterfaceName: "routing.capnp:View",
+			MethodName:    "lookup",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Lookup(ctx, View_lookup{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xb8cc1b0ba89ddfd2,
+			MethodID:      1,
+			InterfaceName: "routing.capnp:View",
+			MethodName:    "iter",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Iter(ctx, View_iter{call})
+		},
+	})
+
+	return methods
+}
+
+// View_lookup holds the state for a server call to View.lookup.
+// See server.Call for documentation.
+type View_lookup struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c View_lookup) Args() View_lookup_Params {
+	return View_lookup_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c View_lookup) AllocResults() (View_lookup_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_lookup_Results(r), err
+}
+
+// View_iter holds the state for a server call to View.iter.
+// See server.Call for documentation.
+type View_iter struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c View_iter) Args() View_iter_Params {
+	return View_iter_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c View_iter) AllocResults() (View_iter_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return View_iter_Results(r), err
+}
+
+// View_List is a list of View.
+type View_List = capnp.CapList[View]
+
+// NewView creates a new list of View.
+func NewView_List(s *capnp.Segment, sz int32) (View_List, error) {
+	l, err := capnp.NewPointerList(s, sz)
+	return capnp.CapList[View](l), err
+}
+
+type View_Handler capnp.Client
+
+// View_Handler_TypeID is the unique identifier for the type View_Handler.
+const View_Handler_TypeID = 0x9321a2d72dff5f08
+
+func (c View_Handler) Recv(ctx context.Context, params func(View_Handler_recv_Params) error) (stream.StreamResult_Future, capnp.ReleaseFunc) {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0x9321a2d72dff5f08,
+			MethodID:      0,
+			InterfaceName: "routing.capnp:View.Handler",
+			MethodName:    "recv",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(View_Handler_recv_Params(s)) }
+	}
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return stream.StreamResult_Future{Future: ans.Future()}, release
+}
+
+// String returns a string that identifies this capability for debugging
+// purposes.  Its format should not be depended on: in particular, it
+// should not be used to compare clients.  Use IsSame to compare clients
+// for equality.
+func (c View_Handler) String() string {
+	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+}
+
+// AddRef creates a new Client that refers to the same capability as c.
+// If c is nil or has resolved to null, then AddRef returns nil.
+func (c View_Handler) AddRef() View_Handler {
+	return View_Handler(capnp.Client(c).AddRef())
+}
+
+// Release releases a capability reference.  If this is the last
+// reference to the capability, then the underlying resources associated
+// with the capability will be released.
+//
+// Release will panic if c has already been released, but not if c is
+// nil or resolved to null.
+func (c View_Handler) Release() {
+	capnp.Client(c).Release()
+}
+
+// Resolve blocks until the capability is fully resolved or the Context
+// expires.
+func (c View_Handler) Resolve(ctx context.Context) error {
+	return capnp.Client(c).Resolve(ctx)
+}
+
+func (c View_Handler) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Client(c).EncodeAsPtr(seg)
+}
+
+func (View_Handler) DecodeFromPtr(p capnp.Ptr) View_Handler {
+	return View_Handler(capnp.Client{}.DecodeFromPtr(p))
+}
+
+// IsValid reports whether c is a valid reference to a capability.
+// A reference is invalid if it is nil, has resolved to null, or has
+// been released.
+func (c View_Handler) IsValid() bool {
+	return capnp.Client(c).IsValid()
+}
+
+// IsSame reports whether c and other refer to a capability created by the
+// same call to NewClient.  This can return false negatives if c or other
+// are not fully resolved: use Resolve if this is an issue.  If either
+// c or other are released, then IsSame panics.
+func (c View_Handler) IsSame(other View_Handler) bool {
+	return capnp.Client(c).IsSame(capnp.Client(other))
+}
+
+// Update the flowcontrol.FlowLimiter used to manage flow control for
+// this client. This affects all future calls, but not calls already
+// waiting to send. Passing nil sets the value to flowcontrol.NopLimiter,
+// which is also the default.
+func (c View_Handler) SetFlowLimiter(lim fc.FlowLimiter) {
+	capnp.Client(c).SetFlowLimiter(lim)
+}
+
+// Get the current flowcontrol.FlowLimiter used to manage flow control
+// for this client.
+func (c View_Handler) GetFlowLimiter() fc.FlowLimiter {
+	return capnp.Client(c).GetFlowLimiter()
+} // A View_Handler_Server is a View_Handler with a local implementation.
+type View_Handler_Server interface {
+	Recv(context.Context, View_Handler_recv) error
+}
+
+// View_Handler_NewServer creates a new Server from an implementation of View_Handler_Server.
+func View_Handler_NewServer(s View_Handler_Server) *server.Server {
+	c, _ := s.(server.Shutdowner)
+	return server.New(View_Handler_Methods(nil, s), s, c)
+}
+
+// View_Handler_ServerToClient creates a new Client from an implementation of View_Handler_Server.
+// The caller is responsible for calling Release on the returned Client.
+func View_Handler_ServerToClient(s View_Handler_Server) View_Handler {
+	return View_Handler(capnp.NewClient(View_Handler_NewServer(s)))
+}
+
+// View_Handler_Methods appends Methods to a slice that invoke the methods on s.
+// This can be used to create a more complicated Server.
+func View_Handler_Methods(methods []server.Method, s View_Handler_Server) []server.Method {
+	if cap(methods) == 0 {
+		methods = make([]server.Method, 0, 1)
+	}
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0x9321a2d72dff5f08,
+			MethodID:      0,
+			InterfaceName: "routing.capnp:View.Handler",
+			MethodName:    "recv",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Recv(ctx, View_Handler_recv{call})
+		},
+	})
+
+	return methods
+}
+
+// View_Handler_recv holds the state for a server call to View_Handler.recv.
+// See server.Call for documentation.
+type View_Handler_recv struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c View_Handler_recv) Args() View_Handler_recv_Params {
+	return View_Handler_recv_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c View_Handler_recv) AllocResults() (stream.StreamResult, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return stream.StreamResult(r), err
+}
+
+// View_Handler_List is a list of View_Handler.
+type View_Handler_List = capnp.CapList[View_Handler]
+
+// NewView_Handler creates a new list of View_Handler.
+func NewView_Handler_List(s *capnp.Segment, sz int32) (View_Handler_List, error) {
+	l, err := capnp.NewPointerList(s, sz)
+	return capnp.CapList[View_Handler](l), err
+}
+
+type View_Handler_recv_Params capnp.Struct
+
+// View_Handler_recv_Params_TypeID is the unique identifier for the type View_Handler_recv_Params.
+const View_Handler_recv_Params_TypeID = 0xf155c3664dada7ff
+
+func NewView_Handler_recv_Params(s *capnp.Segment) (View_Handler_recv_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_Handler_recv_Params(st), err
+}
+
+func NewRootView_Handler_recv_Params(s *capnp.Segment) (View_Handler_recv_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_Handler_recv_Params(st), err
+}
+
+func ReadRootView_Handler_recv_Params(msg *capnp.Message) (View_Handler_recv_Params, error) {
+	root, err := msg.Root()
+	return View_Handler_recv_Params(root.Struct()), err
+}
+
+func (s View_Handler_recv_Params) String() string {
+	str, _ := text.Marshal(0xf155c3664dada7ff, capnp.Struct(s))
+	return str
+}
+
+func (s View_Handler_recv_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_Handler_recv_Params) DecodeFromPtr(p capnp.Ptr) View_Handler_recv_Params {
+	return View_Handler_recv_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_Handler_recv_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s View_Handler_recv_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_Handler_recv_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_Handler_recv_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_Handler_recv_Params) Record() (View_Record, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return View_Record(p.Struct()), err
+}
+
+func (s View_Handler_recv_Params) HasRecord() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Handler_recv_Params) SetRecord(v View_Record) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewRecord sets the record field to a newly
+// allocated View_Record struct, preferring placement in s's segment.
+func (s View_Handler_recv_Params) NewRecord() (View_Record, error) {
+	ss, err := NewView_Record(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_Record{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// View_Handler_recv_Params_List is a list of View_Handler_recv_Params.
+type View_Handler_recv_Params_List = capnp.StructList[View_Handler_recv_Params]
+
+// NewView_Handler_recv_Params creates a new list of View_Handler_recv_Params.
+func NewView_Handler_recv_Params_List(s *capnp.Segment, sz int32) (View_Handler_recv_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[View_Handler_recv_Params](l), err
+}
+
+// View_Handler_recv_Params_Future is a wrapper for a View_Handler_recv_Params promised by a client call.
+type View_Handler_recv_Params_Future struct{ *capnp.Future }
+
+func (p View_Handler_recv_Params_Future) Struct() (View_Handler_recv_Params, error) {
+	s, err := p.Future.Struct()
+	return View_Handler_recv_Params(s), err
+}
+
+func (p View_Handler_recv_Params_Future) Record() View_Record_Future {
+	return View_Record_Future{Future: p.Future.Field(0, nil)}
+}
+
+type View_Selector capnp.Struct
+type View_Selector_range View_Selector
+type View_Selector_Which uint16
+
+const (
+	View_Selector_Which_match View_Selector_Which = 0
+	View_Selector_Which_range View_Selector_Which = 1
+)
+
+func (w View_Selector_Which) String() string {
+	const s = "matchrange"
+	switch w {
+	case View_Selector_Which_match:
+		return s[0:5]
+	case View_Selector_Which_range:
+		return s[5:10]
+
+	}
+	return "View_Selector_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
+}
+
+// View_Selector_TypeID is the unique identifier for the type View_Selector.
+const View_Selector_TypeID = 0xf8eb7e44ba7b1fa8
+
+func NewView_Selector(s *capnp.Segment) (View_Selector, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	return View_Selector(st), err
+}
+
+func NewRootView_Selector(s *capnp.Segment) (View_Selector, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	return View_Selector(st), err
+}
+
+func ReadRootView_Selector(msg *capnp.Message) (View_Selector, error) {
+	root, err := msg.Root()
+	return View_Selector(root.Struct()), err
+}
+
+func (s View_Selector) String() string {
+	str, _ := text.Marshal(0xf8eb7e44ba7b1fa8, capnp.Struct(s))
+	return str
+}
+
+func (s View_Selector) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_Selector) DecodeFromPtr(p capnp.Ptr) View_Selector {
+	return View_Selector(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_Selector) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+
+func (s View_Selector) Which() View_Selector_Which {
+	return View_Selector_Which(capnp.Struct(s).Uint16(0))
+}
+func (s View_Selector) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_Selector) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_Selector) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_Selector) Match() (View_Index, error) {
+	if capnp.Struct(s).Uint16(0) != 0 {
+		panic("Which() != match")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return View_Index(p.Struct()), err
+}
+
+func (s View_Selector) HasMatch() bool {
+	if capnp.Struct(s).Uint16(0) != 0 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Selector) SetMatch(v View_Index) error {
+	capnp.Struct(s).SetUint16(0, 0)
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewMatch sets the match field to a newly
+// allocated View_Index struct, preferring placement in s's segment.
+func (s View_Selector) NewMatch() (View_Index, error) {
+	capnp.Struct(s).SetUint16(0, 0)
+	ss, err := NewView_Index(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_Index{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+func (s View_Selector) Range() View_Selector_range { return View_Selector_range(s) }
+
+func (s View_Selector) SetRange() {
+	capnp.Struct(s).SetUint16(0, 1)
+}
+
+func (s View_Selector_range) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_Selector_range) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_Selector_range) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_Selector_range) Min() (View_Index, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return View_Index(p.Struct()), err
+}
+
+func (s View_Selector_range) HasMin() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Selector_range) SetMin(v View_Index) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewMin sets the min field to a newly
+// allocated View_Index struct, preferring placement in s's segment.
+func (s View_Selector_range) NewMin() (View_Index, error) {
+	ss, err := NewView_Index(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_Index{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+func (s View_Selector_range) Max() (View_Index, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return View_Index(p.Struct()), err
+}
+
+func (s View_Selector_range) HasMax() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s View_Selector_range) SetMax(v View_Index) error {
+	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
+}
+
+// NewMax sets the max field to a newly
+// allocated View_Index struct, preferring placement in s's segment.
+func (s View_Selector_range) NewMax() (View_Index, error) {
+	ss, err := NewView_Index(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_Index{}, err
+	}
+	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// View_Selector_List is a list of View_Selector.
+type View_Selector_List = capnp.StructList[View_Selector]
+
+// NewView_Selector creates a new list of View_Selector.
+func NewView_Selector_List(s *capnp.Segment, sz int32) (View_Selector_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
+	return capnp.StructList[View_Selector](l), err
+}
+
+// View_Selector_Future is a wrapper for a View_Selector promised by a client call.
+type View_Selector_Future struct{ *capnp.Future }
+
+func (p View_Selector_Future) Struct() (View_Selector, error) {
+	s, err := p.Future.Struct()
+	return View_Selector(s), err
+}
+
+func (p View_Selector_Future) Match() View_Index_Future {
+	return View_Index_Future{Future: p.Future.Field(0, nil)}
+}
+
+func (p View_Selector_Future) Range() View_Selector_range_Future {
+	return View_Selector_range_Future{p.Future}
+}
+
+// View_Selector_range_Future is a wrapper for a View_Selector_range promised by a client call.
+type View_Selector_range_Future struct{ *capnp.Future }
+
+func (p View_Selector_range_Future) Struct() (View_Selector_range, error) {
+	s, err := p.Future.Struct()
+	return View_Selector_range(s), err
+}
+
+func (p View_Selector_range_Future) Min() View_Index_Future {
+	return View_Index_Future{Future: p.Future.Field(0, nil)}
+}
+
+func (p View_Selector_range_Future) Max() View_Index_Future {
+	return View_Index_Future{Future: p.Future.Field(1, nil)}
+}
+
+type View_Index capnp.Struct
+type View_Index_Which uint16
+
+const (
+	View_Index_Which_peer       View_Index_Which = 0
+	View_Index_Which_peerPrefix View_Index_Which = 1
+	View_Index_Which_host       View_Index_Which = 2
+	View_Index_Which_hostPrefix View_Index_Which = 3
+	View_Index_Which_meta       View_Index_Which = 4
+	View_Index_Which_metaPrefix View_Index_Which = 5
+)
+
+func (w View_Index_Which) String() string {
+	const s = "peerpeerPrefixhosthostPrefixmetametaPrefix"
+	switch w {
+	case View_Index_Which_peer:
+		return s[0:4]
+	case View_Index_Which_peerPrefix:
+		return s[4:14]
+	case View_Index_Which_host:
+		return s[14:18]
+	case View_Index_Which_hostPrefix:
+		return s[18:28]
+	case View_Index_Which_meta:
+		return s[28:32]
+	case View_Index_Which_metaPrefix:
+		return s[32:42]
+
+	}
+	return "View_Index_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
+}
+
+// View_Index_TypeID is the unique identifier for the type View_Index.
+const View_Index_TypeID = 0xdb1aee7a06a493b6
+
+func NewView_Index(s *capnp.Segment) (View_Index, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return View_Index(st), err
+}
+
+func NewRootView_Index(s *capnp.Segment) (View_Index, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return View_Index(st), err
+}
+
+func ReadRootView_Index(msg *capnp.Message) (View_Index, error) {
+	root, err := msg.Root()
+	return View_Index(root.Struct()), err
+}
+
+func (s View_Index) String() string {
+	str, _ := text.Marshal(0xdb1aee7a06a493b6, capnp.Struct(s))
+	return str
+}
+
+func (s View_Index) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_Index) DecodeFromPtr(p capnp.Ptr) View_Index {
+	return View_Index(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_Index) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+
+func (s View_Index) Which() View_Index_Which {
+	return View_Index_Which(capnp.Struct(s).Uint16(0))
+}
+func (s View_Index) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_Index) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_Index) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_Index) Peer() (string, error) {
+	if capnp.Struct(s).Uint16(0) != 0 {
+		panic("Which() != peer")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s View_Index) HasPeer() bool {
+	if capnp.Struct(s).Uint16(0) != 0 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Index) PeerBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s View_Index) SetPeer(v string) error {
+	capnp.Struct(s).SetUint16(0, 0)
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s View_Index) PeerPrefix() (string, error) {
+	if capnp.Struct(s).Uint16(0) != 1 {
+		panic("Which() != peerPrefix")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s View_Index) HasPeerPrefix() bool {
+	if capnp.Struct(s).Uint16(0) != 1 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Index) PeerPrefixBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s View_Index) SetPeerPrefix(v string) error {
+	capnp.Struct(s).SetUint16(0, 1)
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s View_Index) Host() (string, error) {
+	if capnp.Struct(s).Uint16(0) != 2 {
+		panic("Which() != host")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s View_Index) HasHost() bool {
+	if capnp.Struct(s).Uint16(0) != 2 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Index) HostBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s View_Index) SetHost(v string) error {
+	capnp.Struct(s).SetUint16(0, 2)
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s View_Index) HostPrefix() (string, error) {
+	if capnp.Struct(s).Uint16(0) != 3 {
+		panic("Which() != hostPrefix")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s View_Index) HasHostPrefix() bool {
+	if capnp.Struct(s).Uint16(0) != 3 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Index) HostPrefixBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s View_Index) SetHostPrefix(v string) error {
+	capnp.Struct(s).SetUint16(0, 3)
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s View_Index) Meta() (capnp.TextList, error) {
+	if capnp.Struct(s).Uint16(0) != 4 {
+		panic("Which() != meta")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return capnp.TextList(p.List()), err
+}
+
+func (s View_Index) HasMeta() bool {
+	if capnp.Struct(s).Uint16(0) != 4 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Index) SetMeta(v capnp.TextList) error {
+	capnp.Struct(s).SetUint16(0, 4)
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewMeta sets the meta field to a newly
+// allocated capnp.TextList, preferring placement in s's segment.
+func (s View_Index) NewMeta(n int32) (capnp.TextList, error) {
+	capnp.Struct(s).SetUint16(0, 4)
+	l, err := capnp.NewTextList(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.TextList{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+
+func (s View_Index) MetaPrefix() (capnp.TextList, error) {
+	if capnp.Struct(s).Uint16(0) != 5 {
+		panic("Which() != metaPrefix")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return capnp.TextList(p.List()), err
+}
+
+func (s View_Index) HasMetaPrefix() bool {
+	if capnp.Struct(s).Uint16(0) != 5 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Index) SetMetaPrefix(v capnp.TextList) error {
+	capnp.Struct(s).SetUint16(0, 5)
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewMetaPrefix sets the metaPrefix field to a newly
+// allocated capnp.TextList, preferring placement in s's segment.
+func (s View_Index) NewMetaPrefix(n int32) (capnp.TextList, error) {
+	capnp.Struct(s).SetUint16(0, 5)
+	l, err := capnp.NewTextList(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.TextList{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+
+// View_Index_List is a list of View_Index.
+type View_Index_List = capnp.StructList[View_Index]
+
+// NewView_Index creates a new list of View_Index.
+func NewView_Index_List(s *capnp.Segment, sz int32) (View_Index_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
+	return capnp.StructList[View_Index](l), err
+}
+
+// View_Index_Future is a wrapper for a View_Index promised by a client call.
+type View_Index_Future struct{ *capnp.Future }
+
+func (p View_Index_Future) Struct() (View_Index, error) {
+	s, err := p.Future.Struct()
+	return View_Index(s), err
+}
+
+type View_Record capnp.Struct
+
+// View_Record_TypeID is the unique identifier for the type View_Record.
+const View_Record_TypeID = 0xc390eec5b4e4aaef
+
+func NewView_Record(s *capnp.Segment) (View_Record, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return View_Record(st), err
+}
+
+func NewRootView_Record(s *capnp.Segment) (View_Record, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return View_Record(st), err
+}
+
+func ReadRootView_Record(msg *capnp.Message) (View_Record, error) {
+	root, err := msg.Root()
+	return View_Record(root.Struct()), err
+}
+
+func (s View_Record) String() string {
+	str, _ := text.Marshal(0xc390eec5b4e4aaef, capnp.Struct(s))
+	return str
+}
+
+func (s View_Record) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_Record) DecodeFromPtr(p capnp.Ptr) View_Record {
+	return View_Record(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_Record) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s View_Record) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_Record) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_Record) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_Record) Peer() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s View_Record) HasPeer() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Record) PeerBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s View_Record) SetPeer(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s View_Record) Heartbeat() (Heartbeat, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return Heartbeat(p.Struct()), err
+}
+
+func (s View_Record) HasHeartbeat() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s View_Record) SetHeartbeat(v Heartbeat) error {
+	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
+}
+
+// NewHeartbeat sets the heartbeat field to a newly
+// allocated Heartbeat struct, preferring placement in s's segment.
+func (s View_Record) NewHeartbeat() (Heartbeat, error) {
+	ss, err := NewHeartbeat(capnp.Struct(s).Segment())
+	if err != nil {
+		return Heartbeat{}, err
+	}
+	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// View_Record_List is a list of View_Record.
+type View_Record_List = capnp.StructList[View_Record]
+
+// NewView_Record creates a new list of View_Record.
+func NewView_Record_List(s *capnp.Segment, sz int32) (View_Record_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	return capnp.StructList[View_Record](l), err
+}
+
+// View_Record_Future is a wrapper for a View_Record promised by a client call.
+type View_Record_Future struct{ *capnp.Future }
+
+func (p View_Record_Future) Struct() (View_Record, error) {
+	s, err := p.Future.Struct()
+	return View_Record(s), err
+}
+
+func (p View_Record_Future) Heartbeat() Heartbeat_Future {
+	return Heartbeat_Future{Future: p.Future.Field(1, nil)}
+}
+
+type View_MaybeRecord capnp.Struct
+type View_MaybeRecord_Which uint16
+
+const (
+	View_MaybeRecord_Which_nothing View_MaybeRecord_Which = 0
+	View_MaybeRecord_Which_just    View_MaybeRecord_Which = 1
+)
+
+func (w View_MaybeRecord_Which) String() string {
+	const s = "nothingjust"
+	switch w {
+	case View_MaybeRecord_Which_nothing:
+		return s[0:7]
+	case View_MaybeRecord_Which_just:
+		return s[7:11]
+
+	}
+	return "View_MaybeRecord_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
+}
+
+// View_MaybeRecord_TypeID is the unique identifier for the type View_MaybeRecord.
+const View_MaybeRecord_TypeID = 0xf107ba55f0ab3244
+
+func NewView_MaybeRecord(s *capnp.Segment) (View_MaybeRecord, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return View_MaybeRecord(st), err
+}
+
+func NewRootView_MaybeRecord(s *capnp.Segment) (View_MaybeRecord, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return View_MaybeRecord(st), err
+}
+
+func ReadRootView_MaybeRecord(msg *capnp.Message) (View_MaybeRecord, error) {
+	root, err := msg.Root()
+	return View_MaybeRecord(root.Struct()), err
+}
+
+func (s View_MaybeRecord) String() string {
+	str, _ := text.Marshal(0xf107ba55f0ab3244, capnp.Struct(s))
+	return str
+}
+
+func (s View_MaybeRecord) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_MaybeRecord) DecodeFromPtr(p capnp.Ptr) View_MaybeRecord {
+	return View_MaybeRecord(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_MaybeRecord) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+
+func (s View_MaybeRecord) Which() View_MaybeRecord_Which {
+	return View_MaybeRecord_Which(capnp.Struct(s).Uint16(0))
+}
+func (s View_MaybeRecord) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_MaybeRecord) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_MaybeRecord) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_MaybeRecord) SetNothing() {
+	capnp.Struct(s).SetUint16(0, 0)
+
+}
+
+func (s View_MaybeRecord) Just() (View_Record, error) {
+	if capnp.Struct(s).Uint16(0) != 1 {
+		panic("Which() != just")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return View_Record(p.Struct()), err
+}
+
+func (s View_MaybeRecord) HasJust() bool {
+	if capnp.Struct(s).Uint16(0) != 1 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_MaybeRecord) SetJust(v View_Record) error {
+	capnp.Struct(s).SetUint16(0, 1)
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewJust sets the just field to a newly
+// allocated View_Record struct, preferring placement in s's segment.
+func (s View_MaybeRecord) NewJust() (View_Record, error) {
+	capnp.Struct(s).SetUint16(0, 1)
+	ss, err := NewView_Record(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_Record{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// View_MaybeRecord_List is a list of View_MaybeRecord.
+type View_MaybeRecord_List = capnp.StructList[View_MaybeRecord]
+
+// NewView_MaybeRecord creates a new list of View_MaybeRecord.
+func NewView_MaybeRecord_List(s *capnp.Segment, sz int32) (View_MaybeRecord_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
+	return capnp.StructList[View_MaybeRecord](l), err
+}
+
+// View_MaybeRecord_Future is a wrapper for a View_MaybeRecord promised by a client call.
+type View_MaybeRecord_Future struct{ *capnp.Future }
+
+func (p View_MaybeRecord_Future) Struct() (View_MaybeRecord, error) {
+	s, err := p.Future.Struct()
+	return View_MaybeRecord(s), err
+}
+
+func (p View_MaybeRecord_Future) Just() View_Record_Future {
+	return View_Record_Future{Future: p.Future.Field(0, nil)}
+}
+
+type View_lookup_Params capnp.Struct
+
+// View_lookup_Params_TypeID is the unique identifier for the type View_lookup_Params.
+const View_lookup_Params_TypeID = 0xb06e55bb4d9bb7e2
+
+func NewView_lookup_Params(s *capnp.Segment) (View_lookup_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_lookup_Params(st), err
+}
+
+func NewRootView_lookup_Params(s *capnp.Segment) (View_lookup_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_lookup_Params(st), err
+}
+
+func ReadRootView_lookup_Params(msg *capnp.Message) (View_lookup_Params, error) {
+	root, err := msg.Root()
+	return View_lookup_Params(root.Struct()), err
+}
+
+func (s View_lookup_Params) String() string {
+	str, _ := text.Marshal(0xb06e55bb4d9bb7e2, capnp.Struct(s))
+	return str
+}
+
+func (s View_lookup_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_lookup_Params) DecodeFromPtr(p capnp.Ptr) View_lookup_Params {
+	return View_lookup_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_lookup_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s View_lookup_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_lookup_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_lookup_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_lookup_Params) Selector() (View_Selector, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return View_Selector(p.Struct()), err
+}
+
+func (s View_lookup_Params) HasSelector() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_lookup_Params) SetSelector(v View_Selector) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewSelector sets the selector field to a newly
+// allocated View_Selector struct, preferring placement in s's segment.
+func (s View_lookup_Params) NewSelector() (View_Selector, error) {
+	ss, err := NewView_Selector(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_Selector{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// View_lookup_Params_List is a list of View_lookup_Params.
+type View_lookup_Params_List = capnp.StructList[View_lookup_Params]
+
+// NewView_lookup_Params creates a new list of View_lookup_Params.
+func NewView_lookup_Params_List(s *capnp.Segment, sz int32) (View_lookup_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[View_lookup_Params](l), err
+}
+
+// View_lookup_Params_Future is a wrapper for a View_lookup_Params promised by a client call.
+type View_lookup_Params_Future struct{ *capnp.Future }
+
+func (p View_lookup_Params_Future) Struct() (View_lookup_Params, error) {
+	s, err := p.Future.Struct()
+	return View_lookup_Params(s), err
+}
+
+func (p View_lookup_Params_Future) Selector() View_Selector_Future {
+	return View_Selector_Future{Future: p.Future.Field(0, nil)}
+}
+
+type View_lookup_Results capnp.Struct
+
+// View_lookup_Results_TypeID is the unique identifier for the type View_lookup_Results.
+const View_lookup_Results_TypeID = 0x9bbf333a5450f2d0
+
+func NewView_lookup_Results(s *capnp.Segment) (View_lookup_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_lookup_Results(st), err
+}
+
+func NewRootView_lookup_Results(s *capnp.Segment) (View_lookup_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_lookup_Results(st), err
+}
+
+func ReadRootView_lookup_Results(msg *capnp.Message) (View_lookup_Results, error) {
+	root, err := msg.Root()
+	return View_lookup_Results(root.Struct()), err
+}
+
+func (s View_lookup_Results) String() string {
+	str, _ := text.Marshal(0x9bbf333a5450f2d0, capnp.Struct(s))
+	return str
+}
+
+func (s View_lookup_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_lookup_Results) DecodeFromPtr(p capnp.Ptr) View_lookup_Results {
+	return View_lookup_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_lookup_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s View_lookup_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_lookup_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_lookup_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_lookup_Results) Result() (View_MaybeRecord, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return View_MaybeRecord(p.Struct()), err
+}
+
+func (s View_lookup_Results) HasResult() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_lookup_Results) SetResult(v View_MaybeRecord) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewResult sets the result field to a newly
+// allocated View_MaybeRecord struct, preferring placement in s's segment.
+func (s View_lookup_Results) NewResult() (View_MaybeRecord, error) {
+	ss, err := NewView_MaybeRecord(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_MaybeRecord{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// View_lookup_Results_List is a list of View_lookup_Results.
+type View_lookup_Results_List = capnp.StructList[View_lookup_Results]
+
+// NewView_lookup_Results creates a new list of View_lookup_Results.
+func NewView_lookup_Results_List(s *capnp.Segment, sz int32) (View_lookup_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[View_lookup_Results](l), err
+}
+
+// View_lookup_Results_Future is a wrapper for a View_lookup_Results promised by a client call.
+type View_lookup_Results_Future struct{ *capnp.Future }
+
+func (p View_lookup_Results_Future) Struct() (View_lookup_Results, error) {
+	s, err := p.Future.Struct()
+	return View_lookup_Results(s), err
+}
+
+func (p View_lookup_Results_Future) Result() View_MaybeRecord_Future {
+	return View_MaybeRecord_Future{Future: p.Future.Field(0, nil)}
+}
+
+type View_iter_Params capnp.Struct
+
+// View_iter_Params_TypeID is the unique identifier for the type View_iter_Params.
+const View_iter_Params_TypeID = 0x8b8f9a8dbc645c7a
+
+func NewView_iter_Params(s *capnp.Segment) (View_iter_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return View_iter_Params(st), err
+}
+
+func NewRootView_iter_Params(s *capnp.Segment) (View_iter_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return View_iter_Params(st), err
+}
+
+func ReadRootView_iter_Params(msg *capnp.Message) (View_iter_Params, error) {
+	root, err := msg.Root()
+	return View_iter_Params(root.Struct()), err
+}
+
+func (s View_iter_Params) String() string {
+	str, _ := text.Marshal(0x8b8f9a8dbc645c7a, capnp.Struct(s))
+	return str
+}
+
+func (s View_iter_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_iter_Params) DecodeFromPtr(p capnp.Ptr) View_iter_Params {
+	return View_iter_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_iter_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s View_iter_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_iter_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_iter_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_iter_Params) Handler() View_Handler {
+	p, _ := capnp.Struct(s).Ptr(0)
+	return View_Handler(p.Interface().Client())
+}
+
+func (s View_iter_Params) HasHandler() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_iter_Params) SetHandler(v View_Handler) error {
+	if !v.IsValid() {
+		return capnp.Struct(s).SetPtr(0, capnp.Ptr{})
+	}
+	seg := s.Segment()
+	in := capnp.NewInterface(seg, seg.Message().AddCap(capnp.Client(v)))
+	return capnp.Struct(s).SetPtr(0, in.ToPtr())
+}
+
+func (s View_iter_Params) Selector() (View_Selector, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return View_Selector(p.Struct()), err
+}
+
+func (s View_iter_Params) HasSelector() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s View_iter_Params) SetSelector(v View_Selector) error {
+	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
+}
+
+// NewSelector sets the selector field to a newly
+// allocated View_Selector struct, preferring placement in s's segment.
+func (s View_iter_Params) NewSelector() (View_Selector, error) {
+	ss, err := NewView_Selector(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_Selector{}, err
+	}
+	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// View_iter_Params_List is a list of View_iter_Params.
+type View_iter_Params_List = capnp.StructList[View_iter_Params]
+
+// NewView_iter_Params creates a new list of View_iter_Params.
+func NewView_iter_Params_List(s *capnp.Segment, sz int32) (View_iter_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	return capnp.StructList[View_iter_Params](l), err
+}
+
+// View_iter_Params_Future is a wrapper for a View_iter_Params promised by a client call.
+type View_iter_Params_Future struct{ *capnp.Future }
+
+func (p View_iter_Params_Future) Struct() (View_iter_Params, error) {
+	s, err := p.Future.Struct()
+	return View_iter_Params(s), err
+}
+
+func (p View_iter_Params_Future) Handler() View_Handler {
+	return View_Handler(p.Future.Field(0, nil).Client())
+}
+
+func (p View_iter_Params_Future) Selector() View_Selector_Future {
+	return View_Selector_Future{Future: p.Future.Field(1, nil)}
+}
+
+type View_iter_Results capnp.Struct
+
+// View_iter_Results_TypeID is the unique identifier for the type View_iter_Results.
+const View_iter_Results_TypeID = 0x9764ff97950b0e11
+
+func NewView_iter_Results(s *capnp.Segment) (View_iter_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return View_iter_Results(st), err
+}
+
+func NewRootView_iter_Results(s *capnp.Segment) (View_iter_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return View_iter_Results(st), err
+}
+
+func ReadRootView_iter_Results(msg *capnp.Message) (View_iter_Results, error) {
+	root, err := msg.Root()
+	return View_iter_Results(root.Struct()), err
+}
+
+func (s View_iter_Results) String() string {
+	str, _ := text.Marshal(0x9764ff97950b0e11, capnp.Struct(s))
+	return str
+}
+
+func (s View_iter_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_iter_Results) DecodeFromPtr(p capnp.Ptr) View_iter_Results {
+	return View_iter_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_iter_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s View_iter_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_iter_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_iter_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// View_iter_Results_List is a list of View_iter_Results.
+type View_iter_Results_List = capnp.StructList[View_iter_Results]
+
+// NewView_iter_Results creates a new list of View_iter_Results.
+func NewView_iter_Results_List(s *capnp.Segment, sz int32) (View_iter_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[View_iter_Results](l), err
+}
+
+// View_iter_Results_Future is a wrapper for a View_iter_Results promised by a client call.
+type View_iter_Results_Future struct{ *capnp.Future }
+
+func (p View_iter_Results_Future) Struct() (View_iter_Results, error) {
+	s, err := p.Future.Struct()
+	return View_iter_Results(s), err
+}
+
+const schema_c2974e3dc137fcee = "x\xda\x8cUqh[\xd5\x17>\xe7\xde\xf7\xf2\xc2o" +
+	"M\xd2\xfb{)l\xceQ66p\xc5\x94\xad\x15\x94" +
+	"\x80\xa4\x8c\x89uP\xc9\xad\xabC\x99\x8c\xd7\xe4\xae\x89" +
+	"&/\xdd\xcb\xab\xed&\xb3\xa0\x88\x0e\x19\x13\xa6\x94v" +
+	"N\x8a8\xect\x03\x0bCeN\xd4\xcd\x81\xc8@\x9d" +
+	"\xc8P\x19\xea\x18\xf8\x87X\xad\x7f\xb9\xbay\xe5\xe6%" +
+	"\xef\xbd\xa5]\xd9\x7f\xcd\xbd\xdf;\xe7;\xdf\xf9\xee\xd7" +
+	"M\x17H\x8f\xb69\x961\x80\xf0\xedzD>\x17\x8f" +
+	"_\xba:}\xe6y\xe0qD9w\xfd\xde\xcf\xee\x7f" +
+	"x\xe2,\xe8\xc4\x000_\xa0g\xcd\x83T\xfdu\x80" +
+	"\xfe\x0a(\xf7\xed\xcc\x9f98u\xe8e`&B\x1d" +
+	"\xb3G[\x004G\xb4Q@\x19\xdd%S\x97\xde\\" +
+	"{\x18\x98I\xe5\xc5\x9f\x8e\xce\xacX}\xe1C\x004" +
+	"\xbf\xd3~0\x7f\xd1\x14\xfc\xb2\xf6\xa0\xa9\xeb\x06\x80d" +
+	"\xf1\x15\xafM\xc8\xfc\x84WL]v\xff\xae\x11\x04M" +
+	"~\xfdWv{\xba\xfb\x93#\xf56\xa8\xae\xbe\xd1\xfe" +
+	"\x8f\x80\xe6\xf7Z\x06P^\xf9\xe0H\xdfG\x03\xf6{" +
+	"a\xc05\xed\x7f\x0a\x80\xba\x02\xf8\xbdY\x9c\x06C\x01" +
+	"\x9a\x1b\xf4)3\xa5\xef\x000\xcb\xfa\x8b\xe6\xc75\"" +
+	"\x7f\xbcs\xf5\xd4\xf9\xb9W\xce\xa9j\xc1\x97\xdet\xc7" +
+	"\xf4\x8b\xe6\xacB\x99'u5\xe1\xe5\xc9C\xc7\xdf\x98" +
+	"\xfd\xea[\xe0w\"\xca\x99\xf6gNo}\xf6\xb7\xbf" +
+	"\xa1\x8d\x18\x08\xd0\x1d\x8b\xd4H\xb6E\x14\xf4\xfd\xc3o" +
+	"E\xf6\xcd\xdd\xf1#p\x13Cu\x1f@#\xa2d\x8b" +
+	"|i\xee\x8f(\xe2{#;\x10Pn\xedz\xf7\xcf" +
+	"\x81\xd3\xc6\xfcb8\x010\xe7\x8d\x05\xf3\x86\xa1x\\" +
+	"3Tq\xf9\xf6\xc9\xbe\xdd\xe7\x06\xe6\x81\xad\xf6\x15\x18" +
+	"\x88\xa6U\xf7'\xa2J\x01\x9fZS9R+\xb7?" +
+	"z\xc5<\x10\xad\xad8:\x0a\x8fI\xa72\xe2\x16\xed" +
+	"\xa1N\x92\xb3\x86\xed\xe1t\xaf\xb0\x1cwPX.d" +
+	"\x11y+\xd5\x004\x04`\xd6:\x00\xbe\x93\"/\x10" +
+	"d\x88IT\x87b\x1b\x00\xcfS\xe4\xc3\x04\x91$\x91" +
+	"\x00\xb0r\x07\x00/P\xe4.AF1\x89\x14\x80\xed" +
+	"Q\x87%\x8a\xfc%\x82\x86\xeb\x960\x0a\x04\xa3\x80\xb2" +
+	"hW]\xcb\xce\x09\x00h\x9c%\x0a\x95\xaa\x8b-@" +
+	"\xb0\x050Q\x16\xae\x85q\xc0,\xc5\xdaY\x1c\xb0\x99" +
+	"\xf2\xa3E1\xdaYt\x85\xb3>\x93\xb5\x1c\xab\\\xe5" +
+	"Q\x9f\xf6\xc6-\x00|=E\xbe)D;\xa5h\xdf" +
+	"M\x91\xdfGp\xbc`\xd9\xf9\x92p\x90\x05\x16\x06D" +
+	"\x06(\xab\xa2$rn\xc5Q\xdcZ\x03U\x01\xb1\xf5" +
+	"\x16$zU-*\x1c%\x9dFu\x00\x7fYh\xcf" +
+	"~:\xda=\xb5k\x92\xb1\x0e L7\x12\x8e\xc8=" +
+	"\xdd\x83Y\x0c*\x19\xcd\xe3\xf4\x8b\xeaH\xc9\xadB\x03" +
+	"\x10\xba/U*O\x8d\x0c\xd7\x11X\xe5\x9a?q," +
+	"\x0d\xc0\xa3\x14y\x92`\xc6\xf1\xee[\x03\x8b5\xb1\xa7" +
+	"\x8bkz\x1a\x02\x84k*\xc1Z(\xf2\x95\xe4ve" +
+	"\xc1Fa*Fy\x12\xc3\x01\xb1vK\xf0\x15[\xb3" +
+	"-x-lMW\xe8E\xaeJ\x07\xacY\xdb\xe0x" +
+	"\xaf\xb7(\xf9H\xd0\xbf\xfd!;/\xc62\xfd\"W" +
+	"q\xf2\xb2\xcf\xda;(\xfaE\x0e\x8c\x8a\x93\xe7\xd1\x9a" +
+	"\xfe\x8d\xb8\xc0F\xb0\xb0\xcdi l\x83\x81A\xa4a" +
+	"#\x8e\xd8*\xb5\x9b\x98\x91\xf1\x94\xe8\xc1\x84Z\xc3\xcd" +
+	"K\x0a\xaf\xbb\xd6\x17\xf3j\xdb!\xc7u,\xe5\xb8\xfe" +
+	"\xc0q\x89a!\x9c\x86\xbfe\xa1\xfe\xde\x00\xd5\x9a\xfc" +
+	"H^fM\x8d\xf9;\x1d\xcb\x1eB\xe1\xb5\xf6\xdal" +
+	"\\\xd7\xd4[=\xc8\x94:\xbc\x8b\"\xbf\x87\xa0Q." +
+	"\xda\xd8\x1a(\xee\xb51\xca\xd6\xd8\xe2\xd3%G\xae\x09" +
+	"\x0e\xb5lXI\xb5\x16)k3O\xaa\x99_\xa5\xc8" +
+	"\xa7\x09\xc6\xf0_\xe9\xb19\xfa8\x00\x7f\x9d\"\x9f!" +
+	"\x18#7\xa4G\xe7\x98\xc2NS\xe4'\x08\xc6\xe8u" +
+	"\xe9\x05\xc4q\x85\x9d\xa1\xc8O\x11\x8ci\xff\xc8$j" +
+	"\x00lVaOP\xe4_\x10\x8c\xe9\x0b2\x89:\x00" +
+	";\xaf\xb0\x9fS\xe4?7\x8b\xa9~d\x1d\xb1\x1bh" +
+	"q\xccO\x90p\x9cH\xf5c\x11b\xa9\x8cQg>" +
+	"\xf06\xf2\xa7f\xbe\xba\x13\xeb\x86h\xa8\x13\xce\xa0@" +
+	"\x9dTG\xb0\x96q\xbb\xe2\x16\x8a\xf6\x10D\x12O\x8e" +
+	"T\x95\x11\xfcg\xb0\x8c\x11\xea\x0f\xa2S%\x89\x1f}" +
+	"\xb7\x0c\x02El\x99\xc2\xa4\xd9a\x86[q\x9a\x07\xe9" +
+	"\xbay\x10\x0c\xfdSd\xa9. \xede\xcb\xcd\x15\x16" +
+	"[\xa9]YU\xfc\x17\x00\x00\xff\xff\xb1\xf4`x"
 
 func init() {
 	schemas.Register(schema_c2974e3dc137fcee,
-		0x83bca0e4d70e0e82)
+		0x83bca0e4d70e0e82,
+		0x8b8f9a8dbc645c7a,
+		0x9321a2d72dff5f08,
+		0x9764ff97950b0e11,
+		0x9bbf333a5450f2d0,
+		0xb06e55bb4d9bb7e2,
+		0xb8cc1b0ba89ddfd2,
+		0xc390eec5b4e4aaef,
+		0xd3cfb19ea98f99dd,
+		0xdb1aee7a06a493b6,
+		0xf107ba55f0ab3244,
+		0xf155c3664dada7ff,
+		0xf8eb7e44ba7b1fa8)
 }
