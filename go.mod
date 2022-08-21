@@ -3,7 +3,7 @@ module github.com/wetware/casm
 go 1.18
 
 require (
-	capnproto.org/go/capnp/v3 v3.0.0-alpha.5
+	capnproto.org/go/capnp/v3 v3.0.0-alpha.5.0.20220821014935-d129136359d8
 	github.com/coreos/go-semver v0.3.0
 	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-memdb v1.3.3
