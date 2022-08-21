@@ -16,11 +16,11 @@ mocks: clean-mocks
 clean-mocks:
 	@find . -name 'mock_*.go' | xargs -I{} rm {}
 
-capnp: capnp-boot capnp-pex capnp-routing
+capnp: capnp-boot capnp-pex capnp-routing capnp-testing
 # N.B.:  compiling capnp schemas requires having capnproto.org/go/capnp installed
 #		 on the GOPATH.
 
-clean-capnp: clean-capnp-boot clean-capnp-pex clean-capnp-routing
+clean-capnp: clean-capnp-boot clean-capnp-pex clean-capnp-routing clean-capnp-testing
 
 capnp-boot:
 	@mkdir -p internal/api/boot
@@ -42,3 +42,10 @@ capnp-pex:  clean-capnp-pex
 
 clean-capnp-pex:
 	@rm -rf internal/api/pex
+
+capnp-testing:
+	@mkdir -p internal/api/testing
+	@capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std -ogo:internal/api/testing --src-prefix=api/ api/testing.capnp
+
+clean-capnp-testing:
+	@rm -rf internal/api/testing
