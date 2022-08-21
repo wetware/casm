@@ -13,3 +13,12 @@ interface Echoer {
     echo @0 (payload :Text) -> (result :Text);
     # Echo returns the payload unchanged.
 }
+
+
+interface Streamer {
+    # Streamer is a simple interface that facilitates tests involving
+    # streaming capabilities.
+
+    recv @0 () -> stream;
+    # Recv is a trivial stream.
+}
