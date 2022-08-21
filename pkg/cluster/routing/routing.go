@@ -1,3 +1,5 @@
+//go:generate mockgen -source=routing.go -destination=../../../internal/mock/pkg/cluster/routing/routing.go -package=mock_routing
+
 package routing
 
 import (
