@@ -15,7 +15,7 @@ jobs:
     name: Go ${{ matrix.go }}
     steps:
       - uses: actions/checkout@v2
-      - name: Unit Tests
+      - name: Set up Go
         uses: actions/setup-go@v2
         with:
           go-version: ${{ matrix.go }}
