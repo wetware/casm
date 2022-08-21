@@ -29,7 +29,7 @@ func TestRoutingTable_upsert(t *testing.T) {
 		"should ACCEPT matching instance id and higher sequence")
 	rec3 := &record{id: rec.id, seq: 2}
 	assert.False(t, table.Upsert(rec3),
-		"should REJECT non-matching instance id and higer sequence")
+		"should REJECT non-matching instance id and higher sequence")
 
 	rec4 := &record{id: rec.id, ins: rec.ins, seq: 2}
 	assert.True(t, table.Upsert(rec4),

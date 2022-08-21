@@ -20,7 +20,7 @@ func (t Txn) TrackChanges() {
 
 // Abort is used to cancel this transaction.
 // This is a noop for read transactions,
-// already aborted or commited transactions.
+// already aborted or committed transactions.
 func (t Txn) Abort() {
 	t.txn.Abort()
 }
