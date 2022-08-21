@@ -20,15 +20,9 @@ In particular, the following invariants are preserved throughout the public API:
 
 Users can stack additional guarantees in application logic.  For example, you can build a consistent database out of CASM parts.
 
-## Getting Started
-
-### Installation
-
-Run `go get github.com/wetware/casm` with modules enabled.
-
 ### Features
 
-CASM follows a modular, "Lego bricks" design, allowing you to pick and choose the pieces you want.  Functionality is grouped by package.
+CASM follows a modular, "Lego bricks" design, allowing you to pick and choose the pieces you want.
 
 | Feature       | Package       | Description |
 | ------------- | ------------- | --------------- |
@@ -37,13 +31,13 @@ CASM follows a modular, "Lego bricks" design, allowing you to pick and choose th
 | Peer Exchange | `pkg/pex`     | Lightweight gossip-based protocol for randomly sampling peers.  Ideal for building caches. |
 | Clustering    | `pkg/cluster` | Unstructured service providing a global view of the cluster<sup>2</sup> |
 
-CASM's functionality is grouped by package.  Developers will typically import one or more packages under `pkg/*`, depending on application needs.  The following functionality is provided:
+## Getting Started
 
-- `pkg/boot`:  strategies for bootstrapping clusters.
-- `pkg/pex`:  efficient, resilient gossip-based peer sampling protocol.
-- `pkg/cluster`:  unstructured clustering service with PA/EL guarantees.
+### Installation
 
-## Getting Support
+Run `go get github.com/wetware/casm` with modules enabled.
+
+### Getting Support
 
 The best place to get help is on [Matrix](https://matrix.to/#/!qsAqxgSQYuowuCsigM:matrix.org?via=matrix.org).  CASM is part of the [Wetware](https://github.com/wetware/ww) project, so you're welcome to ask for help there, too.
 
