@@ -61,7 +61,7 @@ func TestPex_NNodes(t *testing.T) {
 		infos, err := peers(ctx, ps[0], ns)
 		require.NoError(t, err)
 		return len(infos) == min(pex.DefaultMaxView, n-1)
-	}, time.Second*5, time.Millisecond*10)
+	}, time.Second*9, time.Millisecond*100)
 }
 
 func BenchmarkAdvertise(b *testing.B) {
