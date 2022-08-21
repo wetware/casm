@@ -1,6 +1,8 @@
 package view
 
 import (
+	"fmt"
+
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
@@ -47,13 +49,12 @@ func (v View) Reverse() View {
 type Selector func(routing.Query) (routing.Iterator, error)
 
 func (selection Selector) Bind(f Constraint) Selector {
-	return func(q routing.Query) (routing.Iterator, error) {
-		it, err := selection(q)
-		if err != nil {
-			return nil, err
+	return func(q routing.Query) (it routing.Iterator, err error) {
+		if it, err = selection(q); err == nil {
+			it, err = f(it)(q)
 		}
 
-		return f(it)(q)
+		return
 	}
 }
 
@@ -73,6 +74,20 @@ func From(ix routing.Index) Selector {
 	}
 }
 
+func Range(min, max routing.Index) Selector {
+	return From(min).Bind(To(max))
+}
+
+func failure(err error) Selector {
+	return func(q routing.Query) (routing.Iterator, error) {
+		return nil, err
+	}
+}
+
+func failuref(format string, args ...any) Selector {
+	return failure(fmt.Errorf(format, args...))
+}
+
 type Constraint func(routing.Iterator) Selector
 
 func Where(match Matcher) Constraint {
@@ -84,16 +99,35 @@ func Where(match Matcher) Constraint {
 	}
 }
 
+func While(predicate Matcher) Constraint {
+	return func(it routing.Iterator) Selector {
+		return just(&predicateIter{
+			Matcher:  predicate,
+			Iterator: it,
+		})
+	}
+}
+
 func Limit(n int) Constraint {
-	return Where(limit(n))
+	if n <= 0 {
+		return func(routing.Iterator) Selector {
+			return failuref("expected limit > 0 (got %d)", n)
+		}
+	}
+
+	return While(matchFunc(func(r routing.Record) (ok bool) {
+		ok = n > 0
+		n--
+		return
+	}))
 }
 
 func To(ix routing.Index) Constraint {
-	return Where(boundary(ix))
+	return While(leq(ix))
 }
 
-func Until(ix routing.Index) Constraint {
-	return Where(ix)
+func First() Constraint {
+	return Limit(1)
 }
 
 func just(it routing.Iterator) Selector {
@@ -102,23 +136,12 @@ func just(it routing.Iterator) Selector {
 	}
 }
 
-func limit(n int) matchFunc {
-	return func(routing.Record) bool {
-		n--
-		return n >= 0
-	}
-}
-
-func boundary(m Matcher) matchFunc {
+func leq(m Matcher) matchFunc {
 	var reached bool
 	return func(r routing.Record) bool {
-		if reached = m.Match(r); reached {
-			reached = true
-		} else if reached {
-			return false
-		}
-
-		return true
+		match := m.Match(r)
+		reached = reached || match
+		return !reached || match
 	}
 }
 
@@ -134,9 +157,26 @@ type filterIter struct {
 }
 
 func (it *filterIter) Next() (r routing.Record) {
-	for r = it.Iterator.Next(); r != nil; r = it.Iterator.Next() {
-		if it.Match(r) {
-			break
+	for r = it.Iterator.Next(); r != nil && !it.Match(r); r = it.Iterator.Next() {
+	}
+
+	return
+}
+
+// predicateIter is short-circuits when the Matcher returns false.
+// This is more efficient than using filterIter in cases where the
+// iterator should stop early.
+type predicateIter struct {
+	Matcher
+	routing.Iterator
+	stop bool
+}
+
+func (it *predicateIter) Next() (r routing.Record) {
+	if !it.stop {
+		r = it.Iterator.Next()
+		if it.stop = !it.Match(r); it.stop {
+			r = nil
 		}
 	}
 
@@ -166,288 +206,3 @@ type all struct{}
 func (all) String() string             { return "id" }
 func (all) PeerBytes() ([]byte, error) { return nil, nil }
 func (all) Match(routing.Record) bool  { return true }
-
-// type index struct{ api.View_Index }
-
-// func (ix index) String() string {
-// 	switch ix.Which() {
-// 	case api.View_Index_Which_peer:
-// 		return "id"
-
-// 	case api.View_Index_Which_peerPrefix:
-// 		return "id_prefix"
-
-// 	case api.View_Index_Which_hostPrefix:
-// 		return "host_prefix"
-
-// 	case api.View_Index_Which_metaPrefix:
-// 		return "meta_prefix"
-
-// 	default:
-// 		return ix.Which().String()
-// 	}
-// }
-
-// func (ix index) Match(r routing.Record) bool {
-// 	switch ix.Which() {
-// 	case api.View_Index_Which_peer:
-// 		id, err := ix.Peer()
-// 		return err == nil && id == string(r.Peer())
-
-// 	case api.View_Index_Which_peerPrefix:
-// 		id, err := ix.PeerPrefix()
-// 		return err == nil && strings.HasPrefix(string(r.Peer()), id)
-
-// 	case api.View_Index_Which_host:
-// 		index, err1 := ix.Host()
-// 		name, err2 := r.Host()
-// 		return err1 == nil && err2 == nil && name == index
-
-// 	case api.View_Index_Which_hostPrefix:
-// 		prefix, err1 := ix.HostPrefix()
-// 		name, err2 := r.Host()
-// 		return err1 == nil && err2 == nil &&
-// 			strings.HasPrefix(name, prefix)
-
-// 	case api.View_Index_Which_meta:
-// 		index, err1 := ix.Meta()
-// 		meta, err2 := r.Meta()
-// 		return err1 == nil && err2 == nil &&
-// 			matchMeta(fieldEq, meta, routing.Meta(index))
-
-// 	case api.View_Index_Which_metaPrefix:
-// 		index, err1 := ix.MetaPrefix()
-// 		meta, err2 := r.Meta()
-// 		return err1 == nil && err2 == nil &&
-// 			matchMeta(strings.HasPrefix, meta, routing.Meta(index))
-// 	}
-
-// 	return false
-// }
-
-// func matchMeta(match func(ix, m string) bool, meta, index routing.Meta) bool {
-// 	if index.Len() == 0 {
-// 		return meta.Len() == 0
-// 	}
-
-// 	for i := 0; i < index.Len(); i++ {
-// 		f, err := index.At(i)
-// 		if err != nil {
-// 			return false
-// 		}
-
-// 		value, err := meta.Get(f.Key)
-// 		if err != nil || !match(value, f.Value) {
-// 			return false
-// 		}
-// 	}
-
-// 	return true
-// }
-
-// func fieldEq(index, meta string) bool { return index == meta }
-
-/*
-
-	------------------------------------------------------------------------------------------------------------------------------
-
-*/
-
-// func (v View) Lookup(ctx context.Context, call api.View_lookup) error {
-// 	s, err := call.Args().Selector()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return v.bind(s, record(call))
-
-// }
-
-// func (v View) Iter(ctx context.Context, call api.View_iter) error {
-// 	s, err := call.Args().Selector()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return v.bind(s, iterator(ctx, call))
-// }
-
-// func (v View) bind(s api.View_Selector, rec allocator) error {
-// 	switch s.Which() {
-// 	case api.View_Selector_Which_match:
-// 		return bind(rec, v.match(s))
-
-// 	case api.View_Selector_Which_range:
-// 		return bind(rec, v.matchRange(s))
-// 	}
-
-// 	return fmt.Errorf("invalid selector: %s", s.Which())
-// }
-
-// func (v View) match(s api.View_Selector) selector {
-// 	return func() (routing.Iterator, error) {
-// 		match, err := s.Match()
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		return v.Get(index(match))
-// 	}
-// }
-
-// func (v View) matchRange(s api.View_Selector) selector {
-// 	return func() (routing.Iterator, error) {
-// 		min, err := s.Range().Min()
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		max, err := s.Range().Max()
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		return v.newRangeIter(index(min), index(max))
-// 	}
-// }
-
-// func (v View) newRangeIter(min, max routing.Index) (routing.Iterator, error) {
-// 	if min.Which() != max.Which() {
-// 		return nil, fmt.Errorf("invalid range: [%s, %s]", min, max)
-// 	}
-
-// 	it, err := v.LowerBound(min)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return &rangeIter{
-// 		limit:    max,
-// 		Iterator: it,
-// 	}, err
-// }
-
-// type selector func() (routing.Iterator, error)
-// type allocator func(routing.Record) error
-
-// func bind(alloc allocator, next selector) error {
-// 	it, err := next()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	for r := it.Next(); r != nil; r = it.Next() {
-// 		if err = alloc(r); err != nil {
-// 			break
-// 		}
-// 	}
-
-// 	return err
-// }
-
-// func record(call api.View_lookup) allocator {
-// 	return func(r routing.Record) error {
-// 		res, err := call.AllocResults()
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		return maybe(res, r)
-// 	}
-// }
-
-// func iterator(ctx context.Context, call api.View_iter) allocator {
-// 	panic("NOT IMPLEMENTED")
-// 	// res, err := call.AllocResults()
-// 	// if err != nil {
-// 	// 	return func(routing.Record) error { return err }
-// 	// }
-
-// 	// sender := call.Args().Handler()
-// 	// sent := uint32(0) // TODO:  atomic?
-// 	// return func(r routing.Record) error {
-// 	// 	if sent < call.Args().Limit() {
-// 	// 		f, release := sender.Send(ctx, )
-// 	// 	}
-
-// 	// 	return nil
-// 	// }
-// }
-
-// func maybe(res api.View_lookup_Results, r routing.Record) error {
-// 	if r == nil {
-// 		return nil
-// 	}
-
-// 	result, err := res.NewResult()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	rec, err := result.NewJust()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return copyRecord(rec, r)
-// }
-
-// func copyRecord(rec api.View_Record, r routing.Record) error {
-// 	if b, ok := r.(RecordBinder); ok {
-// 		return b.Bind(rec)
-// 	}
-
-// 	if err := rec.SetPeer(string(r.Peer())); err != nil {
-// 		return err
-// 	}
-
-// 	hb, err := rec.NewHeartbeat()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	pulse.Heartbeat{Heartbeat: hb}.SetTTL(r.TTL())
-// 	hb.SetInstance(r.Instance())
-
-// 	if err := copyHost(hb, r); err != nil {
-// 		return err
-// 	}
-
-// 	return copyMeta(hb, r)
-// }
-
-// func copyHost(rec api.Heartbeat, r routing.Record) error {
-// 	name, err := r.Host()
-// 	if err == nil {
-// 		err = rec.SetHost(name)
-// 	}
-
-// 	return err
-// }
-
-// func copyMeta(rec api.Heartbeat, r routing.Record) error {
-// 	meta, err := r.Meta()
-// 	if err == nil {
-// 		err = rec.SetMeta(capnp.TextList(meta))
-// 	}
-
-// 	return err
-// }
-
-// type rangeIter struct {
-// 	limit routing.Index
-// 	routing.Iterator
-// }
-
-// func (it rangeIter) Next() routing.Record {
-// 	r := it.Iterator.Next()
-// 	if r == nil || it.limit.Match(r) {
-// 		return nil
-// 	}
-
-// 	return r
-// }
-
-// func index(ix api.View_Index) routing.Index {
-// 	return routing.Index{View_Index: ix}
-// }
