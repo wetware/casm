@@ -1,5 +1,3 @@
-//go:generate mockgen -source=vat.go -destination=../internal/mock/pkg/vat.go -package=mock_casm
-
 package casm
 
 import (

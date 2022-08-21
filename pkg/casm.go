@@ -1,3 +1,5 @@
+//go:generate mockgen -source=casm.go -destination=../internal/mock/pkg/casm.go -package=mock_casm
+
 package casm
 
 import (
