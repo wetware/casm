@@ -3,7 +3,6 @@ package stream_test
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	testing_api "github.com/wetware/casm/internal/api/testing"
 	"github.com/wetware/casm/pkg/util/stream"
+	"go.uber.org/atomic"
 )
 
 func TestStream(t *testing.T) {
@@ -77,11 +77,11 @@ func TestStream(t *testing.T) {
 		err := s.Track(client.Recv(ctx, nil))
 		require.NoError(t, err, "streaming call should succeed")
 
-		server.error = errors.New("test")
+		server.Store(errors.New("test"))
 
 		assert.Eventually(t, func() bool {
 			err := s.Track(client.Recv(ctx, nil))
-			return errors.Is(err, server.error)
+			return errors.Is(err, server.Load())
 		}, time.Second, time.Millisecond*100,
 			"context expiration should close stream")
 	})
@@ -117,24 +117,24 @@ func TestStream(t *testing.T) {
 	})
 }
 
-type ctr int32
+type ctr struct{ atomic.Int32 }
 
 func (c *ctr) wrap(f capnp_stream.StreamResult_Future, r capnp.ReleaseFunc) (capnp_stream.StreamResult_Future, capnp.ReleaseFunc) {
-	atomic.AddInt32((*int32)(c), 1)
+	c.Inc()
 	return f, func() {
-		atomic.AddInt32((*int32)(c), -1)
+		c.Dec()
 		r()
 	}
 }
 
 func (c *ctr) Zero() bool { return c.Int() == 0 }
 
-func (c *ctr) Int() int32 { return atomic.LoadInt32((*int32)(c)) }
+func (c *ctr) Int() int32 { return c.Load() }
 
-type streamer struct{ error }
+type streamer struct{ atomic.Error }
 
-func (s streamer) Recv(context.Context, testing_api.Streamer_recv) error {
-	return s.error
+func (s *streamer) Recv(context.Context, testing_api.Streamer_recv) error {
+	return s.Load()
 }
 
 type sleeper <-chan struct{}
