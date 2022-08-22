@@ -11,6 +11,8 @@ import (
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+
+	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
@@ -91,10 +93,11 @@ func (r *record) heartbeat() *Heartbeat {
 	return r.ValidatorData.(*Heartbeat)
 }
 
-// func (r *record) Bind(rec api.View_Record) (err error) {
-// 	if err = rec.SetPeer(string(r.Peer())); err == nil {
-// 		err = rec.SetHeartbeat(r.heartbeat().Heartbeat)
-// 	}
+func (r *record) BindRecord(rec api.View_Record) (err error) {
+	if err = rec.SetPeer(string(r.Peer())); err == nil {
+		rec.SetSeq(r.Seq())
+		err = rec.SetHeartbeat(r.heartbeat().Heartbeat)
+	}
 
-// 	return
-// }
+	return
+}

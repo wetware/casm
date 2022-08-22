@@ -29,7 +29,7 @@ func New(t0 time.Time) Table {
 	}
 }
 
-func (table Table) NewQuery() Query {
+func (table Table) Snapshot() Snapshot {
 	return &query{
 		records: table.records,
 		tx:      table.sched.Txn(false),

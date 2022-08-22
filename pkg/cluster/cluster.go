@@ -1,3 +1,5 @@
+//go:generate mockgen -source=cluster.go -destination=../../internal/mock/pkg/cluster/cluster.go -package=mock_cluster
+
 // Package cluster exports an asynchronously updated model of the swarm.
 package cluster
 
@@ -7,6 +9,7 @@ import (
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/wetware/casm/pkg/cluster/pulse"
+	"github.com/wetware/casm/pkg/cluster/query"
 	"github.com/wetware/casm/pkg/cluster/routing"
 	"github.com/wetware/casm/pkg/cluster/view"
 	"github.com/wetware/casm/pkg/util/service"
@@ -25,7 +28,7 @@ type PubSub interface {
 type RoutingTable interface {
 	Advance(time.Time)
 	Upsert(routing.Record) (created bool)
-	NewQuery() routing.Query
+	Snapshot() routing.Snapshot
 }
 
 // Node is a peer participating in the cluster membership protocol.
@@ -52,16 +55,23 @@ func New(ps PubSub, opt ...Option) (*Node, error) {
 func (n *Node) Close() error         { return n.s.Close() }
 func (n *Node) String() string       { return n.ns }
 func (n *Node) Topic() *pubsub.Topic { return n.a.t }
-func (n *Node) View() view.View      { return view.View{Query: n.rt.NewQuery()} }
-
-func (n *Node) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
-	return n.a.Emit(ctx, n.a.t, opt...)
-}
 
 func (n *Node) Loggable() map[string]interface{} {
 	return map[string]interface{}{
 		"ns": n.ns,
 	}
+}
+
+func (n *Node) View() view.View {
+	return view.Server{RoutingTable: n.rt}.View()
+}
+
+func (n *Node) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
+	return n.a.Emit(ctx, n.a.t, opt...)
+}
+
+func (n *Node) NewQuery() query.Query {
+	return query.Query{Snapshot: n.rt.Snapshot()}
 }
 
 func (n *Node) newTopic(ps PubSub) service.Service {

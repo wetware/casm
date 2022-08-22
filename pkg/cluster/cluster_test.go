@@ -10,12 +10,14 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/cluster"
+	"github.com/wetware/casm/pkg/cluster/query"
 	"github.com/wetware/casm/pkg/cluster/routing"
-	"github.com/wetware/casm/pkg/cluster/view"
 )
 
 func TestModel(t *testing.T) {
@@ -155,7 +157,7 @@ func TestModel_announce_live(t *testing.T) {
 	assert.Eventually(t,
 		func() bool {
 			for _, info := range as {
-				r, err := ns[n-1].View().Lookup(selectPeer(info.ID))
+				r, err := ns[n-1].NewQuery().Lookup(selectPeer(info.ID))
 				if err != nil && r == nil {
 					return false
 				}
@@ -174,7 +176,7 @@ func not(h host.Host) func(peer.AddrInfo) bool {
 }
 
 func peers(n *cluster.Node) (ps peer.IDSlice) {
-	it, err := n.View().Iter(view.Match(all{}))
+	it, err := n.NewQuery().Iter(query.Select(all{}))
 	if err != nil {
 		panic(err)
 	}
@@ -233,8 +235,8 @@ func newTestHost() host.Host {
 	return h
 }
 
-func selectPeer(id peer.ID) view.Selector {
-	return view.Match(peerIndex(id))
+func selectPeer(id peer.ID) query.Selector {
+	return query.Select(peerIndex(id))
 }
 
 type peerIndex peer.ID

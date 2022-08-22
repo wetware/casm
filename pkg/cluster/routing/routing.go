@@ -21,10 +21,10 @@ type Record interface {
 	Meta() (Meta, error)
 }
 
-// Query provides traversal options over an immutable snapshot of the
-// routing-table's state.  Implementations MUST satisfy the invariant
-// that Query's methods be free of side-effects.
-type Query interface {
+// Snapshot provides iteration strategies over an isolated snapshot
+// of the routing-table.  Implementations MUST NOT mutate the state
+// of the routing table, and MUST support concurrent iteration.
+type Snapshot interface {
 	Get(Index) (Iterator, error)
 	GetReverse(Index) (Iterator, error)
 	LowerBound(Index) (Iterator, error)
@@ -42,18 +42,20 @@ type Index interface {
 	Match(Record) bool
 }
 
-/*
- * Optional index interfaces.
- */
-
+// PeerIndex is an optional interface that Records may implement
+// to provide fast, allocation-free construction of peer indexes.
 type PeerIndex interface {
 	PeerBytes() ([]byte, error)
 }
 
+// PeerIndex is an optional interface that Records may implement
+// to provide fast, allocation-free construction of host indexes.
 type HostIndex interface {
 	HostBytes() ([]byte, error)
 }
 
+// PeerIndex is an optional interface that Records may implement
+// to provide fast, allocation-free construction of meta indexes.
 type MetaIndex interface {
 	MetaBytes() ([][]byte, error)
 }

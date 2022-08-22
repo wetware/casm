@@ -122,31 +122,31 @@ func (mr *MockRecordMockRecorder) TTL() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TTL", reflect.TypeOf((*MockRecord)(nil).TTL))
 }
 
-// MockQuery is a mock of Query interface.
-type MockQuery struct {
+// MockSnapshot is a mock of Snapshot interface.
+type MockSnapshot struct {
 	ctrl     *gomock.Controller
-	recorder *MockQueryMockRecorder
+	recorder *MockSnapshotMockRecorder
 }
 
-// MockQueryMockRecorder is the mock recorder for MockQuery.
-type MockQueryMockRecorder struct {
-	mock *MockQuery
+// MockSnapshotMockRecorder is the mock recorder for MockSnapshot.
+type MockSnapshotMockRecorder struct {
+	mock *MockSnapshot
 }
 
-// NewMockQuery creates a new mock instance.
-func NewMockQuery(ctrl *gomock.Controller) *MockQuery {
-	mock := &MockQuery{ctrl: ctrl}
-	mock.recorder = &MockQueryMockRecorder{mock}
+// NewMockSnapshot creates a new mock instance.
+func NewMockSnapshot(ctrl *gomock.Controller) *MockSnapshot {
+	mock := &MockSnapshot{ctrl: ctrl}
+	mock.recorder = &MockSnapshotMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockQuery) EXPECT() *MockQueryMockRecorder {
+func (m *MockSnapshot) EXPECT() *MockSnapshotMockRecorder {
 	return m.recorder
 }
 
 // Get mocks base method.
-func (m *MockQuery) Get(arg0 routing.Index) (routing.Iterator, error) {
+func (m *MockSnapshot) Get(arg0 routing.Index) (routing.Iterator, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0)
 	ret0, _ := ret[0].(routing.Iterator)
@@ -155,13 +155,13 @@ func (m *MockQuery) Get(arg0 routing.Index) (routing.Iterator, error) {
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockQueryMockRecorder) Get(arg0 interface{}) *gomock.Call {
+func (mr *MockSnapshotMockRecorder) Get(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockQuery)(nil).Get), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockSnapshot)(nil).Get), arg0)
 }
 
 // GetReverse mocks base method.
-func (m *MockQuery) GetReverse(arg0 routing.Index) (routing.Iterator, error) {
+func (m *MockSnapshot) GetReverse(arg0 routing.Index) (routing.Iterator, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetReverse", arg0)
 	ret0, _ := ret[0].(routing.Iterator)
@@ -170,13 +170,13 @@ func (m *MockQuery) GetReverse(arg0 routing.Index) (routing.Iterator, error) {
 }
 
 // GetReverse indicates an expected call of GetReverse.
-func (mr *MockQueryMockRecorder) GetReverse(arg0 interface{}) *gomock.Call {
+func (mr *MockSnapshotMockRecorder) GetReverse(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReverse", reflect.TypeOf((*MockQuery)(nil).GetReverse), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReverse", reflect.TypeOf((*MockSnapshot)(nil).GetReverse), arg0)
 }
 
 // LowerBound mocks base method.
-func (m *MockQuery) LowerBound(arg0 routing.Index) (routing.Iterator, error) {
+func (m *MockSnapshot) LowerBound(arg0 routing.Index) (routing.Iterator, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LowerBound", arg0)
 	ret0, _ := ret[0].(routing.Iterator)
@@ -185,13 +185,13 @@ func (m *MockQuery) LowerBound(arg0 routing.Index) (routing.Iterator, error) {
 }
 
 // LowerBound indicates an expected call of LowerBound.
-func (mr *MockQueryMockRecorder) LowerBound(arg0 interface{}) *gomock.Call {
+func (mr *MockSnapshotMockRecorder) LowerBound(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LowerBound", reflect.TypeOf((*MockQuery)(nil).LowerBound), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LowerBound", reflect.TypeOf((*MockSnapshot)(nil).LowerBound), arg0)
 }
 
 // ReverseLowerBound mocks base method.
-func (m *MockQuery) ReverseLowerBound(arg0 routing.Index) (routing.Iterator, error) {
+func (m *MockSnapshot) ReverseLowerBound(arg0 routing.Index) (routing.Iterator, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReverseLowerBound", arg0)
 	ret0, _ := ret[0].(routing.Iterator)
@@ -200,9 +200,9 @@ func (m *MockQuery) ReverseLowerBound(arg0 routing.Index) (routing.Iterator, err
 }
 
 // ReverseLowerBound indicates an expected call of ReverseLowerBound.
-func (mr *MockQueryMockRecorder) ReverseLowerBound(arg0 interface{}) *gomock.Call {
+func (mr *MockSnapshotMockRecorder) ReverseLowerBound(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReverseLowerBound", reflect.TypeOf((*MockQuery)(nil).ReverseLowerBound), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReverseLowerBound", reflect.TypeOf((*MockSnapshot)(nil).ReverseLowerBound), arg0)
 }
 
 // MockIndex is a mock of Index interface.

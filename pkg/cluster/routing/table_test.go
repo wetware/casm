@@ -56,7 +56,7 @@ func TestAdvance(t *testing.T) {
 		require.True(t, table.Upsert(rec), "must upsert record")
 	}
 
-	it, err := table.NewQuery().Get(all{}) // query whole table
+	it, err := table.Snapshot().Get(all{}) // query whole table
 	require.NoError(t, err, "query should succeed")
 	require.NotNil(t, it, "iterator should not be nil")
 	require.Equal(t, len(recs), countRecords(it), "should contain all four records")
@@ -64,7 +64,7 @@ func TestAdvance(t *testing.T) {
 	t.Run("DropOne", func(t *testing.T) {
 		table.Advance(t0.Add(time.Millisecond + 1)) // HACK:  LowerBound is '<'
 
-		it, err := table.NewQuery().Get(all{}) // query whole table
+		it, err := table.Snapshot().Get(all{}) // query whole table
 		require.NoError(t, err, "query should succeed")
 		require.NotNil(t, it, "iterator should not be nil")
 		assert.Equal(t, len(recs)-1, countRecords(it), "should drop one record")
@@ -73,7 +73,7 @@ func TestAdvance(t *testing.T) {
 	t.Run("DropTwo", func(t *testing.T) {
 		table.Advance(t0.Add(time.Millisecond*10 + 1)) // HACK:  LowerBound is '<'
 
-		it, err := table.NewQuery().Get(all{}) // query whole table
+		it, err := table.Snapshot().Get(all{}) // query whole table
 		require.NoError(t, err, "query should succeed")
 		require.NotNil(t, it, "iterator should not be nil")
 		assert.Equal(t, len(recs)-4, countRecords(it), "should drop one record")
@@ -82,7 +82,7 @@ func TestAdvance(t *testing.T) {
 	t.Run("DropRemaining", func(t *testing.T) {
 		table.Advance(t0.Add(time.Hour))
 
-		it, err := table.NewQuery().Get(all{}) // query whole table
+		it, err := table.Snapshot().Get(all{}) // query whole table
 		require.NoError(t, err, "query should succeed")
 		require.NotNil(t, it, "iterator should not be nil")
 		require.Nil(t, it.Next(), "should drop all remaining records")
