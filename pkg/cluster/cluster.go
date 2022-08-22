@@ -28,6 +28,9 @@ type RoutingTable interface {
 	NewQuery() routing.Query
 }
 
+// Node is a peer participating in the cluster membership protocol.
+// It maintains a global view of the cluster with PA/EL guarantees,
+// and periodically announces its presence to others.
 type Node struct {
 	ns string
 	rt RoutingTable
@@ -35,7 +38,7 @@ type Node struct {
 	s  service.Set
 }
 
-// New cluster model.  It is safe to cancel 'ctx' after 'New' returns.
+// New cluster node.  It is safe to cancel 'ctx' after 'New' returns.
 func New(ps PubSub, opt ...Option) (*Node, error) {
 	n := &Node{a: newAnnouncer()}
 	for _, option := range withDefault(opt) {
