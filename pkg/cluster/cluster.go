@@ -12,21 +12,21 @@ import (
 	"github.com/wetware/casm/pkg/util/service"
 )
 
+// PubSub is used by the cluster Node to participate in the membership
+// protocol.
 type PubSub interface {
 	Join(string, ...pubsub.TopicOpt) (*pubsub.Topic, error)
 	RegisterTopicValidator(string, interface{}, ...pubsub.ValidatorOpt) error
 	UnregisterTopicValidator(string) error
 }
 
+// RoutingTable tracks the liveness of cluster peers and provides a
+// simple API for querying routing information.
 type RoutingTable interface {
 	Advance(time.Time)
 	Upsert(routing.Record) (created bool)
 	NewQuery() routing.Query
 }
-
-// type RecordBinder interface {
-// 	Bind(api.View_Record) error // TODO(soon): api.View_Record is not exported
-// }
 
 type Node struct {
 	ns string
