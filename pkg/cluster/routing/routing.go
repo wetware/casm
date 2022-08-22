@@ -4,11 +4,13 @@ package routing
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/wetware/casm/internal/api/routing"
 )
 
 // Record is an entry in the routing table.
@@ -38,8 +40,41 @@ type Index interface {
 	// String returns the index name.
 	String() string
 
+	// Which returns a tag pointing to an index routing table.
+	Key() IndexKey
+
 	// Match returns true if the index matches the supplied record.
 	Match(Record) bool
+}
+
+type IndexKey routing.View_Index_Which
+
+const (
+	PeerKey       = IndexKey(routing.View_Index_Which_peer)
+	PeerPrefixKey = IndexKey(routing.View_Index_Which_peerPrefix)
+	HostKey       = IndexKey(routing.View_Index_Which_host)
+	HostPrefixKey = IndexKey(routing.View_Index_Which_hostPrefix)
+	MetaKey       = IndexKey(routing.View_Index_Which_meta)
+	MetaPrefixKey = IndexKey(routing.View_Index_Which_metaPrefix)
+)
+
+func (k IndexKey) String() string {
+	switch k {
+	case PeerKey:
+		return "id"
+	case PeerPrefixKey:
+		return "id_prefix"
+	case HostKey:
+		return "host"
+	case HostPrefixKey:
+		return "host_prefix"
+	case MetaKey:
+		return "meta"
+	case MetaPrefixKey:
+		return "meta_prefix"
+	default:
+		return fmt.Sprintf("IndexKey(%d)", k)
+	}
 }
 
 // PeerIndex is an optional interface that Records may implement
@@ -79,6 +114,10 @@ type Iterator interface {
 // Meta is an indexed set of key-value pairs describing
 // arbitrary metadata.
 type Meta capnp.TextList
+
+func (m Meta) String() string {
+	return capnp.TextList(m).String()
+}
 
 // Len returns the number of metadata fields present in
 // the set.

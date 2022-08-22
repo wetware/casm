@@ -22,6 +22,11 @@ func (selection Selector) Bind(f Constraint) Selector {
 	}
 }
 
+// All selects all records in the routing table.
+func All() Selector {
+	return Select(all{})
+}
+
 // Select all records matching the index.
 func Select(index routing.Index) Selector {
 	return func(q routing.Snapshot) (routing.Iterator, error) {
@@ -86,3 +91,10 @@ func (it *predicateIter) Next() (r routing.Record) {
 
 	return
 }
+
+type all struct{}
+
+func (all) String() string             { return "peer=*" }
+func (all) Key() routing.IndexKey      { return routing.PeerKey }
+func (all) PeerBytes() ([]byte, error) { return nil, nil }
+func (all) Match(routing.Record) bool  { return true }

@@ -33,7 +33,7 @@ func TestFirst(t *testing.T) {
 		Return(iter, nil).
 		Times(1)
 
-	selector := query.Select(all{}).Bind(query.First())
+	selector := query.All().Bind(query.First())
 	it, err := selector(snap)
 	require.NoError(t, err)
 	require.NotNil(t, it)
@@ -93,7 +93,7 @@ func TestWhere(t *testing.T) {
 		return strings.Contains(string(r.Peer()), "bar")
 	})
 
-	selector := query.Select(all{}).Bind(query.Where(containsBar))
+	selector := query.All().Bind(query.Where(containsBar))
 
 	it, err := selector(snap)
 	require.NoError(t, err)

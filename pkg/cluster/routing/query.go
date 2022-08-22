@@ -27,7 +27,7 @@ func (q query) ReverseLowerBound(ix Index) (Iterator, error) {
 }
 
 func (q query) iterate(f iterFunc, ix Index) (Iterator, error) {
-	it, err := f(q.records, ix.String(), ix)
+	it, err := f(q.records, ix.Key().String(), ix)
 	return iterator{it}, err
 }
 

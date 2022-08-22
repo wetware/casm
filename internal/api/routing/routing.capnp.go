@@ -151,7 +151,7 @@ func (c View) Lookup(ctx context.Context, params func(View_lookup_Params) error)
 		},
 	}
 	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 2}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(View_lookup_Params(s)) }
 	}
 	ans, release := capnp.Client(c).SendCall(ctx, s)
@@ -167,11 +167,27 @@ func (c View) Iter(ctx context.Context, params func(View_iter_Params) error) (Vi
 		},
 	}
 	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 2}
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 3}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(View_iter_Params(s)) }
 	}
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return View_iter_Results_Future{Future: ans.Future()}, release
+}
+func (c View) Reverse(ctx context.Context, params func(View_reverse_Params) error) (View_reverse_Results_Future, capnp.ReleaseFunc) {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xb8cc1b0ba89ddfd2,
+			MethodID:      2,
+			InterfaceName: "routing.capnp:View",
+			MethodName:    "reverse",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(View_reverse_Params(s)) }
+	}
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return View_reverse_Results_Future{Future: ans.Future()}, release
 }
 
 // String returns a string that identifies this capability for debugging
@@ -244,6 +260,8 @@ type View_Server interface {
 	Lookup(context.Context, View_lookup) error
 
 	Iter(context.Context, View_iter) error
+
+	Reverse(context.Context, View_reverse) error
 }
 
 // View_NewServer creates a new Server from an implementation of View_Server.
@@ -262,7 +280,7 @@ func View_ServerToClient(s View_Server) View {
 // This can be used to create a more complicated Server.
 func View_Methods(methods []server.Method, s View_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 2)
+		methods = make([]server.Method, 0, 3)
 	}
 
 	methods = append(methods, server.Method{
@@ -286,6 +304,18 @@ func View_Methods(methods []server.Method, s View_Server) []server.Method {
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Iter(ctx, View_iter{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xb8cc1b0ba89ddfd2,
+			MethodID:      2,
+			InterfaceName: "routing.capnp:View",
+			MethodName:    "reverse",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Reverse(ctx, View_reverse{call})
 		},
 	})
 
@@ -324,6 +354,23 @@ func (c View_iter) Args() View_iter_Params {
 func (c View_iter) AllocResults() (View_iter_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
 	return View_iter_Results(r), err
+}
+
+// View_reverse holds the state for a server call to View.reverse.
+// See server.Call for documentation.
+type View_reverse struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c View_reverse) Args() View_reverse_Params {
+	return View_reverse_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c View_reverse) AllocResults() (View_reverse_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_reverse_Results(r), err
 }
 
 // View_List is a list of View.
@@ -580,21 +627,23 @@ func (p View_Handler_recv_Params_Future) Record() View_Record_Future {
 }
 
 type View_Selector capnp.Struct
-type View_Selector_range View_Selector
 type View_Selector_Which uint16
 
 const (
-	View_Selector_Which_match View_Selector_Which = 0
-	View_Selector_Which_range View_Selector_Which = 1
+	View_Selector_Which_all   View_Selector_Which = 0
+	View_Selector_Which_match View_Selector_Which = 1
+	View_Selector_Which_from  View_Selector_Which = 2
 )
 
 func (w View_Selector_Which) String() string {
-	const s = "matchrange"
+	const s = "allmatchfrom"
 	switch w {
+	case View_Selector_Which_all:
+		return s[0:3]
 	case View_Selector_Which_match:
-		return s[0:5]
-	case View_Selector_Which_range:
-		return s[5:10]
+		return s[3:8]
+	case View_Selector_Which_from:
+		return s[8:12]
 
 	}
 	return "View_Selector_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
@@ -604,12 +653,12 @@ func (w View_Selector_Which) String() string {
 const View_Selector_TypeID = 0xf8eb7e44ba7b1fa8
 
 func NewView_Selector(s *capnp.Segment) (View_Selector, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
 	return View_Selector(st), err
 }
 
 func NewRootView_Selector(s *capnp.Segment) (View_Selector, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
 	return View_Selector(st), err
 }
 
@@ -649,8 +698,13 @@ func (s View_Selector) Message() *capnp.Message {
 func (s View_Selector) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
+func (s View_Selector) SetAll() {
+	capnp.Struct(s).SetUint16(0, 0)
+
+}
+
 func (s View_Selector) Match() (View_Index, error) {
-	if capnp.Struct(s).Uint16(0) != 0 {
+	if capnp.Struct(s).Uint16(0) != 1 {
 		panic("Which() != match")
 	}
 	p, err := capnp.Struct(s).Ptr(0)
@@ -658,21 +712,21 @@ func (s View_Selector) Match() (View_Index, error) {
 }
 
 func (s View_Selector) HasMatch() bool {
-	if capnp.Struct(s).Uint16(0) != 0 {
+	if capnp.Struct(s).Uint16(0) != 1 {
 		return false
 	}
 	return capnp.Struct(s).HasPtr(0)
 }
 
 func (s View_Selector) SetMatch(v View_Index) error {
-	capnp.Struct(s).SetUint16(0, 0)
+	capnp.Struct(s).SetUint16(0, 1)
 	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
 }
 
 // NewMatch sets the match field to a newly
 // allocated View_Index struct, preferring placement in s's segment.
 func (s View_Selector) NewMatch() (View_Index, error) {
-	capnp.Struct(s).SetUint16(0, 0)
+	capnp.Struct(s).SetUint16(0, 1)
 	ss, err := NewView_Index(capnp.Struct(s).Segment())
 	if err != nil {
 		return View_Index{}, err
@@ -681,68 +735,35 @@ func (s View_Selector) NewMatch() (View_Index, error) {
 	return ss, err
 }
 
-func (s View_Selector) Range() View_Selector_range { return View_Selector_range(s) }
-
-func (s View_Selector) SetRange() {
-	capnp.Struct(s).SetUint16(0, 1)
-}
-
-func (s View_Selector_range) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s View_Selector_range) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s View_Selector_range) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s View_Selector_range) Min() (View_Index, error) {
+func (s View_Selector) From() (View_Index, error) {
+	if capnp.Struct(s).Uint16(0) != 2 {
+		panic("Which() != from")
+	}
 	p, err := capnp.Struct(s).Ptr(0)
 	return View_Index(p.Struct()), err
 }
 
-func (s View_Selector_range) HasMin() bool {
+func (s View_Selector) HasFrom() bool {
+	if capnp.Struct(s).Uint16(0) != 2 {
+		return false
+	}
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s View_Selector_range) SetMin(v View_Index) error {
+func (s View_Selector) SetFrom(v View_Index) error {
+	capnp.Struct(s).SetUint16(0, 2)
 	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
 }
 
-// NewMin sets the min field to a newly
+// NewFrom sets the from field to a newly
 // allocated View_Index struct, preferring placement in s's segment.
-func (s View_Selector_range) NewMin() (View_Index, error) {
+func (s View_Selector) NewFrom() (View_Index, error) {
+	capnp.Struct(s).SetUint16(0, 2)
 	ss, err := NewView_Index(capnp.Struct(s).Segment())
 	if err != nil {
 		return View_Index{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
-	return ss, err
-}
-
-func (s View_Selector_range) Max() (View_Index, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return View_Index(p.Struct()), err
-}
-
-func (s View_Selector_range) HasMax() bool {
-	return capnp.Struct(s).HasPtr(1)
-}
-
-func (s View_Selector_range) SetMax(v View_Index) error {
-	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
-}
-
-// NewMax sets the max field to a newly
-// allocated View_Index struct, preferring placement in s's segment.
-func (s View_Selector_range) NewMax() (View_Index, error) {
-	ss, err := NewView_Index(capnp.Struct(s).Segment())
-	if err != nil {
-		return View_Index{}, err
-	}
-	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
 	return ss, err
 }
 
@@ -751,7 +772,7 @@ type View_Selector_List = capnp.StructList[View_Selector]
 
 // NewView_Selector creates a new list of View_Selector.
 func NewView_Selector_List(s *capnp.Segment, sz int32) (View_Selector_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
 	return capnp.StructList[View_Selector](l), err
 }
 
@@ -767,24 +788,142 @@ func (p View_Selector_Future) Match() View_Index_Future {
 	return View_Index_Future{Future: p.Future.Field(0, nil)}
 }
 
-func (p View_Selector_Future) Range() View_Selector_range_Future {
-	return View_Selector_range_Future{p.Future}
-}
-
-// View_Selector_range_Future is a wrapper for a View_Selector_range promised by a client call.
-type View_Selector_range_Future struct{ *capnp.Future }
-
-func (p View_Selector_range_Future) Struct() (View_Selector_range, error) {
-	s, err := p.Future.Struct()
-	return View_Selector_range(s), err
-}
-
-func (p View_Selector_range_Future) Min() View_Index_Future {
+func (p View_Selector_Future) From() View_Index_Future {
 	return View_Index_Future{Future: p.Future.Field(0, nil)}
 }
 
-func (p View_Selector_range_Future) Max() View_Index_Future {
-	return View_Index_Future{Future: p.Future.Field(1, nil)}
+type View_Constraint capnp.Struct
+type View_Constraint_Which uint16
+
+const (
+	View_Constraint_Which_limit View_Constraint_Which = 0
+	View_Constraint_Which_to    View_Constraint_Which = 1
+)
+
+func (w View_Constraint_Which) String() string {
+	const s = "limitto"
+	switch w {
+	case View_Constraint_Which_limit:
+		return s[0:5]
+	case View_Constraint_Which_to:
+		return s[5:7]
+
+	}
+	return "View_Constraint_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
+}
+
+// View_Constraint_TypeID is the unique identifier for the type View_Constraint.
+const View_Constraint_TypeID = 0x92dd7cf694dc2a0d
+
+func NewView_Constraint(s *capnp.Segment) (View_Constraint, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
+	return View_Constraint(st), err
+}
+
+func NewRootView_Constraint(s *capnp.Segment) (View_Constraint, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
+	return View_Constraint(st), err
+}
+
+func ReadRootView_Constraint(msg *capnp.Message) (View_Constraint, error) {
+	root, err := msg.Root()
+	return View_Constraint(root.Struct()), err
+}
+
+func (s View_Constraint) String() string {
+	str, _ := text.Marshal(0x92dd7cf694dc2a0d, capnp.Struct(s))
+	return str
+}
+
+func (s View_Constraint) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_Constraint) DecodeFromPtr(p capnp.Ptr) View_Constraint {
+	return View_Constraint(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_Constraint) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+
+func (s View_Constraint) Which() View_Constraint_Which {
+	return View_Constraint_Which(capnp.Struct(s).Uint16(8))
+}
+func (s View_Constraint) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_Constraint) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_Constraint) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_Constraint) Limit() uint64 {
+	if capnp.Struct(s).Uint16(8) != 0 {
+		panic("Which() != limit")
+	}
+	return capnp.Struct(s).Uint64(0)
+}
+
+func (s View_Constraint) SetLimit(v uint64) {
+	capnp.Struct(s).SetUint16(8, 0)
+	capnp.Struct(s).SetUint64(0, v)
+}
+
+func (s View_Constraint) To() (View_Index, error) {
+	if capnp.Struct(s).Uint16(8) != 1 {
+		panic("Which() != to")
+	}
+	p, err := capnp.Struct(s).Ptr(0)
+	return View_Index(p.Struct()), err
+}
+
+func (s View_Constraint) HasTo() bool {
+	if capnp.Struct(s).Uint16(8) != 1 {
+		return false
+	}
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_Constraint) SetTo(v View_Index) error {
+	capnp.Struct(s).SetUint16(8, 1)
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewTo sets the to field to a newly
+// allocated View_Index struct, preferring placement in s's segment.
+func (s View_Constraint) NewTo() (View_Index, error) {
+	capnp.Struct(s).SetUint16(8, 1)
+	ss, err := NewView_Index(capnp.Struct(s).Segment())
+	if err != nil {
+		return View_Index{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// View_Constraint_List is a list of View_Constraint.
+type View_Constraint_List = capnp.StructList[View_Constraint]
+
+// NewView_Constraint creates a new list of View_Constraint.
+func NewView_Constraint_List(s *capnp.Segment, sz int32) (View_Constraint_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1}, sz)
+	return capnp.StructList[View_Constraint](l), err
+}
+
+// View_Constraint_Future is a wrapper for a View_Constraint promised by a client call.
+type View_Constraint_Future struct{ *capnp.Future }
+
+func (p View_Constraint_Future) Struct() (View_Constraint, error) {
+	s, err := p.Future.Struct()
+	return View_Constraint(s), err
+}
+
+func (p View_Constraint_Future) To() View_Index_Future {
+	return View_Index_Future{Future: p.Future.Field(0, nil)}
 }
 
 type View_Index capnp.Struct
@@ -1300,12 +1439,12 @@ type View_lookup_Params capnp.Struct
 const View_lookup_Params_TypeID = 0xb06e55bb4d9bb7e2
 
 func NewView_lookup_Params(s *capnp.Segment) (View_lookup_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
 	return View_lookup_Params(st), err
 }
 
 func NewRootView_lookup_Params(s *capnp.Segment) (View_lookup_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
 	return View_lookup_Params(st), err
 }
 
@@ -1365,12 +1504,36 @@ func (s View_lookup_Params) NewSelector() (View_Selector, error) {
 	return ss, err
 }
 
+func (s View_lookup_Params) Constraints() (View_Constraint_List, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return View_Constraint_List(p.List()), err
+}
+
+func (s View_lookup_Params) HasConstraints() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s View_lookup_Params) SetConstraints(v View_Constraint_List) error {
+	return capnp.Struct(s).SetPtr(1, v.ToPtr())
+}
+
+// NewConstraints sets the constraints field to a newly
+// allocated View_Constraint_List, preferring placement in s's segment.
+func (s View_lookup_Params) NewConstraints(n int32) (View_Constraint_List, error) {
+	l, err := NewView_Constraint_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return View_Constraint_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
+	return l, err
+}
+
 // View_lookup_Params_List is a list of View_lookup_Params.
 type View_lookup_Params_List = capnp.StructList[View_lookup_Params]
 
 // NewView_lookup_Params creates a new list of View_lookup_Params.
 func NewView_lookup_Params_List(s *capnp.Segment, sz int32) (View_lookup_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
 	return capnp.StructList[View_lookup_Params](l), err
 }
 
@@ -1484,12 +1647,12 @@ type View_iter_Params capnp.Struct
 const View_iter_Params_TypeID = 0x8b8f9a8dbc645c7a
 
 func NewView_iter_Params(s *capnp.Segment) (View_iter_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3})
 	return View_iter_Params(st), err
 }
 
 func NewRootView_iter_Params(s *capnp.Segment) (View_iter_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3})
 	return View_iter_Params(st), err
 }
 
@@ -1567,12 +1730,36 @@ func (s View_iter_Params) NewSelector() (View_Selector, error) {
 	return ss, err
 }
 
+func (s View_iter_Params) Constraints() (View_Constraint_List, error) {
+	p, err := capnp.Struct(s).Ptr(2)
+	return View_Constraint_List(p.List()), err
+}
+
+func (s View_iter_Params) HasConstraints() bool {
+	return capnp.Struct(s).HasPtr(2)
+}
+
+func (s View_iter_Params) SetConstraints(v View_Constraint_List) error {
+	return capnp.Struct(s).SetPtr(2, v.ToPtr())
+}
+
+// NewConstraints sets the constraints field to a newly
+// allocated View_Constraint_List, preferring placement in s's segment.
+func (s View_iter_Params) NewConstraints(n int32) (View_Constraint_List, error) {
+	l, err := NewView_Constraint_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return View_Constraint_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(2, l.ToPtr())
+	return l, err
+}
+
 // View_iter_Params_List is a list of View_iter_Params.
 type View_iter_Params_List = capnp.StructList[View_iter_Params]
 
 // NewView_iter_Params creates a new list of View_iter_Params.
 func NewView_iter_Params_List(s *capnp.Segment, sz int32) (View_iter_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3}, sz)
 	return capnp.StructList[View_iter_Params](l), err
 }
 
@@ -1657,91 +1844,254 @@ func (p View_iter_Results_Future) Struct() (View_iter_Results, error) {
 	return View_iter_Results(s), err
 }
 
-const schema_c2974e3dc137fcee = "x\xda\x8cUo\x88T\xd5\x1b~\x9fs\xee\x9d{\xfd" +
-	"\xb93\xbb\xe7wG\xd0L\x16E!\xa5Yt\xb7\xa8" +
-	"\x16b\x17QRqc\xce\xa6Y!\xc8u\xe6\xeaL" +
-	"\xed\xcc\xacw\xee\xb6f\x90PDE\x88\x85\x85\xacf" +
-	"H$\xad\xa5\xd4\x82\xfd\xd1\x8cR\x13\"\x82\xca\x08)" +
-	"\x91J\x84>D\x96}*\xb3N\x9c\xb93\xf7\x8e\xb3" +
-	"*~\xdby\xcfs\x9f\xf3\x9c\xe7}\xdfg\x17\x9ea" +
-	"\xfd\xc6\xa2d\x9fEL\xae2\x13\xea\xc9T\xea\xf4\xf9" +
-	"\xbdG\x9f\"\x99\x02\xd4\x85\xcbw\x1c\xbb\xfb\xde\x9d\xc7" +
-	"\xc9d\x16\x91\xf34?\xeel\xe3\xfa\xaf\xe7\xf8\xcf\x04" +
-	"\xb5em\xfe\xe8\xb6]\xdb\x9f'\xe1\x80\xea\x98M\xc6" +
-	"%\x823b\x8c\x12\x94\xbdNeN\xbf6{\x07\x09" +
-	"\x87\xabS?\xec\x19\x9f:\xf3\x8b\x0f\x88\xe0|k|" +
-	"\xef\xfcdh\xf8Y\xe3\x1e\xc74-\"%RS_" +
-	"\xde\xa9\xf2;C2}\xd8\xf3\xab\xc1@\x86\xfa\xea\x8f" +
-	"\xec\xaa\xde\x9e\x8fw\xd7\xaf\x81>\xfa\xda\xf8?\x08\xce" +
-	"wF\x1fA\x9d{\x7f\xf7\xc0\x87\xab\xcb\xef4\x03\xfe" +
-	"2\xfe\xa7\x0105 \xba[\xa4x\xfc(\x823\xcf" +
-	"\xdc\xe5d\xcc5DN\xc9|\xc6\xf9\xa8&\xe4\xb77" +
-	"\xcf\x1f:y\xe1\x85\x13$\x1d4}\x1a>o\x9fy" +
-	"\xca\x99\xd00\xe7\xa0\xf96A\x9d\x1d\xdb\xbe\xff\xd5\x89" +
-	"/\xbf!y3\xa0\xc6;\x1f?\xb2\xe4\x89_\xfe\xa4" +
-	"i\xcc\x02Q\xcf\xf2DM\xa5Lh7\xde\xdb\xf1z" +
-	"b\xcb\x85\x9b\xce\xb4\xf0.\x85\x95\xd0t\x89\xcf\x9d\xc3" +
-	"\x09\xad\xfc\xdd\xc4\x1a\x10\xd4\x92\xee\xb7~_}\xc4\xba" +
-	"8\x19\xce\x88\x9c\x8c}\xc9\xb9\xcb\xd6:n\xb75\xb9" +
-	"z\xe3\xe0\xc0\x86\x13\xab/\x92\x98\x19Y\xf0\xa2\xdd\xab" +
-	"o\x1f\xb3\xb5\x05\x91\xb4\x16:V\xa3;l\x9fsN" +
-	"\xd6\xe8\x8e\xd9\xa3\xf4\xa0\xf2+#A\xb1\xbc\xb1\x8b\xe5" +
-	"\xdc\xe1\xf2p\xef2\xcf\xf5\x83\xf5\x9e\x1bP\x16\x90\x1d" +
-	"\xdc 2@$\xdc9Dr-\x87,0\x08 \x0d" +
-	"]\xf4V\x10\xc9<\x87\x1cf\x00K\x83\x11\x89\xd2\x02" +
-	"\"Y\xe0\x90\x01\x83\xe0H\x83\x13\x89M\xba8\xc4!" +
-	"\x9fe\xb0\x82`\x0861\xd8\x04U,W\x03\xb7\x9c" +
-	"\xf3\x88\xa8Qk/T\xaa\x01\xda\x88\xa1\x8d\xd0^\xf2" +
-	"\x02\x17)B\x96\xa3VK\x11Z%\xdf_\xf4F\xbb" +
-	"\x8a\x81\xe7\xcf\xed\xcb\xba\xbe[\xaaJ;\x92=\x7f1" +
-	"\x91\x9c\xcb!\x176\xc9\xceh\xd9\xb7r\xc8;\x19\xb6" +
-	"\x16\xdcr~\xc8\xf3!\xe2\x19&@\x10T\xd5\x1b\xf2" +
-	"rA\xc5\xd7\xda:bW\x09\xe8\xb8\x86\x88e\x9a\x8b" +
-	"{\xbe\xb6\xce\xe0&Q\xd4,\x94'>\x19\xed\xd9\xb5" +
-	"nL\x88\x05\xc4\x84i\xb5\xfb^\xee\xd1~d\x113" +
-	"Y\xad\xcf\x19\xf4\xaa#CA\x95\x1a\x80\xa6\xf3\xa1J" +
-	"\xe5\x91\x91\xe1:\x02UiD/N\xf6\x12I\x9bC" +
-	"\xa6\x19\xfa\xfc\xf0\xbc#\x1e\xb1\x16\xf5|2g\xe8!" +
-	"Q3\xa76\xac\x8dCNg7j\x0b\x1a\xc4\xdc\x1b" +
-	"\x95i4'\xc4\xec\xc5\xf1Wb\xd6\x8ax[\xc4\xac" +
-	"\xeex%\xc5\x8c\xdeX\xb5\x98\xb6~\xeb\xb2\xb0Q\xea" +
-	"\xbe\xf8\xfe\xce\xe5\xe5\xbc\xb7\xb9o\xd0\xcbU\xfc\xbc\x1a" +
-	"p\x1f[\xef\x0dz9\xb2*~^\xda5\xff\x1by" +
-	"\x81F\xb2\x88E\xbd\xc4\xc4<\x0bq\xa6\xa1\x91Gb" +
-	"\x86\xeeM\xd2\xea\x0b\x9d\xe8G\xbbn\xc3\x95Mjn" +
-	"w\xed^\xe4u\xb7\xdb\"\xaf\x96\xeaQ\xef\xe7\x90+" +
-	"\x19\x1a\x03\xb7\\/\xcf\x12\x0e\x99e\x10\x0c\xe1\xa2\x0c" +
-	"\x0c\x12\xc9\x95\x1c\xf2\x01\x86\xf6a\xcf\xf3\x1b3oU" +
-	"\xbdM\x98B\x0cS\x08\xaaP\xdfG\x82nc\x94\xd9" +
-	"\xd7ic\xc3\x9f.\xdf-o\x84\x17.C\xa8c\xfe" +
-	"\x9c\x96m\xd0:2\xbax\x0b\x87\xbc\x8d\xc1*\x15\xcb" +
-	"\xe8\x88;\x12^c\x95\xdc\xcd\x93\xabW\xb5\xa4\xd6\x10" +
-	"\xaae\xc7tn\xb4)U\xf3dL{\xf2\x12\x87\xdc" +
-	"\xcb\x90\xc4\xbf*T\xb3\xe7!\"\xf9\x0a\x87\x1cgH" +
-	"\xb2\x7fT(g\x9f\xc6\xee\xe5\x90\x07\x18\x92\xfc\xb2\x0a" +
-	"\x03d\xbf\xc6\x8es\xc8C\x0cI\xe3o\x95\x86A$" +
-	"&4\xf6\x00\x87\xfc\x8c!i^Ri\x98D\xe2\xa4" +
-	"\xc6~\xca!\x7fl1V\xe9\x1fY\xdf\xdb@\xbc\xb8" +
-	"9J\x98\xe6\xb8Q\xfa\xc7$\xc4\xd52H\xd7\"\xe0" +
-	"\x0d\xe4Sm8\xeb\x93\xaa\xdd\xb1cw\x9a3*v" +
-	"'\xb3 n\xcb\xd6r%(\x14\xcb\x1b)\xd1\xfe\xf0" +
-	"HU\x0fB\xb4&\xd7\x19\x84\xfa\xc2t\xe9\xa4\x89\xa2" +
-	"\xf1\x9aA\xa1\x85]\x87\x98\xb5N\x98\x15T\xfc\xd6\x87" +
-	"t_\xf9\x104\xfd\xd3\x14\x99nb\x9d%7\xc8\x15" +
-	"&\x8fR\xa7\x1eU\xef\xbf\x00\x00\x00\xff\xff_\xdae" +
-	"\x01"
+type View_reverse_Params capnp.Struct
+
+// View_reverse_Params_TypeID is the unique identifier for the type View_reverse_Params.
+const View_reverse_Params_TypeID = 0x81107838ed1339e2
+
+func NewView_reverse_Params(s *capnp.Segment) (View_reverse_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return View_reverse_Params(st), err
+}
+
+func NewRootView_reverse_Params(s *capnp.Segment) (View_reverse_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return View_reverse_Params(st), err
+}
+
+func ReadRootView_reverse_Params(msg *capnp.Message) (View_reverse_Params, error) {
+	root, err := msg.Root()
+	return View_reverse_Params(root.Struct()), err
+}
+
+func (s View_reverse_Params) String() string {
+	str, _ := text.Marshal(0x81107838ed1339e2, capnp.Struct(s))
+	return str
+}
+
+func (s View_reverse_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_reverse_Params) DecodeFromPtr(p capnp.Ptr) View_reverse_Params {
+	return View_reverse_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_reverse_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s View_reverse_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_reverse_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_reverse_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// View_reverse_Params_List is a list of View_reverse_Params.
+type View_reverse_Params_List = capnp.StructList[View_reverse_Params]
+
+// NewView_reverse_Params creates a new list of View_reverse_Params.
+func NewView_reverse_Params_List(s *capnp.Segment, sz int32) (View_reverse_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[View_reverse_Params](l), err
+}
+
+// View_reverse_Params_Future is a wrapper for a View_reverse_Params promised by a client call.
+type View_reverse_Params_Future struct{ *capnp.Future }
+
+func (p View_reverse_Params_Future) Struct() (View_reverse_Params, error) {
+	s, err := p.Future.Struct()
+	return View_reverse_Params(s), err
+}
+
+type View_reverse_Results capnp.Struct
+
+// View_reverse_Results_TypeID is the unique identifier for the type View_reverse_Results.
+const View_reverse_Results_TypeID = 0xb999cf53764e76ae
+
+func NewView_reverse_Results(s *capnp.Segment) (View_reverse_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_reverse_Results(st), err
+}
+
+func NewRootView_reverse_Results(s *capnp.Segment) (View_reverse_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return View_reverse_Results(st), err
+}
+
+func ReadRootView_reverse_Results(msg *capnp.Message) (View_reverse_Results, error) {
+	root, err := msg.Root()
+	return View_reverse_Results(root.Struct()), err
+}
+
+func (s View_reverse_Results) String() string {
+	str, _ := text.Marshal(0xb999cf53764e76ae, capnp.Struct(s))
+	return str
+}
+
+func (s View_reverse_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (View_reverse_Results) DecodeFromPtr(p capnp.Ptr) View_reverse_Results {
+	return View_reverse_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s View_reverse_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s View_reverse_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s View_reverse_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s View_reverse_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s View_reverse_Results) View() View {
+	p, _ := capnp.Struct(s).Ptr(0)
+	return View(p.Interface().Client())
+}
+
+func (s View_reverse_Results) HasView() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s View_reverse_Results) SetView(v View) error {
+	if !v.IsValid() {
+		return capnp.Struct(s).SetPtr(0, capnp.Ptr{})
+	}
+	seg := s.Segment()
+	in := capnp.NewInterface(seg, seg.Message().AddCap(capnp.Client(v)))
+	return capnp.Struct(s).SetPtr(0, in.ToPtr())
+}
+
+// View_reverse_Results_List is a list of View_reverse_Results.
+type View_reverse_Results_List = capnp.StructList[View_reverse_Results]
+
+// NewView_reverse_Results creates a new list of View_reverse_Results.
+func NewView_reverse_Results_List(s *capnp.Segment, sz int32) (View_reverse_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[View_reverse_Results](l), err
+}
+
+// View_reverse_Results_Future is a wrapper for a View_reverse_Results promised by a client call.
+type View_reverse_Results_Future struct{ *capnp.Future }
+
+func (p View_reverse_Results_Future) Struct() (View_reverse_Results, error) {
+	s, err := p.Future.Struct()
+	return View_reverse_Results(s), err
+}
+
+func (p View_reverse_Results_Future) View() View {
+	return View(p.Future.Field(0, nil).Client())
+}
+
+const schema_c2974e3dc137fcee = "x\xda\xacUo\x88T\xd5\x1b~\xdfs\xee\x9d\xbb\xa3" +
+	";;s\xbc\xfb\x03Q~,+\x0a\xed\x80\xa2\xbbA" +
+	"\xb9\x10\xbb\xac.\xed\x8a+sV7K\x04\xb9;s" +
+	"t\xa6f\xee\xec\xde{wW-Z\xaa/AD\x91" +
+	"\x86\xa8\x09\x12E[Y&\xd8?\x13Jm)#)" +
+	"\x85\x90\xfeH%B\x1fBM\xc1H\xb3N\x9c;s" +
+	"\xef\x1dwW\xe9C\xdff\xce}\xee{\x9f\xf7}\x9f" +
+	"\xe79K\xd7\xd3NmY\xe2\xb2\x01\x84o\xd4c\xf2" +
+	"\xfcr\xf3\xe2\xbd[SO\x003\x11@3\x00\xda\xce" +
+	"\xd19\x08\x9a|\xb2\xa1\xe1\xec\x85\xfdG\x9f\x02\xde\x80" +
+	"(/\xdd\xbc\xe7\xd8}kv\x1d\x07\x9d\x18\x00\xe6$" +
+	"=n\x9e\xa2\xea\xd7I\xfa\x0b\xa0\xdc\xbe1w\xf4\xd9" +
+	"=\xcf=S)\xa3\xfbO\x0ei7\x00\xcdw\xb5\x83" +
+	"\x802\x91\xfea\xe7\xef\x8f\x9d{\x01\xb8\x89D\x9e\xf9" +
+	"q\xdf\xc4\xec\xf9_~\x00\xddh\x10\xd4L\xa1_5" +
+	"\x87u\xf5NI\x1f\x03\x94u\x9b\xe4\xe2\xb3/7\xef" +
+	"\x00f\xd2\x08\x0ch\x9e\xd4\xbf3\xbf\xf1\x81\xa7\xf5\xfb" +
+	"\xcd\xeb\xea\x97d\x0d\xb3_\xdc%s\xbbj:\xf8Y" +
+	"'\xaa\x83\xaf\xaff\xd6\xb5\xb7}\xbc\xb7J\x0a\xd5\xa3" +
+	"I}\x0e\x02\x9a\xa7\xf4\x0e@y\xfe\xfd\xbd}\x1f\x0d" +
+	"\xd8\xefT\x01\xaa\xb3\xb6\x8b\xfa,\x05\xb8\xe6\x13\x09\xbf" +
+	"\xcd\x1ah4\x02@\xb3\x10\xdbc\x0e\xc7\xb6\x00\x98\xc7" +
+	"b\x9f\x99\xcb\x0dE\xe4\xed\xd15\xa3k\xbf\xda\xfda" +
+	"\xed\xe7\x9a\x8dy\xaaZ\x8b\xa1>w\xf9\x8d\x0b\x87'" +
+	"/=\x7fB\x0d\xa1\xa6ve\xa2\xbd\xc6\x19s@\xd5" +
+	"1\xb9\xa1&\xf6\xde\x8eWb\xdb/\xcd\xfb~\x0a\xb8" +
+	"\x1b\x8d\x18\x80y\xd1\xf8\xc2\xbc\xae\xd0m\xd7\x8c\xf5\x08" +
+	"(W\xb6\xbe\xf9\xdb\xc0\x11\xe3\xcat8Qc\x8d\xdf" +
+	"0\xb7\xc5U\xf1\x91\xb8\xeaK\xbe\xf6V\xdf\xe6\x13\x03" +
+	"W\x80\xcd\x0f\xa9\x9e\x8e\xb7+\xaa\xdf\xc6\x15\xd5\x89\xa6" +
+	"G\x8f\xac|\xfc\xd7?\xa6\x97\xa3\x00\xe6\xf5\xf8yS" +
+	"\x9f\xa5\xca\xe1\xac\x83\xf0\x90t\xca#^\xc1\xde\xb2\x84" +
+	"f\xad!{\xa8\xfd\x81\x82\x18[\xe2\x88Q\xe1\xb8b" +
+	"a\xc6r\xac\x12\xba!\x86T0=\xc2r\xbcAa" +
+	"y\x90A\xe4)\xaa\x01h\x08\xc0\xac\x05\x00|#E" +
+	"\x9e'\xc8\x10\x1bQ\x1d\x8aU\x00<G\x91\x0f\x11D" +
+	"\xd2\x88\x04\x80\x95\xd2\x00<O\x91{\x04\x19\xc5F\xa4" +
+	"\x00lX\x1d\x16)\xf2\xa7\x09\x1a\x9eW\xc4: X" +
+	"\x07(\x0b\xb6\xebYvV\x00@p\x96\xcc\x97]\x0f" +
+	"\xeb\x81`=`\xb2$<\x0b\x1b\x003\x14\xfd\xb3\x06" +
+	"\xc0\xa9\x94\xfd\xb6\x0a\x9ep\x16v\xf8M\xb9\xbc>\xa4" +
+	"\xdd\xdd\x05\xc0;)\xf2\xd55\xb4{\x15\xed\x1e\x8a|" +
+	"\x1dAF\xaa\xbc\xf9 \x00\xcfP\xe4E\x82\xe3y\xcb" +
+	"\xce\x15\x85\x83,\x92< 2@\xe9\x8a\xa2\xc8ze" +
+	"G\x11NE\xeb\x00\xc4\x14\xa0\xcc\x96m\xd7s\xac\x02" +
+	"\x18\xb6\xe7\x06\xb4S\x91\xcb\x00o\xdb\xc0\x0a\xf5j\x93" +
+	"c\x15lOM\xbe\x8ej\xf5R\xfa=\xb4\xb4\x02\xf0" +
+	"\x85\x14\xf9R\x82\x09\xfc[V\x9aX<\x0f\x80\xdfE" +
+	"\x91\xdfM\xb0\xa9X(\x15<\x8c\x03\xc18 \xf5\xca" +
+	"\x98\x8atZ\xa56\xd37{T\x9bT8\xea\x83\x1a" +
+	"\xd5\x01B\x01\xa2}\xe8\x93\xb1\xb6=\x9bv3\x96\x06" +
+	"\xc2t#\xe9\x88\xech'f0\xaadL\x1d\x7f\xbf" +
+	"pG\x8a\x9e\x0b\x01\xa0\xe6y\xb1\\~dd\xa8\x8a" +
+	"@\x97k\xe1\x86\x12\xed\x00\xbc\x8e\"o$\xd8\xe1T" +
+	"\x9e\xa7\"\xdbLaO\xa7\xd7\xac\xec\xdc/\x12\xd4l" +
+	"Y\x15\xcd&\xdc\xfa2\xb5\xe0\xa5\x15)\xfc\xb7k\xc4" +
+	"\x80\x14\x15c|.\xd6\xe6dKWT\x9c-Z\x15" +
+	"\x95`\x8b6D+b\x8bZ\xa3\x10b\xcd\xedQ\xfb" +
+	"\xec\xff\x83\xe3=\x151\xca\xb5\x11g\xb9\"`Hm" +
+	"\xaf\xa9\xd7\xce\x89\xad\x1d\xfd\"[vr\xb2\xcf\xda6" +
+	"(\xfaE\x16\x8c\xb2\x93\xe3\xf5\xfeV\x83<\xc5 y" +
+	"\x19o\x07\xc2\xba\x0d\x8cn\x08\x0c\xf2\x9a-W\x1b_" +
+	"l \x09/!\x0c\"\x945w\x01a\xff3:*" +
+	"\xb3\xef\xc4\xa4Z|'\x8eWS\xe5V\x81\xcc\x14;" +
+	"\xbe\x02\xa8w\x8b\x02\xd2\x91\x02\x92\xa3\x051\x86\xac\xf6" +
+	"r\xf1m7\x93z\xfd\x861\xa7\xc4[c\xf8td" +
+	"\xf8\xd0\xef*\xbbVR\xe4\x19\xe5w\xac\xf8\xbd\xaf\x1f" +
+	"\x80\xaf\xa6\xc8\x1f$\x98\x1c\x12\xc2\x09\"\xc7p\xc5p" +
+	"`%\x99\xaf\xc6!\xa0Rex\xf5\xde\xc1S\xfe2" +
+	"\xc0O\xcf\xb9\x91\x87w+Z;)\xf2\xfd\xb5\x1e\xde" +
+	"\xb7\x01\x80\xbfD\x91O\x10L\x90\xbfd\x85\xd9\xab\x0a" +
+	"\xbb\x9f\"?@0Ao\xcaJ\x84\xbe\xae\xb0\x13\x14" +
+	"\xf9a\x82\x09\xedO\xd9\x88\x1a\x00;\xa4\xb0\x07(\xf2" +
+	"\xcf\x09&\xf4\x1b\xb2\x11u\x006\xa9\xb0\x9fR\xe4?" +
+	"M\xe9M\xaa?\x19Gl\x06Z\xd8\x1aflm\xe0" +
+	"J\xf5g\x1ab\xa6\x14Vg!\xf0_$\xb4/\xcc" +
+	"\xaaJ\xa7&\\\xd7\x8c\x09\x97\x8e\\<n\x97\xbd|" +
+	"\xc1\xde\x02\xb1\xe4\xc3#\xae\xdaE\xe8\x97;$D\xd5" +
+	"9KTv\x85\x97\xc3m\xa3G\x11\xbbC\xe1\xda^" +
+	"|+\x1a^\xd9\xa9\x8a/h\xa4{A\xa4\xbe\xa8\x91" +
+	"\xde\xd6H\x7f\xd1\x9a\xfb\xd2\xd1-dX\xc5\"\xc4\x9a" +
+	"J\x96\x97\xcdO\xcf\xee\xe4f\xa7\\\x9a~\xfcO\x00" +
+	"\x00\x00\xff\xff]P\xd4\xaa"
 
 func init() {
 	schemas.Register(schema_c2974e3dc137fcee,
+		0x81107838ed1339e2,
 		0x83bca0e4d70e0e82,
 		0x8b8f9a8dbc645c7a,
+		0x92dd7cf694dc2a0d,
 		0x9321a2d72dff5f08,
 		0x9764ff97950b0e11,
 		0x9bbf333a5450f2d0,
 		0xb06e55bb4d9bb7e2,
 		0xb8cc1b0ba89ddfd2,
+		0xb999cf53764e76ae,
 		0xc390eec5b4e4aaef,
-		0xd3cfb19ea98f99dd,
 		0xdb1aee7a06a493b6,
 		0xf107ba55f0ab3244,
 		0xf155c3664dada7ff,

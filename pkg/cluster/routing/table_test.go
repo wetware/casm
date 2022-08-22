@@ -285,6 +285,7 @@ func countRecords(it routing.Iterator) (i int) {
 
 type all struct{}
 
-func (all) String() string             { return "id" }
+func (all) String() string             { return "peer=*" }
+func (all) Key() routing.IndexKey      { return routing.PeerKey }
 func (all) PeerBytes() ([]byte, error) { return nil, nil }
 func (all) Match(routing.Record) bool  { return true }

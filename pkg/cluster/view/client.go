@@ -34,39 +34,58 @@ func (v View) Lookup(ctx context.Context, query Query) (FutureRecord, capnp.Rele
 	return FutureRecord(f.Result()), release
 }
 
-type Query func(QueryParams) error
+// func (v View) Iter(ctx context.Context, query Query) (Iterator, capnp.ReleaseFunc) {
+// 	f, release := api.View(v).Iter(ctx, func(ps api.View_iter_Params) error {
+// 		// XXX:  SET UP HANDLER HERE
 
-type QueryParams interface {
-	Selector() (api.View_Selector, error)
-	HasSelector() bool
-	SetSelector(v api.View_Selector) error
-	NewSelector() (api.View_Selector, error)
-}
+// 		return query(ps)
+// 	})
+
+// 	return Iterator{
+// 		// ...
+// 	}, release
+// }
+
+// type Iterator struct {
+// 	// ...
+// }
+
+// func (it Iterator) Err() error {
+
+// }
+
+// func (it Iterator) Next() routing.Record {
+
+// }
 
 type FutureRecord api.View_MaybeRecord_Future
 
 func (f FutureRecord) Await(ctx context.Context) (routing.Record, error) {
 	select {
 	case <-f.Done():
-		res, err := api.View_MaybeRecord_Future(f).Struct()
-		if err != nil {
-			return nil, err
-		}
-
-		if !res.HasJust() {
-			return nil, nil // no record
-		}
-
-		rec, err := res.Just()
-		if err != nil {
-			return nil, err
-		}
-
-		return newRecord(rec)
+		return f.Record()
 
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+func (f FutureRecord) Record() (routing.Record, error) {
+	res, err := api.View_MaybeRecord_Future(f).Struct()
+	if err != nil {
+		return nil, err
+	}
+
+	if !res.HasJust() {
+		return nil, nil // no record
+	}
+
+	rec, err := res.Just()
+	if err != nil {
+		return nil, err
+	}
+
+	return newRecord(rec)
 }
 
 type clientRecord struct {

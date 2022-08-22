@@ -2,6 +2,7 @@ package cluster_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -176,7 +177,7 @@ func not(h host.Host) func(peer.AddrInfo) bool {
 }
 
 func peers(n *cluster.Node) (ps peer.IDSlice) {
-	it, err := n.NewQuery().Iter(query.Select(all{}))
+	it, err := n.NewQuery().Iter(query.All())
 	if err != nil {
 		panic(err)
 	}
@@ -241,12 +242,14 @@ func selectPeer(id peer.ID) query.Selector {
 
 type peerIndex peer.ID
 
-func (peerIndex) String() string                 { return "id" }
+func (ix peerIndex) String() string              { return fmt.Sprintf("peer=%s", peer.ID(ix)) }
+func (ix peerIndex) Key() routing.IndexKey       { return routing.PeerKey }
 func (ix peerIndex) PeerBytes() ([]byte, error)  { return []byte(ix), nil }
 func (ix peerIndex) Match(r routing.Record) bool { return peer.ID(ix) == r.Peer() }
 
 type all struct{}
 
-func (all) String() string              { return "id" }
-func (all) PeerBytes() ([]byte, error)  { return nil, nil }
-func (all) Match(r routing.Record) bool { return true }
+func (all) String() string             { return "peer=*" }
+func (all) Key() routing.IndexKey      { return routing.PeerKey }
+func (all) PeerBytes() ([]byte, error) { return nil, nil }
+func (all) Match(routing.Record) bool  { return true }

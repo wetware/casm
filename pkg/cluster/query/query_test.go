@@ -56,7 +56,7 @@ func TestQuery(t *testing.T) {
 			// takes us *back* to a normal, forward-iterating query.
 			v := query.Query{Snapshot: snap}.Reverse().Reverse()
 
-			r, err := v.Lookup(query.Select(all{}))
+			r, err := v.Lookup(query.All())
 			require.NoError(t, err, "lookup should succeed")
 			require.NotNil(t, r, "should return record")
 
@@ -85,7 +85,7 @@ func TestQuery(t *testing.T) {
 
 			v := query.Query{Snapshot: snap}.Reverse()
 
-			_, err := v.Lookup(query.Select(all{}))
+			_, err := v.Lookup(query.All())
 			require.NoError(t, err, "lookup should succeed")
 		})
 	})
@@ -123,7 +123,7 @@ func TestQuery(t *testing.T) {
 			// takes us *back* to a normal, forward-iterating query.
 			v := query.Query{Snapshot: snap}.Reverse().Reverse()
 
-			it, err := v.Iter(query.Select(all{}))
+			it, err := v.Iter(query.All())
 			require.NoError(t, err, "lookup should succeed")
 			require.NotNil(t, it, "should return iterator")
 
@@ -155,7 +155,7 @@ func TestQuery(t *testing.T) {
 
 			v := query.Query{Snapshot: snap}.Reverse()
 
-			_, err := v.Iter(query.Select(all{}))
+			_, err := v.Iter(query.All())
 			require.NoError(t, err, "lookup should succeed")
 		})
 	})

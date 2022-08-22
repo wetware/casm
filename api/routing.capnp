@@ -44,8 +44,9 @@ interface View {
     # table. Views are not updated, and should therefore be queried
     # and discarded promptly.
 
-    lookup  @0 (selector :Selector) -> (result :MaybeRecord);
-    iter    @1 (handler :Handler, selector :Selector) -> ();
+    lookup  @0 (selector :Selector, constraints :List(Constraint)) -> (result :MaybeRecord);
+    iter    @1 (handler :Handler, selector :Selector, constraints :List(Constraint)) -> ();
+    reverse @2 () -> (view :View);
     
     interface Handler {
         recv @0 (record :Record) -> stream;
@@ -53,11 +54,16 @@ interface View {
 
     struct Selector {
         union {
-            match      @0 :Index;
-            range         :group {
-                min    @1 :Index;
-                max    @2 :Index;
-            }
+            all        @0 :Void;
+            match      @1 :Index;
+            from       @2 :Index;
+        }
+    }
+
+    struct Constraint {
+        union {
+            limit      @0 :UInt64;
+            to         @1 :Index;
         }
     }
 

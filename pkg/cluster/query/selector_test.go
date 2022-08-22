@@ -207,9 +207,3 @@ func newPeerID() peer.ID {
 
 	return id
 }
-
-type all struct{}
-
-func (all) String() string             { return "id" }
-func (all) PeerBytes() ([]byte, error) { return nil, nil }
-func (all) Match(routing.Record) bool  { return true }

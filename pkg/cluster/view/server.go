@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"fmt"
 
 	"capnproto.org/go/capnp/v3"
 
@@ -34,7 +35,7 @@ func (s Server) Lookup(ctx context.Context, call api.View_lookup) error {
 		return err
 	}
 
-	return s.bind(maybeRecord(call), selector(sel))
+	return s.bind(maybeRecord(call), selector(sel).Bind(query.First()))
 }
 
 func (s Server) Iter(ctx context.Context, call api.View_iter) error {
@@ -46,37 +47,39 @@ func (s Server) Iter(ctx context.Context, call api.View_iter) error {
 	return s.bind(iterator(ctx, call), selector(sel))
 }
 
+func (s Server) Reverse(ctx context.Context, call api.View_reverse) error {
+	return fmt.Errorf("NOT IMPLEMENTED") // XXX
+}
+
 func selector(s api.View_Selector) query.Selector {
 	switch s.Which() {
+	case api.View_Selector_Which_all:
+		return query.All()
+
 	case api.View_Selector_Which_match:
 		match, err := s.Match()
 		if err != nil {
 			return query.Failure(err)
 		}
 
-		return query.Select(index{match}).Bind(query.First())
+		return query.Select(index{match})
 
-	case api.View_Selector_Which_range:
-		min, err := s.Range().Min()
+	case api.View_Selector_Which_from:
+		from, err := s.From()
 		if err != nil {
 			return query.Failure(err)
 		}
 
-		max, err := s.Range().Max()
-		if err != nil {
-			return query.Failure(err)
-		}
-
-		return query.Range(index{min}, index{max})
+		return query.From(index{from})
 	}
 
 	return query.Failuref("invalid selector: %s", s.Which())
 }
 
 // binds a record
-type binder func(routing.Record) error
+type bindFunc func(routing.Record) error
 
-func (s Server) bind(bind binder, selector query.Selector) error {
+func (s Server) bind(bind bindFunc, selector query.Selector) error {
 	it, err := selector(s.Snapshot())
 	if err != nil {
 		return err
@@ -91,7 +94,7 @@ func (s Server) bind(bind binder, selector query.Selector) error {
 	return err
 }
 
-func maybeRecord(call api.View_lookup) binder {
+func maybeRecord(call api.View_lookup) bindFunc {
 	return func(r routing.Record) error {
 		res, err := call.AllocResults()
 		if err != nil {
@@ -102,11 +105,13 @@ func maybeRecord(call api.View_lookup) binder {
 	}
 }
 
-func iterator(ctx context.Context, call api.View_iter) binder {
-	s := streamutil.New(ctx)
-	// TODO(soon):  set up BBR here.
+func iterator(ctx context.Context, call api.View_iter) bindFunc {
+	stream := streamutil.New(ctx)
+	handler := call.Args().Handler() // TODO(soon):  set up BBR here.
+
 	return func(r routing.Record) error {
-		return s.Track(call.Args().Handler().Recv(ctx, record(r)))
+		call.Ack() // call lazily to provide backpressure
+		return stream.Track(handler.Recv(ctx, record(r)))
 	}
 }
 

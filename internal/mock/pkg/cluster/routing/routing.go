@@ -228,6 +228,20 @@ func (m *MockIndex) EXPECT() *MockIndexMockRecorder {
 	return m.recorder
 }
 
+// Key mocks base method.
+func (m *MockIndex) Key() routing.IndexKey {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Key")
+	ret0, _ := ret[0].(routing.IndexKey)
+	return ret0
+}
+
+// Key indicates an expected call of Key.
+func (mr *MockIndexMockRecorder) Key() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Key", reflect.TypeOf((*MockIndex)(nil).Key))
+}
+
 // Match mocks base method.
 func (m *MockIndex) Match(arg0 routing.Record) bool {
 	m.ctrl.T.Helper()
