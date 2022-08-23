@@ -3,6 +3,8 @@
 package casm
 
 import (
+	"sync"
+
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/libp2p/go-libp2p"
@@ -125,12 +127,7 @@ func (c BasicCap) Protocols() []protocol.ID { return c }
 // Upgrade a libp2p Stream to a capnp Transport.
 func (c BasicCap) Upgrade(s Stream) rpc.Transport {
 	if MatchLz4(s.Protocol()) {
-		s = lz4Stream{
-			s: s,
-			r: lz4.NewReader(s),
-			w: lz4.NewWriter(s),
-		}
-		return c.Upgrade(s)
+		return c.Upgrade(&Lz4Stream{Stream: s})
 	}
 
 	if MatchPacked(s.Protocol()) {
@@ -157,25 +154,36 @@ func MatchLz4(id protocol.ID) bool {
 	return lz4Prot.MatchProto(id)
 }
 
-type lz4Stream struct {
-	s Stream
-	r *lz4.Reader
-	w *lz4.Writer
+type Lz4Stream struct {
+	Stream
+
+	once sync.Once
+	r    *lz4.Reader
+	w    *lz4.Writer
 }
 
-func (s lz4Stream) Protocol() protocol.ID {
-	base, _ := protoutil.Split(s.s.Protocol())
+func (s *Lz4Stream) Protocol() protocol.ID {
+	base, _ := protoutil.Split(s.Stream.Protocol())
 	return base
 }
 
-func (s lz4Stream) Read(b []byte) (int, error) {
+func (s *Lz4Stream) Read(b []byte) (int, error) {
+	s.init()
 	return s.r.Read(b)
 }
 
-func (s lz4Stream) Write(b []byte) (int, error) {
+func (s *Lz4Stream) Write(b []byte) (int, error) {
+	s.init()
 	return s.w.Write(b)
 }
 
-func (s lz4Stream) Close() error {
-	return s.s.Close()
+func (s *Lz4Stream) Close() error {
+	return s.Stream.Close()
+}
+
+func (s *Lz4Stream) init() {
+	s.once.Do(func() {
+		s.r = lz4.NewReader(s.Stream)
+		s.w = lz4.NewWriter(s.Stream)
+	})
 }

@@ -49,3 +49,95 @@ func TestMatchPacked(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchLz4(t *testing.T) {
+	t.Parallel()
+	t.Helper()
+
+	for _, tt := range []struct {
+		name  string
+		proto protocol.ID
+		match bool
+	}{
+		{
+			name:  "raw",
+			proto: "/foo/bar",
+		},
+		{
+			name:  "packed",
+			proto: "/foo/bar/lz4",
+			match: true,
+		},
+		{
+			name:  "packed",
+			proto: "/foo/bar/packed/lz4",
+			match: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.match {
+				assert.True(t, casm.MatchLz4(tt.proto),
+					"%s should match %s", tt.name, tt.proto)
+			} else {
+				assert.False(t, casm.MatchLz4(tt.proto),
+					"%s should not match %s", tt.name, tt.proto)
+			}
+		})
+	}
+}
+
+func TestLz4MatchPacked(t *testing.T) {
+	t.Parallel()
+	t.Helper()
+
+	for _, tt := range []struct {
+		name  string
+		proto protocol.ID
+		match bool
+	}{
+		{
+			name:  "raw",
+			proto: "/foo/bar",
+		},
+		{
+			name:  "packed",
+			proto: "/foo/bar/lz4",
+		},
+		{
+			name:  "packed",
+			proto: "/foo/bar/packed/lz4",
+			match: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := casm.Lz4Stream{Stream: MockStream{tt.proto}}
+			if tt.match {
+				assert.True(t, casm.MatchPacked(s.Protocol()),
+					"%s should match %s", tt.name, tt.proto)
+			} else {
+				assert.False(t, casm.MatchPacked(s.Protocol()),
+					"%s should not match %s", tt.name, tt.proto)
+			}
+		})
+	}
+}
+
+type MockStream struct {
+	protocol.ID
+}
+
+func (s MockStream) Protocol() protocol.ID {
+	return s.ID
+}
+
+func (s MockStream) Read(b []byte) (int, error) {
+	return 0, nil
+}
+
+func (s MockStream) Write(b []byte) (int, error) {
+	return 0, nil
+}
+
+func (s MockStream) Close() error {
+	return nil
+}
