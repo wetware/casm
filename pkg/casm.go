@@ -175,8 +175,10 @@ func (s *Lz4Stream) Read(b []byte) (int, error) {
 func (s *Lz4Stream) Write(b []byte) (int, error) {
 	s.init()
 	n, err := s.w.Write(b)
-	s.w.Flush()
-	return n, err
+	if err != nil {
+		return n, err
+	}
+	return n, s.w.Flush()
 }
 
 func (s *Lz4Stream) Close() error {

@@ -24,6 +24,8 @@ import (
 )
 
 func TestVat(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		name string
 		cap  casm.BasicCap
@@ -42,12 +44,10 @@ func TestVat(t *testing.T) {
 		},
 		{
 			name: "packed and lz4",
-			cap:  casm.BasicCap{"/echo/lz4"},
+			cap:  casm.BasicCap{"/echo/packed/lz4"},
 		},
 	} {
 		t.Run("TestVat"+tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -86,7 +86,7 @@ func TestVat(t *testing.T) {
 			assert.Equal(t, "casm", sv.Loggable()["ns"],
 				"should use default namespace")
 
-			t.Run("Export", func(t *testing.T) {
+			t.Run("Export"+tt.name, func(t *testing.T) {
 				sv.Export(tt.cap, echoServer{})
 				cv.Export(tt.cap, echoServer{})
 
