@@ -3,12 +3,15 @@
 package casm
 
 import (
+	"sync"
+
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+	"github.com/pierrec/lz4/v4"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
 )
 
@@ -123,7 +126,10 @@ func (c BasicCap) Protocols() []protocol.ID { return c }
 
 // Upgrade a libp2p Stream to a capnp Transport.
 func (c BasicCap) Upgrade(s Stream) rpc.Transport {
-	// TODO(soon):  add support for lz4
+	if MatchLz4(s.Protocol()) {
+		return c.Upgrade(&Lz4Stream{Stream: s})
+	}
+
 	if MatchPacked(s.Protocol()) {
 		return rpc.NewPackedStreamTransport(s)
 	}
@@ -131,10 +137,53 @@ func (c BasicCap) Upgrade(s Stream) rpc.Transport {
 	return rpc.NewStreamTransport(s)
 }
 
-var packed = protoutil.Suffix("packed")
+var (
+	lz4Prot    = protoutil.Suffix("lz4")
+	packedProt = protoutil.Suffix("packed")
+)
 
 // MatchPacked returns true if the supplied protocol.ID requires
 // a packed Cap'n Proto transport.
 func MatchPacked(id protocol.ID) bool {
-	return packed.MatchProto(id)
+	return packedProt.MatchProto(id)
+}
+
+// MatchLz4 returns true if the supplied protocol.ID requires
+// a Lz4 compressed Cap'n Proto transport.
+func MatchLz4(id protocol.ID) bool {
+	return lz4Prot.MatchProto(id)
+}
+
+type Lz4Stream struct {
+	Stream
+
+	once sync.Once
+	r    *lz4.Reader
+	w    *lz4.Writer
+}
+
+func (s *Lz4Stream) Protocol() protocol.ID {
+	base, _ := protoutil.Split(s.Stream.Protocol())
+	return base
+}
+
+func (s *Lz4Stream) Read(b []byte) (int, error) {
+	s.init()
+	return s.r.Read(b)
+}
+
+func (s *Lz4Stream) Write(b []byte) (int, error) {
+	s.init()
+	return s.w.Write(b)
+}
+
+func (s *Lz4Stream) Close() error {
+	return s.Stream.Close()
+}
+
+func (s *Lz4Stream) init() {
+	s.once.Do(func() {
+		s.r = lz4.NewReader(s.Stream)
+		s.w = lz4.NewWriter(s.Stream)
+	})
 }
