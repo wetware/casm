@@ -29,8 +29,8 @@ func TestStream(t *testing.T) {
 		client := testing_api.Streamer_ServerToClient(server)
 		defer client.Release()
 
-		s := stream.New(ctx)
-		err := s.Track(client.Recv(ctx, nil))
+		s := stream.New[testing_api.Streamer_recv_Params](ctx)
+		err := s.Call(client.Recv, nil)
 		require.NoError(t, err, "streaming call should succeed")
 	})
 
@@ -44,20 +44,16 @@ func TestStream(t *testing.T) {
 		client := testing_api.Streamer_ServerToClient(server)
 		defer client.Release()
 
-		s := stream.New(ctx)
+		s := stream.New[testing_api.Streamer_recv_Params](ctx)
 
 		// make one successful call so that the receive-loop is
 		// started.
-		err := s.Track(client.Recv(context.Background(), nil))
+		err := s.Call(client.Recv, nil)
 		require.NoError(t, err, "streaming call should succeed")
 
 		cancel()
-
-		assert.Eventually(t, func() bool {
-			err := s.Track(client.Recv(ctx, nil))
-			return errors.Is(err, context.Canceled)
-		}, time.Second, time.Millisecond*100,
-			"context expiration should close stream")
+		assert.ErrorIs(t, s.Wait(), context.Canceled,
+			"should stop when context expires")
 	})
 
 	t.Run("HandlerError", func(t *testing.T) {
@@ -70,17 +66,17 @@ func TestStream(t *testing.T) {
 		client := testing_api.Streamer_ServerToClient(server)
 		defer client.Release()
 
-		s := stream.New(ctx)
+		s := stream.New[testing_api.Streamer_recv_Params](ctx)
 
 		// make one successful call so that the receive-loop is
 		// started.
-		err := s.Track(client.Recv(ctx, nil))
+		err := s.Call(client.Recv, nil)
 		require.NoError(t, err, "streaming call should succeed")
 
 		server.Store(errors.New("test"))
 
 		assert.Eventually(t, func() bool {
-			err := s.Track(client.Recv(ctx, nil))
+			err := s.Call(client.Recv, nil)
 			return errors.Is(err, server.Load())
 		}, time.Second, time.Millisecond*100,
 			"context expiration should close stream")
@@ -96,34 +92,32 @@ func TestStream(t *testing.T) {
 		client := testing_api.Streamer_ServerToClient(sleeper(ch))
 		defer client.Release()
 
-		s := stream.New(ctx)
+		s := stream.New[testing_api.Streamer_recv_Params](ctx)
 		var c ctr
 
 		// enqueue 1s worth of calls
 		for i := 0; i < 10; i++ {
-			err := s.Track(c.wrap(client.Recv(ctx, nil)))
+			err := s.Call(c.wrap(client.Recv), nil)
 			require.NoError(t, err, "streaming call should succeed")
 		}
 
-		// Next in-flight request will fail.  Subsequent calls are
-		// unaffected.
-		ch <- struct{}{}
-
-		require.Eventually(t, func() bool {
-			isZero := c.Zero()
-			return isZero
-		}, time.Second, time.Millisecond*100,
-			"queue should be drained (%d outstanding)", c.Int())
+		require.NoError(t, s.Wait(), "should finish successfully")
+		assert.True(t, c.Zero(), "should have released all references")
 	})
 }
 
 type ctr struct{ atomic.Int32 }
 
-func (c *ctr) wrap(f capnp_stream.StreamResult_Future, r capnp.ReleaseFunc) (capnp_stream.StreamResult_Future, capnp.ReleaseFunc) {
+type streamFunc func(context.Context, func(testing_api.Streamer_recv_Params) error) (capnp_stream.StreamResult_Future, capnp.ReleaseFunc)
+
+func (c *ctr) wrap(f streamFunc) streamFunc {
 	c.Inc()
-	return f, func() {
-		c.Dec()
-		r()
+	return func(ctx context.Context, args func(testing_api.Streamer_recv_Params) error) (capnp_stream.StreamResult_Future, capnp.ReleaseFunc) {
+		f, release := f(ctx, args)
+		return f, func() {
+			c.Dec()
+			release()
+		}
 	}
 }
 
