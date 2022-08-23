@@ -9,6 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/golang/mock/gomock"
@@ -30,6 +31,9 @@ var recs = []*record{
 func TestView_Lookup(t *testing.T) {
 	t.Parallel()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -40,7 +44,7 @@ func TestView_Lookup(t *testing.T) {
 		Times(1)
 	iter.EXPECT().
 		Next().
-		Return(recs[0]).
+		Return(recs[1]).
 		Times(1) // <- called, but skipped due to query.First()
 
 	snap := mock_routing.NewMockSnapshot(ctrl)
@@ -59,7 +63,8 @@ func TestView_Lookup(t *testing.T) {
 	client := server.View()
 	defer client.Release()
 
-	f, release := client.Lookup(context.Background(), view.All())
+	f, release := client.Lookup(ctx, view.All())
+	require.NotNil(t, release)
 	defer release()
 
 	r, err := f.Record()
@@ -68,40 +73,53 @@ func TestView_Lookup(t *testing.T) {
 	require.Equal(t, recs[0].Peer(), r.Peer())
 }
 
-// func TestView_Iter(t *testing.T) {
-// 	t.Parallel()
+func TestView_Iter(t *testing.T) {
+	t.Parallel()
 
-// 	ctrl := gomock.NewController(t)
-// 	defer ctrl.Finish()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-// 	iter := mock_routing.NewMockIterator(ctrl)
-// 	iter.EXPECT().
-// 		Next().
-// 		Return(recs[0]).
-// 		Times(1)
-// 	iter.EXPECT().
-// 		Next().
-// 		Return(recs[0]).
-// 		Times(1) // <- called, but skipped due to query.First()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-// 	snap := mock_routing.NewMockSnapshot(ctrl)
-// 	snap.EXPECT().
-// 		Get(gomock.Any()).
-// 		Return(iter, nil).
-// 		Times(1)
+	iter := mock_routing.NewMockIterator(ctrl)
+	for _, r := range recs {
+		iter.EXPECT().Next().Return(r).Times(1)
+	}
+	iter.EXPECT().Next().Return(nil).Times(1)
 
-// 	table := mock_cluster.NewMockRoutingTable(ctrl)
-// 	table.EXPECT().
-// 		Snapshot().
-// 		Return(snap).
-// 		Times(1)
+	snap := mock_routing.NewMockSnapshot(ctrl)
+	snap.EXPECT().
+		Get(gomock.Any()).
+		Return(iter, nil).
+		Times(1)
 
-// 	server := view.Server{RoutingTable: table}
-// 	client := server.View()
-// 	defer client.Release()
+	table := mock_cluster.NewMockRoutingTable(ctrl)
+	table.EXPECT().
+		Snapshot().
+		Return(snap).
+		Times(1)
 
-// 	client.Iter(context.Background(), view.All())
-// }
+	server := view.Server{RoutingTable: table}
+	client := server.View()
+	defer client.Release()
+
+	require.True(t, client.Client().IsValid(),
+		"should not be nil capability")
+
+	it, release := client.Iter(ctx, view.All())
+	require.NotZero(t, it)
+	require.NotNil(t, release)
+	defer release()
+
+	for i, rec := range recs {
+		assert.Equal(t, rec.Peer(), it.Next().Peer(),
+			"should match peer at index %d", i)
+	}
+
+	require.Nil(t, it.Next(), "iterator should be exhausted")
+	require.NoError(t, it.Err(), "iterator should not encounter error")
+}
 
 type record struct {
 	once sync.Once

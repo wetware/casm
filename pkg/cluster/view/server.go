@@ -10,7 +10,7 @@ import (
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/query"
 	"github.com/wetware/casm/pkg/cluster/routing"
-	streamutil "github.com/wetware/casm/pkg/util/stream"
+	"github.com/wetware/casm/pkg/util/stream"
 )
 
 type RoutingTable interface {
@@ -44,7 +44,15 @@ func (s Server) Iter(ctx context.Context, call api.View_iter) error {
 		return err
 	}
 
-	return s.bind(iterator(ctx, call), selector(sel))
+	stream := newRecordStream(ctx)
+	handler := call.Args().Handler() // TODO(soon):  set up BBR here.
+
+	if err = s.bind(iterator(stream, handler), selector(sel)); err == nil {
+		call.Ack()
+		err = stream.Wait()
+	}
+
+	return err
 }
 
 func (s Server) Reverse(ctx context.Context, call api.View_reverse) error {
@@ -105,13 +113,9 @@ func maybeRecord(call api.View_lookup) bindFunc {
 	}
 }
 
-func iterator(ctx context.Context, call api.View_iter) bindFunc {
-	stream := streamutil.New(ctx)
-	handler := call.Args().Handler() // TODO(soon):  set up BBR here.
-
+func iterator(s recordStream, h api.View_Handler) bindFunc {
 	return func(r routing.Record) error {
-		call.Ack() // call lazily to provide backpressure
-		return stream.Track(handler.Recv(ctx, record(r)))
+		return s.Call(h.Recv, record(r))
 	}
 }
 
@@ -185,4 +189,12 @@ func copyMeta(rec api.Heartbeat, r routing.Record) error {
 	}
 
 	return err
+}
+
+type recordStream struct {
+	*stream.Stream[api.View_Handler_recv_Params]
+}
+
+func newRecordStream(ctx context.Context) recordStream {
+	return recordStream{stream.New[api.View_Handler_recv_Params](ctx)}
 }

@@ -1,3 +1,5 @@
+//go:generate mockgen -source=view.go -destination=../../../internal/mock/pkg/cluster/view/view.go -package=mock_view
+
 package view
 
 import (
@@ -6,6 +8,11 @@ import (
 
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/routing"
+)
+
+type (
+	Selector   func(api.View_Selector) error
+	Constraint func(api.View_Constraint) error
 )
 
 type QueryParams interface {
@@ -48,11 +55,6 @@ func bindConstraints(cs []Constraint, ps QueryParams) error {
 
 	return err
 }
-
-type (
-	Selector   func(api.View_Selector) error
-	Constraint func(api.View_Constraint) error
-)
 
 type index struct{ api.View_Index }
 

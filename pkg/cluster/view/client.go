@@ -8,6 +8,7 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	api "github.com/wetware/casm/internal/api/routing"
+	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
@@ -34,29 +35,76 @@ func (v View) Lookup(ctx context.Context, query Query) (FutureRecord, capnp.Rele
 	return FutureRecord(f.Result()), release
 }
 
-// func (v View) Iter(ctx context.Context, query Query) (Iterator, capnp.ReleaseFunc) {
-// 	f, release := api.View(v).Iter(ctx, func(ps api.View_iter_Params) error {
-// 		// XXX:  SET UP HANDLER HERE
+func (v View) Iter(ctx context.Context, query Query) (Iterator, capnp.ReleaseFunc) {
+	var (
+		h          = make(handler)
+		f, release = api.View(v).Iter(ctx, h.Handler(query))
+	)
 
-// 		return query(ps)
-// 	})
+	return Iterator{
+		f:  casm.Future(f),
+		ch: h,
+	}, release
+}
 
-// 	return Iterator{
-// 		// ...
-// 	}, release
-// }
+// Iterator is a stateful object that enumerates routing
+// records.  Unlike routing.Iterator, it is safe to call
+// Iterator's methods concurrently.
+//
+// Callers SHOULD check the value of Err after a call to
+// Next returns nil.  If Err() == nil and Next() == nil,
+// the iterator is exhausted.
+type Iterator struct {
+	f  casm.Future
+	ch <-chan routing.Record
+}
 
-// type Iterator struct {
-// 	// ...
-// }
+func (it Iterator) Err() error {
+	select {
+	case <-it.f.Done():
+		return it.f.Err()
+	default:
+		return nil
+	}
+}
 
-// func (it Iterator) Err() error {
+func (it Iterator) Next() routing.Record {
+	return <-it.ch
+}
 
-// }
+type handler chan routing.Record
 
-// func (it Iterator) Next() routing.Record {
+func (ch handler) Shutdown() { close(ch) }
 
-// }
+func (ch handler) Handler(query Query) func(api.View_iter_Params) error {
+	return func(ps api.View_iter_Params) (err error) {
+		if err = query(ps); err == nil {
+			err = ps.SetHandler(api.View_Handler_ServerToClient(ch))
+		}
+
+		return
+	}
+}
+
+func (ch handler) Recv(ctx context.Context, call api.View_Handler_recv) error {
+	rec, err := call.Args().Record()
+	if err != nil {
+		return err
+	}
+
+	r, err := newRecord(rec)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case ch <- r:
+		return nil
+
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 type FutureRecord api.View_MaybeRecord_Future
 
