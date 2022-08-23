@@ -31,11 +31,11 @@ func (s Server) View() View {
 
 func (s Server) Lookup(ctx context.Context, call api.View_lookup) error {
 	sel, err := call.Args().Selector()
-	if err != nil {
-		return err
+	if err == nil {
+		err = s.bind(maybeRecord(call), selector(sel).Bind(query.First()))
 	}
 
-	return s.bind(maybeRecord(call), selector(sel).Bind(query.First()))
+	return err
 }
 
 func (s Server) Iter(ctx context.Context, call api.View_iter) error {
@@ -56,7 +56,7 @@ func (s Server) Iter(ctx context.Context, call api.View_iter) error {
 }
 
 func (s Server) Reverse(ctx context.Context, call api.View_reverse) error {
-	return fmt.Errorf("NOT IMPLEMENTED") // XXX
+	return fmt.Errorf("NOT IMPLEMENTED") // TODO(soon):  implement Reverse()
 }
 
 func selector(s api.View_Selector) query.Selector {
