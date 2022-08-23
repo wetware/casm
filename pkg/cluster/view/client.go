@@ -42,8 +42,8 @@ func (v View) Iter(ctx context.Context, query Query) (Iterator, capnp.ReleaseFun
 	)
 
 	return Iterator{
-		f:  casm.Future(f),
-		ch: h,
+		f: casm.Future(f),
+		C: h,
 	}, release
 }
 
@@ -55,8 +55,8 @@ func (v View) Iter(ctx context.Context, query Query) (Iterator, capnp.ReleaseFun
 // Next returns nil.  If Err() == nil and Next() == nil,
 // the iterator is exhausted.
 type Iterator struct {
-	f  casm.Future
-	ch <-chan routing.Record
+	f casm.Future
+	C <-chan routing.Record
 }
 
 func (it Iterator) Err() error {
@@ -66,10 +66,6 @@ func (it Iterator) Err() error {
 	default:
 		return nil
 	}
-}
-
-func (it Iterator) Next() routing.Record {
-	return <-it.ch
 }
 
 type handler chan routing.Record

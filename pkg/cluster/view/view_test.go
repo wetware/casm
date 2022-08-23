@@ -112,12 +112,18 @@ func TestView_Iter(t *testing.T) {
 	require.NotNil(t, release)
 	defer release()
 
-	for i, rec := range recs {
-		assert.Equal(t, rec.Peer(), it.Next().Peer(),
-			"should match peer at index %d", i)
+	assert.NoError(t, it.Err(), "iterator should be valid")
+
+	var got []routing.Record
+	for r := range it.C {
+		got = append(got, r)
 	}
 
-	require.Nil(t, it.Next(), "iterator should be exhausted")
+	for i, rec := range recs {
+		assert.Equal(t, rec.Peer(), got[i].Peer(),
+			"should match record %d", i)
+	}
+
 	require.NoError(t, it.Err(), "iterator should not encounter error")
 }
 
