@@ -13,6 +13,7 @@ import (
 	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/pierrec/lz4/v4"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
+	"go.uber.org/multierr"
 )
 
 const (
@@ -182,7 +183,7 @@ func (s *Lz4Stream) Write(b []byte) (int, error) {
 }
 
 func (s *Lz4Stream) Close() error {
-	return s.Stream.Close()
+	return multierr.Combine(s.Stream.Close(), s.w.Close())
 }
 
 func (s *Lz4Stream) init() {
