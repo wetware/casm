@@ -77,6 +77,6 @@ this agreement shall remain valid and enforceable.
 
 9. You understand that we may make reasonable updates, modifications, alterations or other changes (collectively, "Amendments") to this WWCA without notice, and that such changes apply to all past, present and future contributions.
 
-10. You understand that we may, at our sole discretion, waive waive any of the above rights, but that this does not imply a waiver of any remaining rights.
+10. You understand that we may, at our sole discretion, waive any of the above rights, but that this does not imply a waiver of any remaining rights.
 
 # Contributors
