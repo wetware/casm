@@ -1,5 +1,3 @@
-capnproto.org/go/capnp/v3 v3.0.0-alpha.5 h1:vpb0XdrXsIckOxtNWPdAlWDoekgH1YGQkvQYmZcdzCI=
-capnproto.org/go/capnp/v3 v3.0.0-alpha.5/go.mod h1:Dynqh9/LE2Wy7jYd2wIoYgqFwh3hZHCmG7j6/uCWX6c=
 capnproto.org/go/capnp/v3 v3.0.0-alpha.5.0.20220821014935-d129136359d8 h1:1Fu/Uh3T79mXmCq4/Pi1VJmKf1HvmUNBAmJPCMWYrYQ=
 capnproto.org/go/capnp/v3 v3.0.0-alpha.5.0.20220821014935-d129136359d8/go.mod h1:Dynqh9/LE2Wy7jYd2wIoYgqFwh3hZHCmG7j6/uCWX6c=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
