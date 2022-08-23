@@ -2,7 +2,6 @@ package stream
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"capnproto.org/go/capnp/v3"
@@ -35,8 +34,10 @@ func New[T ~capnp.StructKind](ctx context.Context) *Stream[T] {
 }
 
 func (s *Stream[T]) Reset(ctx context.Context) {
-	s.once = sync.Once{}
+	s.inflight.Store(0)
+	s.finish.Store(false)
 	s.done = make(chan struct{})
+	s.once = sync.Once{}
 	s.ctx = ctx
 	s.err = nil
 }
@@ -63,12 +64,7 @@ func (s *Stream[T]) Call(f func(context.Context, func(T) error) (stream.StreamRe
 // requests have finished or the context expires, whichever comes
 // first.
 func (s *Stream[T]) Wait() error {
-	s.mu.Lock()
-	if s.finish.Toggle(); s.err == nil {
-		// overwritten by recv
-		s.err = errors.New("call to Call() after Wait()")
-	}
-	s.mu.Unlock()
+	s.finish.Store(true)
 
 	select {
 	case <-s.ctx.Done():
