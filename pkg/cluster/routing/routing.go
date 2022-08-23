@@ -47,6 +47,7 @@ type Index interface {
 	Match(Record) bool
 }
 
+// IndexKey points to a column in the routing table.
 type IndexKey routing.View_Index_Which
 
 const (
