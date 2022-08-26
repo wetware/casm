@@ -8,9 +8,9 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/discovery"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/libp2p/go-libp2p/core/discovery"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/record"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -8,8 +8,8 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/multiformats/go-multistream"
 

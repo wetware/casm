@@ -8,9 +8,9 @@ package survey_test
 
 // 	"capnproto.org/go/capnp/v3"
 // 	"github.com/golang/mock/gomock"
-// 	"github.com/libp2p/go-libp2p-core/discovery"
-// 	"github.com/libp2p/go-libp2p-core/event"
-// 	"github.com/libp2p/go-libp2p-core/host"
+// 	"github.com/libp2p/go-libp2p/core/discovery"
+// 	"github.com/libp2p/go-libp2p/core/event"
+// 	"github.com/libp2p/go-libp2p/core/host"
 // 	"github.com/stretchr/testify/require"
 // 	"github.com/wetware/casm/internal/api/boot"
 // 	mock_net "github.com/wetware/casm/internal/mock/net"

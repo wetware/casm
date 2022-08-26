@@ -6,7 +6,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/libp2p/go-libp2p/core/record"
 	"github.com/muesli/termenv"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/urfave/cli/v2"

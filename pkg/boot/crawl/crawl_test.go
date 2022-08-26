@@ -11,10 +11,10 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
-	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/libp2p/go-libp2p/core/record"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	logtest "github.com/lthibault/log/test"
 	ma "github.com/multiformats/go-multiaddr"
@@ -113,12 +113,20 @@ func TestCrawler_request_noadvert(t *testing.T) {
 	conn := mock_net.NewMockPacketConn(ctrl)
 	conn.EXPECT().
 		Close().
-		DoAndReturn(bindClose(sync)).
+		DoAndReturn(func() error {
+			defer close(sync)
+			return nil
+		}).
 		Times(1)
 
 	readReq := conn.EXPECT().
 		ReadFrom(gomock.Any()).
-		DoAndReturn(readIncomingRequest(addr)).
+		DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
+			err = bindTestData(&initReq, &reqBytes, "../socket/testdata/request.golden.capnp")
+			n = copy(b, reqBytes)
+			a = addr
+			return
+		}).
 		Times(1)
 
 	conn.EXPECT().
@@ -160,14 +168,25 @@ func TestCrawler_advertise(t *testing.T) {
 	conn := mock_net.NewMockPacketConn(ctrl)
 	conn.EXPECT().
 		Close().
-		DoAndReturn(bindClose(syncClose)).
+		DoAndReturn(func() error {
+			defer close(syncClose)
+			return nil
+		}).
 		Times(1)
 
+	// expect an incoming request
 	readReq := conn.EXPECT().
 		ReadFrom(gomock.Any()).
-		DoAndReturn(readIncomingRequestAfter(addr, syncAdvert)).
+		DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
+			err = bindTestData(&initReq, &reqBytes, "../socket/testdata/request.golden.capnp")
+			n = copy(b, reqBytes)
+			a = addr
+			<-syncAdvert
+			return
+		}).
 		Times(1)
 
+	// expect to write a response
 	conn.EXPECT().
 		WriteTo(matchOutgoingResponse(), gomock.Eq(addr)).
 		After(readReq).
@@ -177,6 +196,7 @@ func TestCrawler_advertise(t *testing.T) {
 		}).
 		Times(1)
 
+	// block on next read indefinitely
 	conn.EXPECT().
 		ReadFrom(gomock.Any()).
 		After(readReq).
@@ -222,7 +242,10 @@ func TestCrawler_find_peers(t *testing.T) {
 	conn := mock_net.NewMockPacketConn(ctrl)
 	conn.EXPECT().
 		Close().
-		DoAndReturn(bindClose(syncClose)).
+		DoAndReturn(func() error {
+			defer close(syncClose)
+			return nil
+		}).
 		Times(1)
 
 	conn.EXPECT().
@@ -235,7 +258,13 @@ func TestCrawler_find_peers(t *testing.T) {
 
 	conn.EXPECT().
 		ReadFrom(gomock.Any()).
-		DoAndReturn(readIncomingResponseAfter(addr, syncReq)).
+		DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
+			err = bindTestData(&initReq, &reqBytes, "../socket/testdata/response.golden.capnp")
+			n = copy(b, reqBytes)
+			a = addr
+			<-syncReq
+			return
+		}).
 		MinTimes(1)
 
 	conn.EXPECT().
@@ -262,13 +291,6 @@ func TestCrawler_find_peers(t *testing.T) {
 	assert.NotEmpty(t, ps, "should find one peer")
 }
 
-func bindClose(sync chan<- struct{}) func() error {
-	return func() error {
-		defer close(sync)
-		return nil
-	}
-}
-
 func blockUntilClosed(sync <-chan struct{}) func([]byte) (int, net.Addr, error) {
 	return func([]byte) (int, net.Addr, error) {
 		<-sync
@@ -280,41 +302,6 @@ var (
 	reqBytes []byte
 	initReq  sync.Once
 )
-
-func readIncomingRequest(from net.Addr) func([]byte) (int, net.Addr, error) {
-	return func(b []byte) (n int, addr net.Addr, err error) {
-		err = bindTestData(&initReq, &reqBytes, "../socket/testdata/request.golden.capnp")
-		n = copy(b, reqBytes)
-		addr = from
-		return
-	}
-}
-
-func readIncomingRequestAfter(from net.Addr, sync <-chan struct{}) func([]byte) (int, net.Addr, error) {
-	bind := readIncomingRequest(from)
-	return func(b []byte) (int, net.Addr, error) {
-		<-sync
-		return bind(b)
-	}
-}
-
-func readIncomingResponse(from net.Addr) func([]byte) (int, net.Addr, error) {
-	return func(b []byte) (n int, addr net.Addr, err error) {
-		err = bindTestData(&initReq, &reqBytes, "../socket/testdata/response.golden.capnp")
-		n = copy(b, reqBytes)
-		addr = from
-		return
-	}
-}
-
-func readIncomingResponseAfter(from net.Addr, sync <-chan struct{}) func([]byte) (int, net.Addr, error) {
-	bind := readIncomingResponse(from)
-
-	return func(b []byte) (int, net.Addr, error) {
-		<-sync
-		return bind(b)
-	}
-}
 
 func matchOutgoingResponse() gomock.Matcher {
 	return &matchResponse{}

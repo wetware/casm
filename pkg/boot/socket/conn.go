@@ -4,8 +4,8 @@ import (
 	"context"
 	"net"
 
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/record"
 	"golang.org/x/time/rate"
 )
 

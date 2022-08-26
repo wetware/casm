@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-kad-dht/dual"
+	"github.com/libp2p/go-libp2p/core/host"
 	routedhost "github.com/libp2p/go-libp2p/p2p/host/routed"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/fx"

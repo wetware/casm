@@ -6,8 +6,8 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/sync"
-	"github.com/libp2p/go-libp2p-core/discovery"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/discovery"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/lthibault/log"
 	"github.com/wetware/casm/pkg/boot"
 )

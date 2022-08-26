@@ -10,7 +10,7 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	rpc "capnproto.org/go/capnp/v3/rpc"
 	gomock "github.com/golang/mock/gomock"
-	protocol "github.com/libp2p/go-libp2p-core/protocol"
+	protocol "github.com/libp2p/go-libp2p/core/protocol"
 	casm "github.com/wetware/casm/pkg"
 )
 

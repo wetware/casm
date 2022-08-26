@@ -1,9 +1,9 @@
 package pubsubutil
 
 // import (
-// 	"github.com/libp2p/go-libp2p-core/discovery"
-// 	"github.com/libp2p/go-libp2p-core/host"
-// "github.com/libp2p/go-libp2p-core/discovery"
+// 	"github.com/libp2p/go-libp2p/core/discovery"
+// 	"github.com/libp2p/go-libp2p/core/host"
+// "github.com/libp2p/go-libp2p/core/discovery"
 
 // 	"github.com/libp2p/go-libp2p-kad-dht/dual"
 // 	pubsub "github.com/libp2p/go-libp2p-pubsub"

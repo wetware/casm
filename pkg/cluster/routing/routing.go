@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/wetware/casm/internal/api/routing"
 )
 

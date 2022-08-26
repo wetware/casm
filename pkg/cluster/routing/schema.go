@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-memdb"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	b58 "github.com/mr-tron/base58/base58"
 	"go.uber.org/atomic"
 )

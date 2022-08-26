@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/record"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/record"
 	"github.com/wetware/casm/internal/api/boot"
 )
 
@@ -40,21 +40,21 @@ func (r Record) Namespace() (string, error) {
 }
 
 func (r Record) Peer() (id peer.ID, err error) {
-	var s string
+	var b []byte
 	switch r.Type() {
 	case boot.Packet_Which_request:
-		if s, err = r.asPacket().Request().From(); err == nil {
-			id, err = peer.IDFromString(s)
+		if b, err = r.asPacket().Request().FromBytes(); err == nil {
+			id, err = peer.IDFromBytes(b)
 		}
 
 	case boot.Packet_Which_survey:
-		if s, err = r.asPacket().Survey().From(); err == nil {
-			id, err = peer.IDFromString(s)
+		if b, err = r.asPacket().Survey().FromBytes(); err == nil {
+			id, err = peer.IDFromBytes(b)
 		}
 
 	case boot.Packet_Which_response:
-		if s, err = r.asPacket().Response().Peer(); err == nil {
-			id, err = peer.IDFromString(s)
+		if b, err = r.asPacket().Response().PeerBytes(); err == nil {
+			id, err = peer.IDFromBytes(b)
 		}
 
 	default:

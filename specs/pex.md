@@ -68,7 +68,7 @@ Key properties of the PeX protocol are:
 
 ## Description
 
-At its core, PeX is a peer-sampling service that provides clients with a uniformly-random subset of peer addresses.  It adheres to libp2p's [Discovery](https://github.com/libp2p/go-libp2p-core/blob/master/discovery/discovery.go) API, allowing it to integrate seemlessly with existing applications.  In particular, it is suitable for use with PubSub, which powers CASM's core clustering service.
+At its core, PeX is a peer-sampling service that provides clients with a uniformly-random subset of peer addresses.  It adheres to libp2p's [Discovery](https://github.com/libp2p/go-libp2p/core/blob/master/discovery/discovery.go) API, allowing it to integrate seemlessly with existing applications.  In particular, it is suitable for use with PubSub, which powers CASM's core clustering service.
 
 PeX maintains a bounded cache of peer addresses.  Updates to the cache are performed by gossipping with peers currently in the cache.  The result is an unstructured overlay network, similar to the one described in *[Gossip-Based Peer Sampling](https://dl.acm.org/doi/abs/10.1145/1275517.1275520)*.
 
