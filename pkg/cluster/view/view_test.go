@@ -118,6 +118,7 @@ func TestView_Iter(t *testing.T) {
 	for r := range it.C {
 		got = append(got, r)
 	}
+	require.Len(t, got, len(recs))
 
 	for i, rec := range recs {
 		assert.Equal(t, rec.Peer(), got[i].Peer(),
