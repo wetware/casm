@@ -138,7 +138,7 @@ type clientRecord struct {
 	pulse.Heartbeat
 }
 
-func newRecord(rec api.View_Record) (routing.Record, error) {
+func newRecord(rec api.View_Record) (*clientRecord, error) {
 	id, err := rec.Peer()
 	if err != nil {
 		return nil, fmt.Errorf("peer:  %w", err)
