@@ -128,7 +128,7 @@ func (e *emitter) NewTicker() *jitterbug.Ticker {
 
 	return jitterbug.New(e.TTL()/2, jitterbug.Uniform{
 		Min:    e.TTL() / 10,
-		Source: rand.New(rand.NewSource(rand.Int63())),
+		Source: rand.New(rand.NewSource(time.Now().UnixNano())),
 	})
 }
 
