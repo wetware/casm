@@ -121,6 +121,11 @@ func (e *emitter) Emit(ctx context.Context, p publisher, opt ...pubsub.PubOpt) e
 }
 
 func (e *emitter) NewTicker() *jitterbug.Ticker {
+	// Emit may be called concurrently through a call to
+	// Node.Bootstrap().
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	return jitterbug.New(e.TTL()/2, jitterbug.Uniform{
 		Min:    e.TTL() / 10,
 		Source: rand.New(rand.NewSource(rand.Int63())),
