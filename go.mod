@@ -34,6 +34,7 @@ require (
 	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
+	github.com/cheekybits/genny v1.0.0 // indirect
 	github.com/containerd/cgroups v1.0.4 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
@@ -75,8 +76,10 @@ require (
 	github.com/libp2p/go-openssl v0.1.0 // indirect
 	github.com/libp2p/go-reuseport v0.2.0 // indirect
 	github.com/libp2p/go-yamux/v3 v3.1.2 // indirect
-	github.com/lucas-clemente/quic-go v0.29.0 // indirect
+	github.com/lucas-clemente/quic-go v0.28.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
+	github.com/marten-seemann/qtls-go1-16 v0.1.5 // indirect
+	github.com/marten-seemann/qtls-go1-17 v0.1.2 // indirect
 	github.com/marten-seemann/qtls-go1-18 v0.1.2 // indirect
 	github.com/marten-seemann/qtls-go1-19 v0.1.0 // indirect
 	github.com/marten-seemann/tcp v0.0.0-20210406111302-dfbc87cc63fd // indirect
@@ -116,7 +119,6 @@ require (
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.uber.org/zap v1.23.0 // indirect
 	golang.org/x/crypto v0.0.0-20220826181053-bd7e27e6170d // indirect
-	golang.org/x/exp v0.0.0-20220827204233-334a2380cb91 // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220818022119-ed83ed61efb9 // indirect
 	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde // indirect
 	golang.org/x/sys v0.0.0-20220825204002-c680a09ffe64 // indirect
