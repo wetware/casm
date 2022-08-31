@@ -15,16 +15,12 @@ import (
 
 type View api.View
 
-func (v View) Client() capnp.Client {
-	return capnp.Client(v)
-}
-
 func (v View) AddRef() View {
-	return View(v.Client().AddRef())
+	return View(capnp.Client(v).AddRef())
 }
 
 func (v View) Release() {
-	v.Client().Release()
+	capnp.Client(v).Release()
 }
 
 func (v View) Lookup(ctx context.Context, query Query) (FutureRecord, capnp.ReleaseFunc) {

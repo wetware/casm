@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"capnproto.org/go/capnp/v3"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,7 @@ func TestView_Lookup(t *testing.T) {
 		Times(1)
 
 	server := view.Server{RoutingTable: table}
-	client := server.View()
+	client := view.View(server.Client())
 	defer client.Release()
 
 	f, release := client.Lookup(ctx, view.All())
@@ -101,10 +102,10 @@ func TestView_Iter(t *testing.T) {
 		Times(1)
 
 	server := view.Server{RoutingTable: table}
-	client := server.View()
+	client := view.View(server.Client())
 	defer client.Release()
 
-	require.True(t, client.Client().IsValid(),
+	require.True(t, capnp.Client(client).IsValid(),
 		"should not be nil capability")
 
 	it, release := client.Iter(ctx, view.All())

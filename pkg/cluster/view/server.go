@@ -25,6 +25,10 @@ type Server struct {
 	RoutingTable
 }
 
+func (s Server) Client() capnp.Client {
+	return capnp.Client(s.View())
+}
+
 func (s Server) View() View {
 	return View(api.View_ServerToClient(s))
 }
