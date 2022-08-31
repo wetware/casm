@@ -64,6 +64,7 @@ func (s *Stream[T]) Call(f func(context.Context, func(T) error) (stream.StreamRe
 // requests have finished or the context expires, whichever comes
 // first.
 func (s *Stream[T]) Wait() error {
+	s.once.Do(func() { go s.recv() })
 	s.finish.Store(true)
 
 	select {
