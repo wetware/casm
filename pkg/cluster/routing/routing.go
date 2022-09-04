@@ -90,12 +90,6 @@ type HostIndex interface {
 	HostBytes() ([]byte, error)
 }
 
-// MetaIndex is an optional interface that Records may implement
-// to provide fast, allocation-free construction of meta indexes.
-type MetaIndex interface {
-	MetaBytes() ([][]byte, error)
-}
-
 // Iterator is a stateful object that enumerates routing
 // records.  Iterator's methods are NOT guaranteed to be
 // thread-safe, but implementations MUST permit multiple

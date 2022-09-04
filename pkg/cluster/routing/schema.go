@@ -205,13 +205,8 @@ func argsToString(args ...any) (string, error) {
 type metaIndexer struct{}
 
 func (metaIndexer) FromObject(obj any) (bool, [][]byte, error) {
-	switch x := obj.(type) {
-	case MetaIndex:
-		indexes, err := x.MetaBytes()
-		return len(indexes) > 0, indexes, err
-
-	case Record:
-		meta, err := x.Meta()
+	if r, ok := obj.(Record); ok {
+		meta, err := r.Meta()
 		if err != nil || meta.Len() == 0 {
 			return false, nil, err
 		}
