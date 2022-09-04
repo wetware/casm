@@ -156,11 +156,14 @@ func (m Meta) Get(key string) (string, error) {
 
 // Index returns a set of indexes for the metadata fields.
 func (m Meta) Index() (indexes [][]byte, err error) {
-	indexes = make([][]byte, m.Len())
-	for i := range indexes {
-		if indexes[i], err = capnp.TextList(m).BytesAt(i); err != nil {
+	var index []byte
+	for i := 0; i < m.Len(); i++ {
+		index, err = capnp.TextList(m).BytesAt(i)
+		if err != nil {
 			break
 		}
+
+		indexes = append(indexes, index)
 	}
 
 	return
