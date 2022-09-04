@@ -84,13 +84,13 @@ type PeerIndex interface {
 	PeerBytes() ([]byte, error)
 }
 
-// PeerIndex is an optional interface that Records may implement
+// HostIndex is an optional interface that Records may implement
 // to provide fast, allocation-free construction of host indexes.
 type HostIndex interface {
 	HostBytes() ([]byte, error)
 }
 
-// PeerIndex is an optional interface that Records may implement
+// MetaIndex is an optional interface that Records may implement
 // to provide fast, allocation-free construction of meta indexes.
 type MetaIndex interface {
 	MetaBytes() ([][]byte, error)
