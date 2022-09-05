@@ -23,7 +23,7 @@ func schema(clock *atomic.Time) *memdb.TableSchema {
 			},
 			"ttl": {
 				Name:    "ttl",
-				Indexer: (*timeIndexer)(clock),
+				Indexer: timeIndexer{},
 			},
 			"instance": {
 				Name:    "instance",
@@ -64,14 +64,17 @@ func (peerIndexer) FromArgs(args ...any) ([]byte, error) {
 	}
 
 	switch id := args[0].(type) {
+	case PeerIndex:
+		return id.PeerBytes()
+
+	case Record:
+		return []byte(id.Peer()), nil
+
 	case string:
 		return b58.Decode(id)
 
 	case peer.ID:
 		return []byte(id), nil
-
-	case PeerIndex:
-		return id.PeerBytes()
 	}
 
 	return nil, errType(args)
@@ -120,12 +123,11 @@ func uint32ToBytes(u uint32) []byte {
 	return b
 }
 
-type timeIndexer atomic.Time
+type timeIndexer struct{}
 
-func (ix *timeIndexer) FromObject(obj any) (bool, []byte, error) {
-	if rec, ok := obj.(Record); ok {
-		t := (*atomic.Time)(ix).Load().Add(rec.TTL())
-		return true, timeToBytes(t), nil
+func (timeIndexer) FromObject(obj any) (bool, []byte, error) {
+	if r, ok := obj.(*record); ok {
+		return true, timeToBytes(r.Deadline), nil
 	}
 
 	return false, nil, errType(obj)
@@ -162,7 +164,7 @@ func argsToTime(args ...any) (time.Time, error) {
 		return t, nil
 	}
 
-	return time.Time{}, errNArgs(args)
+	return time.Time{}, errType(args[0])
 }
 
 type hostnameIndexer struct{}

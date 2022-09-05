@@ -53,6 +53,7 @@ func (table Table) Advance(t time.Time) {
 }
 
 func (table Table) expiredRecords(tx stm.Txn, t time.Time) bool {
+
 	it, _ := tx.ReverseLowerBound(table.records, "ttl", t)
 	return it != nil && it.Next() != nil
 }
@@ -81,7 +82,7 @@ func (table Table) Upsert(rec Record) bool {
 }
 
 func (table Table) valid(tx stm.Txn, rec Record) bool {
-	v, err := tx.First(table.records, "id", rec.Peer())
+	v, err := tx.First(table.records, "id", rec)
 	if v == nil {
 		return err == nil
 	}
@@ -99,7 +100,28 @@ func (table Table) valid(tx stm.Txn, rec Record) bool {
 }
 
 func (table Table) upsert(wx stm.Txn, rec Record) {
-	if err := wx.Insert(table.records, rec); err != nil {
-		panic(err)
+	_ = wx.Insert(table.records, table.withDeadline(rec))
+}
+
+// record wraps a Record and provides a stable deadline, calculated
+// upon instantiation of the struct.  This is required in order for
+// memdb to compute a consistent TTL index.
+type record struct {
+	Record
+	Deadline time.Time
+}
+
+func (table Table) withDeadline(rec Record) *record {
+	return &record{
+		Record:   rec,
+		Deadline: table.clock.Load().Add(rec.TTL()),
 	}
+}
+
+func (r record) PeerBytes() ([]byte, error) {
+	return r.Record.(PeerIndex).PeerBytes()
+}
+
+func (r record) HostBytes() ([]byte, error) {
+	return r.Record.(HostIndex).HostBytes()
 }

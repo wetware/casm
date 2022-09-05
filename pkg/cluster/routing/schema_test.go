@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"go.uber.org/atomic"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -93,11 +92,18 @@ func TestTimeIdexer(t *testing.T) {
 	t.Helper()
 
 	ttl := time.Millisecond * 1024
-	clock := atomic.NewTime(t0)
+	deadline := t0.Add(ttl)
 
 	t.Run("FromObject", func(t *testing.T) {
-		rec := testRecord{ttl: ttl}
-		ok, index, err := (*timeIndexer)(clock).FromObject(rec)
+		_, _, err := timeIndexer{}.FromObject(testRecord{})
+		require.Error(t, err, "should fail if object is not *record")
+
+		rec := &record{
+			Record:   testRecord{},
+			Deadline: deadline,
+		}
+
+		ok, index, err := timeIndexer{}.FromObject(rec)
 		assert.NoError(t, err, "should index record")
 		assert.True(t, ok, "record should have TTL index")
 
@@ -107,7 +113,7 @@ func TestTimeIdexer(t *testing.T) {
 	})
 
 	t.Run("FromArgs", func(t *testing.T) {
-		index, err := (*timeIndexer)(clock).FromArgs(t0)
+		index, err := timeIndexer{}.FromArgs(t0)
 		assert.NoError(t, err, "should parse argument")
 
 		want := make([]byte, 8)
@@ -118,10 +124,10 @@ func TestTimeIdexer(t *testing.T) {
 	})
 
 	t.Run("OrderIsPreserved", func(t *testing.T) {
-		ix0, err := (*timeIndexer)(clock).FromArgs(t0)
+		ix0, err := timeIndexer{}.FromArgs(t0)
 		require.NoError(t, err)
 
-		ix1, err := (*timeIndexer)(clock).FromArgs(t0.Add(time.Millisecond))
+		ix1, err := timeIndexer{}.FromArgs(t0.Add(time.Millisecond))
 		require.NoError(t, err)
 
 		require.Less(t, ix0, ix1, "should preserve time ordering (ix0 < ix1)")

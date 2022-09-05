@@ -39,7 +39,7 @@ func TestRoutingTable_upsert(t *testing.T) {
 		"should ACCEPT non-matching instance id and matching sequence")
 }
 
-func TestAdvance(t *testing.T) {
+func TestRoutingTable_advance(t *testing.T) {
 	t.Parallel()
 
 	table := routing.New(t0)
@@ -52,41 +52,116 @@ func TestAdvance(t *testing.T) {
 		{ttl: time.Millisecond * 100},
 	}
 
-	for _, rec := range recs {
-		require.True(t, table.Upsert(rec), "must upsert record")
+	for i, rec := range recs {
+		require.True(t, table.Upsert(rec), "must upsert record %d", i)
 	}
 
-	it, err := table.Snapshot().Get(all{}) // query whole table
-	require.NoError(t, err, "query should succeed")
-	require.NotNil(t, it, "iterator should not be nil")
-	require.Equal(t, len(recs), countRecords(it), "should contain all four records")
+	for _, tick := range []struct {
+		offset  time.Duration
+		expect  int
+		message string
+	}{
+		{
+			offset:  time.Millisecond * 0,
+			expect:  6,
+			message: "should not expire any records",
+		},
+		{
+			offset:  time.Millisecond * 1, // HACK: bug in ReverseLowerBound
+			expect:  5,
+			message: "should expire one record",
+		},
+		{
+			offset:  time.Millisecond * 5,
+			expect:  5,
+			message: "should not expre any records",
+		},
+		{
+			offset:  time.Millisecond * 10,
+			expect:  2,
+			message: "should expire three additional records (4 total)",
+		},
+		{
+			offset:  time.Millisecond * 50,
+			expect:  2,
+			message: "should not expre any records",
+		},
+		{
+			offset:  time.Millisecond * 100,
+			expect:  0,
+			message: "should expire two additional records (6 total)",
+		},
+	} {
 
-	t.Run("DropOne", func(t *testing.T) {
-		table.Advance(t0.Add(time.Millisecond + 1)) // HACK:  LowerBound is '<'
+		// HACK:  ReverseLowerBound has a bug, such that it iterates only
+		//        over entries with indexes that are *strictly* lower than
+		//        the one provided as an argument.  We add 1ns to slightly
+		//        overshoot.
+		//
+		// See:   https://github.com/hashicorp/go-memdb/issues/96
+		table.Advance(t0.Add(tick.offset + 1))
 
 		it, err := table.Snapshot().Get(all{}) // query whole table
 		require.NoError(t, err, "query should succeed")
 		require.NotNil(t, it, "iterator should not be nil")
-		assert.Equal(t, len(recs)-1, countRecords(it), "should drop one record")
-	})
+		require.Equal(t, tick.expect, countRecords(it),
+			"%s at offset %s", tick.message, tick.offset)
+	}
+}
 
-	t.Run("DropTwo", func(t *testing.T) {
-		table.Advance(t0.Add(time.Millisecond*10 + 1)) // HACK:  LowerBound is '<'
+func TestRegression_ttl_index(t *testing.T) {
+	t.Parallel()
 
-		it, err := table.Snapshot().Get(all{}) // query whole table
-		require.NoError(t, err, "query should succeed")
-		require.NotNil(t, it, "iterator should not be nil")
-		assert.Equal(t, len(recs)-4, countRecords(it), "should drop one record")
-	})
+	/*
+		This is a regression test for a bug in which server nodes
+		would return empty views after a few seconds of operation.
 
-	t.Run("DropRemaining", func(t *testing.T) {
-		table.Advance(t0.Add(time.Hour))
+		The issue was caused by an earlier version of timeIndexer
+		dynamically computing a deadline from Record.TTL().  This
+		resulted in unstable "ttl" index values; timeIndexer would
+		produce different index values based on the current clock-
+		state.  As a result, updates to the record would fail to
+		remove the *old* ttl index.  This in turn would cause the
+		*old* record to be returned in the call to 'expireRecords'.
+		Since the old record had the same primary key as the new
+		record, the ensuing call to delete on the old record would
+		also delete the *new* record.
 
-		it, err := table.Snapshot().Get(all{}) // query whole table
-		require.NoError(t, err, "query should succeed")
-		require.NotNil(t, it, "iterator should not be nil")
-		require.Nil(t, it.Next(), "should drop all remaining records")
-	})
+		We test for this regression by repeatedly updating a record
+		with a fixed TTL, and checking that it survives beyond its
+		original deadline.
+	*/
+
+	table := routing.New(t0)
+
+	for i, d := range []time.Duration{
+		time.Millisecond * 1,
+		time.Millisecond * 50,
+		time.Millisecond * 100, // original deadline
+		time.Millisecond * 150,
+		time.Millisecond * 200,
+		time.Millisecond * 250,
+		time.Millisecond * 300,
+	} {
+		rec := &record{
+			id:  "test-id",
+			ttl: time.Millisecond * 100,
+			seq: uint64(i),
+			ins: 42, // this needs to be held constant
+		}
+
+		_ = table.Upsert(rec)
+
+		table.Advance(t0.Add(d))
+
+		it, err := table.Snapshot().Get(all{})
+		require.NoError(t, err,
+			"should obtain iterator")
+
+		got := countRecords(it)
+		require.Equal(t, 1, got,
+			"expected record at offset %s", d)
+	}
 }
 
 func BenchmarkRoutingTable_upsert(b *testing.B) {
@@ -274,6 +349,14 @@ func (r *record) TTL() time.Duration {
 }
 
 func (r *record) Meta() (routing.Meta, error) { return r.meta, nil }
+
+func (r *record) PeerBytes() ([]byte, error) {
+	return []byte(r.id), nil
+}
+
+func (r *record) HostBytes() ([]byte, error) {
+	return []byte(r.host), nil
+}
 
 func countRecords(it routing.Iterator) (i int) {
 	for it.Next() != nil {
