@@ -1,4 +1,4 @@
-package view_test
+package cluster_test
 
 import (
 	"testing"
@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	api "github.com/wetware/casm/internal/api/routing"
+	"github.com/wetware/casm/pkg/cluster"
 	"github.com/wetware/casm/pkg/cluster/routing"
-	"github.com/wetware/casm/pkg/cluster/view"
 )
 
 func TestQuery(t *testing.T) {
@@ -17,23 +17,23 @@ func TestQuery(t *testing.T) {
 
 	for _, tt := range []struct {
 		name  string
-		query view.Query
+		query cluster.Query
 		which api.View_Selector_Which
 		param queryParams
 	}{
 		{
 			name:  "All",
-			query: view.All(),
+			query: cluster.All(),
 			which: api.View_Selector_Which_all,
 		},
 		{
 			name:  "Select",
-			query: view.Select(index(routing.HostKey, "foo")),
+			query: cluster.Select(index(routing.HostKey, "foo")),
 			which: api.View_Selector_Which_match,
 		},
 		{
 			name:  "From",
-			query: view.From(index(routing.HostKey, "foo")),
+			query: cluster.From(index(routing.HostKey, "foo")),
 			which: api.View_Selector_Which_from,
 		},
 	} {

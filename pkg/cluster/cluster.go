@@ -11,7 +11,6 @@ import (
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/query"
 	"github.com/wetware/casm/pkg/cluster/routing"
-	"github.com/wetware/casm/pkg/cluster/view"
 	"github.com/wetware/casm/pkg/util/service"
 )
 
@@ -62,8 +61,8 @@ func (n *Node) Loggable() map[string]interface{} {
 	}
 }
 
-func (n *Node) View() view.View {
-	return view.Server{RoutingTable: n.rt}.View()
+func (n *Node) View() View {
+	return Server{RoutingTable: n.rt}.View()
 }
 
 func (n *Node) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {

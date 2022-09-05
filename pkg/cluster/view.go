@@ -1,6 +1,6 @@
 //go:generate mockgen -source=view.go -destination=../../../internal/mock/pkg/cluster/view/view.go -package=mock_view
 
-package view
+package cluster
 
 import (
 	"fmt"

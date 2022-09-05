@@ -27,6 +27,7 @@ require (
 	go.uber.org/atomic v1.10.0
 	go.uber.org/multierr v1.8.0
 	golang.org/x/net v0.0.0-20220826154423-83b083e8dc8b
+	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde
 	golang.org/x/time v0.0.0-20220722155302-e5dcc9cfc0b9
 )
 
@@ -120,7 +121,6 @@ require (
 	go.uber.org/zap v1.23.0 // indirect
 	golang.org/x/crypto v0.0.0-20220826181053-bd7e27e6170d // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220818022119-ed83ed61efb9 // indirect
-	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde // indirect
 	golang.org/x/sys v0.0.0-20220825204002-c680a09ffe64 // indirect
 	golang.org/x/tools v0.1.12 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect

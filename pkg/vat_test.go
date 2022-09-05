@@ -26,9 +26,6 @@ import (
 func TestVat(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -65,6 +62,9 @@ func TestVat(t *testing.T) {
 		"should use default namespace")
 
 	t.Run("Export", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		sv.Export(echoer(), echoServer{})
 		cv.Export(echoer(), echoServer{})
 
@@ -81,6 +81,9 @@ func TestVat(t *testing.T) {
 	})
 
 	t.Run("Embargo", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		sv.Embargo(echoer())
 
 		/*
@@ -94,6 +97,9 @@ func TestVat(t *testing.T) {
 	})
 
 	t.Run("InvalidNS", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
 		conn, err := cv.Connect(ctx, addr(sv), invalid())
 		require.ErrorIs(t, err, casm.ErrInvalidNS)
 		require.Nil(t, conn, "should not return a capability conn")

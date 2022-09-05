@@ -1,4 +1,4 @@
-package view
+package cluster
 
 import (
 	"context"
@@ -13,16 +13,14 @@ import (
 	"github.com/wetware/casm/pkg/util/stream"
 )
 
-type RoutingTable interface {
-	Snapshot() routing.Snapshot
-}
-
 type RecordBinder interface {
 	BindRecord(api.View_Record) error
 }
 
 type Server struct {
-	RoutingTable
+	RoutingTable interface {
+		Snapshot() routing.Snapshot
+	}
 }
 
 func (s Server) Client() capnp.Client {
@@ -48,12 +46,15 @@ func (s Server) Iter(ctx context.Context, call api.View_iter) error {
 		return err
 	}
 
-	stream := newRecordStream(ctx)
-	handler := call.Args().Handler() // TODO(soon):  set up BBR here.
+	var (
+		handler = call.Args().Handler() // TODO(soon):  set up BBR here.
+		stream  = stream.New(handler.Recv)
+		iter    = iterator(ctx, stream, handler)
+	)
 
-	if err = s.bind(iterator(stream, handler), selector(sel)); err == nil {
+	if err = s.bind(iter, selector(sel)); err == nil {
 		call.Ack()
-		err = stream.Wait()
+		err = stream.Wait(ctx)
 	}
 
 	return err
@@ -92,7 +93,7 @@ func selector(s api.View_Selector) query.Selector {
 type bindFunc func(routing.Record) error
 
 func (s Server) bind(bind bindFunc, selector query.Selector) error {
-	it, err := selector(s.Snapshot())
+	it, err := selector(s.RoutingTable.Snapshot())
 	if err != nil {
 		return err
 	}
@@ -117,9 +118,12 @@ func maybeRecord(call api.View_lookup) bindFunc {
 	}
 }
 
-func iterator(s recordStream, h api.View_Handler) bindFunc {
+type handlerStream = stream.Stream[api.View_Handler_recv_Params]
+
+func iterator(ctx context.Context, s *handlerStream, h api.View_Handler) bindFunc {
 	return func(r routing.Record) error {
-		return s.Call(h.Recv, record(r))
+		s.Call(ctx, record(r))
+		return nil
 	}
 }
 
@@ -193,12 +197,4 @@ func copyMeta(rec api.Heartbeat, r routing.Record) error {
 	}
 
 	return err
-}
-
-type recordStream struct {
-	*stream.Stream[api.View_Handler_recv_Params]
-}
-
-func newRecordStream(ctx context.Context) recordStream {
-	return recordStream{stream.New[api.View_Handler_recv_Params](ctx)}
 }

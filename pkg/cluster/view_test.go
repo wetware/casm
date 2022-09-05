@@ -1,4 +1,4 @@
-package view_test
+package cluster_test
 
 import (
 	"context"
@@ -17,8 +17,8 @@ import (
 
 	mock_cluster "github.com/wetware/casm/internal/mock/pkg/cluster"
 	mock_routing "github.com/wetware/casm/internal/mock/pkg/cluster/routing"
+	"github.com/wetware/casm/pkg/cluster"
 	"github.com/wetware/casm/pkg/cluster/routing"
-	"github.com/wetware/casm/pkg/cluster/view"
 )
 
 var recs = []*record{
@@ -60,11 +60,11 @@ func TestView_Lookup(t *testing.T) {
 		Return(snap).
 		Times(1)
 
-	server := view.Server{RoutingTable: table}
-	client := view.View(server.Client())
+	server := cluster.Server{RoutingTable: table}
+	client := cluster.View(server.Client())
 	defer client.Release()
 
-	f, release := client.Lookup(ctx, view.All())
+	f, release := client.Lookup(ctx, cluster.All())
 	require.NotNil(t, release)
 	defer release()
 
@@ -101,32 +101,78 @@ func TestView_Iter(t *testing.T) {
 		Return(snap).
 		Times(1)
 
-	server := view.Server{RoutingTable: table}
-	client := view.View(server.Client())
+	server := cluster.Server{RoutingTable: table}
+	client := cluster.View(server.Client())
 	defer client.Release()
 
 	require.True(t, capnp.Client(client).IsValid(),
 		"should not be nil capability")
 
-	it, release := client.Iter(ctx, view.All())
+	it, release := client.Iter(ctx, cluster.All())
 	require.NotZero(t, it)
 	require.NotNil(t, release)
 	defer release()
 
 	assert.NoError(t, it.Err(), "iterator should be valid")
 
-	var got []routing.Record
-	for r := range it.C {
-		got = append(got, r)
+	var got []peer.ID
+	for r := it.Next(); r != nil; r = it.Next() {
+		got = append(got, r.Peer())
 	}
 	require.Len(t, got, len(recs))
 
 	for i, rec := range recs {
-		assert.Equal(t, rec.Peer(), got[i].Peer(),
+		assert.Equal(t, rec.Peer(), got[i],
 			"should match record %d", i)
 	}
 
 	require.NoError(t, it.Err(), "iterator should not encounter error")
+}
+
+func BenchmarkIterator(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl := gomock.NewController(b)
+	defer ctrl.Finish()
+
+	iter := mock_routing.NewMockIterator(ctrl)
+	iter.EXPECT().
+		Next().
+		Return(recs[0]).
+		Times(b.N)
+	iter.EXPECT().
+		Next().
+		Return(nil).
+		Times(1)
+
+	snap := mock_routing.NewMockSnapshot(ctrl)
+	snap.EXPECT().
+		Get(gomock.Any()).
+		Return(iter, nil).
+		Times(1)
+
+	table := mock_cluster.NewMockRoutingTable(ctrl)
+	table.EXPECT().
+		Snapshot().
+		Return(snap).
+		Times(1)
+
+	server := cluster.Server{RoutingTable: table}
+	client := cluster.View(server.Client())
+	defer client.Release()
+
+	it, release := client.Iter(ctx, cluster.All())
+	require.NotZero(b, it)
+	require.NotNil(b, release)
+	defer release()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for r := it.Next(); r != nil; r = it.Next() {
+		// ...
+	}
 }
 
 type record struct {

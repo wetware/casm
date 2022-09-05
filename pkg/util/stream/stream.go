@@ -5,120 +5,106 @@ import (
 	"sync"
 
 	"capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/exp/mpsc"
 	"capnproto.org/go/capnp/v3/std/capnp/stream"
-	casm "github.com/wetware/casm/pkg"
-	"go.uber.org/atomic"
+	"golang.org/x/sync/semaphore"
 )
 
-// Stream tracks inflight futures from streaming capabilities.
+type Func[T ~capnp.StructKind] func(context.Context, func(T) error) (stream.StreamResult_Future, capnp.ReleaseFunc)
+
 type Stream[T ~capnp.StructKind] struct {
-	mu   sync.Mutex
-	once sync.Once
-
-	ctx      context.Context
+	method   Func[T]
+	inflight *queue
+	mu       sync.Mutex
+	closing  bool
 	err      error
-	done     chan struct{}
-	q        *mpsc.Queue[inflightCall]
-	finish   atomic.Bool
-	inflight atomic.Uint32
 }
 
-// New Stream.  In-flight requests are automatically released when
-// the context expires.  Callers SHOULD pass a context that expires
-// when the stream is closed.
-func New[T ~capnp.StructKind](ctx context.Context) *Stream[T] {
-	s := &Stream[T]{q: mpsc.New[inflightCall]()}
-	s.Reset(ctx)
-	return s
-}
-
-func (s *Stream[T]) Reset(ctx context.Context) {
-	s.inflight.Store(0)
-	s.finish.Store(false)
-	s.done = make(chan struct{})
-	s.once = sync.Once{}
-	s.ctx = ctx
-	s.err = nil
-}
-
-// Call the stream method and track the in-flight request. Tracked
-// requests are automatically released when they complete or fail.
-// Call returns a nil error unless (a) its context has expired, or
-// (b) a previous request has failed.
-func (s *Stream[T]) Call(f func(context.Context, func(T) error) (stream.StreamResult_Future, capnp.ReleaseFunc), args func(T) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.err == nil && !s.finish.Load() {
-		defer s.inflight.Inc()
-		s.once.Do(func() { go s.recv() })
-		s.q.Send(inflight(f(s.ctx, args)))
-	}
-
-	return s.err
-}
-
-// Wait for inflight requests to complete.  Callers MUST NOT call
-// the Call() method after calling Wait(). Wait returns after all
-// requests have finished or the context expires, whichever comes
-// first.
-func (s *Stream[T]) Wait() error {
-	s.once.Do(func() { close(s.done) })
-	s.finish.Store(true)
-
-	select {
-	case <-s.ctx.Done():
-		return s.ctx.Err()
-
-	case <-s.done:
-		return s.err
+func New[T ~capnp.StructKind](method Func[T]) *Stream[T] {
+	return &Stream[T]{
+		method:   method,
+		inflight: newQueue(),
 	}
 }
 
-func (s *Stream[T]) recv() {
-	defer close(s.done)
+func (t *Stream[T]) Call(ctx context.Context, args func(T) error) {
+	t.mu.Lock()
 
-	var (
-		i   inflightCall
-		err error
-	)
+	if t.closing {
+		t.mu.Unlock()
+		return
+	}
 
-	for ; !s.finish.Load() && s.inflight.Load() != 0; s.inflight.Dec() {
-		if i, err = s.q.Recv(s.ctx); err != nil {
-			break
+	go func() {
+		ctx, cancel := context.WithCancel(ctx)
+		f, release := t.method(ctx, args)
+		defer release()
+		defer cancel() // must happen before release()
+
+		// We delay this call until the RPC is in flight to
+		// preserve RPC ordering. We also want this call to
+		// be as close as possible to inflight.Wait.
+		t.mu.Unlock()
+
+		// acquire the semaphore, then block until the call
+		// is finished.
+		if t.maybeFail(t.inflight.Wait(ctx)) {
+			return
 		}
+		defer t.inflight.Done()
 
-		if err = i.Await(s.ctx); err != nil {
-			break
+		_, err := f.Struct()
+		t.maybeFail(err)
+	}()
+}
+
+func (t *Stream[T]) Wait(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.closing = true
+
+	t.mu.Unlock()
+	defer t.mu.Lock()
+
+	// Don't release the semaphore.  Nobody else should
+	// be calling it.
+	if err := t.inflight.Wait(ctx); err != nil {
+		return err
+	}
+
+	return t.err
+}
+
+func (t *Stream[T]) maybeFail(err error) (fail bool) {
+	if err != nil {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+
+		if fail = t.err == nil; fail {
+			t.err = err
+			t.closing = true
 		}
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.err = err
-
-	// drain and release
-	for i, ok := s.q.TryRecv(); ok; i, ok = s.q.TryRecv() {
-		s.inflight.Dec()
-		i.Release()
-	}
+	return
 }
 
-type inflightCall struct {
-	Future  casm.Future
-	Release capnp.ReleaseFunc
+type queue semaphore.Weighted
+
+func newQueue() *queue {
+	return (*queue)(semaphore.NewWeighted(1))
 }
 
-func inflight(f stream.StreamResult_Future, r capnp.ReleaseFunc) inflightCall {
-	return inflightCall{
-		Future:  casm.Future(f),
-		Release: r,
-	}
+// Wait returns when it is the caller's turn to proceed,
+// or the context expires, whichever happens first.
+//
+// If err == nil, callers SHOULD call Done() to unblock
+// the queue, when finished.
+func (q *queue) Wait(ctx context.Context) error {
+	return (*semaphore.Weighted)(q).Acquire(ctx, 1)
 }
 
-func (i inflightCall) Await(ctx context.Context) error {
-	defer i.Release()
-	return i.Future.Await(ctx)
+// Done signals that the caller is finished, and that the
+// next thread can proceed.
+func (q *queue) Done() {
+	(*semaphore.Weighted)(q).Release(1)
 }
