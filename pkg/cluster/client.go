@@ -3,7 +3,6 @@ package cluster
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
@@ -92,7 +91,7 @@ func (it *Iterator) Next() routing.Record {
 type handler struct {
 	send chan routing.Record
 	sync chan struct{}
-	once sync.Once
+	init bool
 }
 
 func newHandler() *handler {
@@ -128,12 +127,13 @@ func (h *handler) Recv(ctx context.Context, call api.View_Handler_recv) error {
 	}
 
 	// inital call to it.Next()
-	h.once.Do(func() {
+	if !h.init {
 		select {
-		case <-h.sync:
 		case <-ctx.Done():
+		case <-h.sync:
+			h.init = true
 		}
-	})
+	}
 
 	select {
 	case h.send <- r:
