@@ -106,12 +106,13 @@ func (h *handler) Sync()                { h.sync <- struct{}{} }
 func (h *handler) Next() routing.Record { return <-h.send }
 
 func (h *handler) Handler(query Query) func(api.View_iter_Params) error {
-	return func(ps api.View_iter_Params) (err error) {
-		if err = query(ps); err == nil {
-			err = ps.SetHandler(api.View_Handler_ServerToClient(h))
+	return func(ps api.View_iter_Params) error {
+		if err := query(ps); err != nil {
+			close(h.send)
+			return err
 		}
 
-		return
+		return ps.SetHandler(api.View_Handler_ServerToClient(h))
 	}
 }
 
