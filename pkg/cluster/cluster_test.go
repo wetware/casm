@@ -242,7 +242,6 @@ func selectPeer(id peer.ID) query.Selector {
 
 type peerIndex peer.ID
 
-func (ix peerIndex) String() string              { return fmt.Sprintf("peer=%s", peer.ID(ix)) }
-func (ix peerIndex) Key() routing.IndexKey       { return routing.PeerKey }
-func (ix peerIndex) PeerBytes() ([]byte, error)  { return []byte(ix), nil }
-func (ix peerIndex) Match(r routing.Record) bool { return peer.ID(ix) == r.Peer() }
+func (ix peerIndex) String() string             { return fmt.Sprintf("peer=%s", peer.ID(ix)) }
+func (ix peerIndex) Key() routing.IndexKey      { return routing.PeerKey }
+func (ix peerIndex) PeerBytes() ([]byte, error) { return []byte(ix), nil }

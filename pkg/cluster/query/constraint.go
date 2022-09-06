@@ -1,6 +1,9 @@
 package query
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
@@ -57,7 +60,12 @@ func Limit(n int) Constraint {
 // To restricts the selection to items less-than-or-equal-to
 // the index.  Use with From to implement range queries.
 func To(index routing.Index) Constraint {
-	return While(leq(index))
+	matcher, err := matchIndex(index)
+	if err != nil {
+		return failure(err)
+	}
+
+	return While(leq(matcher))
 }
 
 // First restricts the selection to a single item.
@@ -71,6 +79,12 @@ func just(it routing.Iterator) Selector {
 	}
 }
 
+func failure(err error) Constraint {
+	return func(routing.Iterator) Selector {
+		return Failure(err)
+	}
+}
+
 func leq(m Matcher) matchFunc {
 	var reached bool
 	return func(r routing.Record) bool {
@@ -80,8 +94,77 @@ func leq(m Matcher) matchFunc {
 	}
 }
 
+func matchIndex(ix routing.Index) (matchFunc, error) {
+	switch ix.Key() {
+	case routing.PeerKey:
+		id, err := ix.(interface{ Peer() (string, error) }).Peer()
+		return func(r routing.Record) bool {
+			return id == string(r.Peer())
+		}, err
+
+	case routing.PeerPrefixKey:
+		id, err := ix.(interface{ PeerPrefix() (string, error) }).PeerPrefix()
+
+		return func(r routing.Record) bool {
+			return strings.HasPrefix(string(r.Peer()), id)
+		}, err
+
+	case routing.HostKey:
+		index, err := ix.(interface{ Host() (string, error) }).Host()
+		return func(r routing.Record) bool {
+			name, err := r.Host()
+			return err == nil && name == index
+		}, err
+
+	case routing.HostPrefixKey:
+		prefix, err := ix.(interface{ HostPrefix() (string, error) }).HostPrefix()
+		return func(r routing.Record) bool {
+			name, err := r.Host()
+			return err == nil && strings.HasPrefix(name, prefix)
+		}, err
+
+	case routing.MetaKey:
+		index, err := ix.(interface{ Meta() (routing.Meta, error) }).Meta()
+		return func(r routing.Record) bool {
+			meta, err := r.Meta()
+			return err == nil && matchMeta(fieldEq, meta, routing.Meta(index))
+		}, err
+
+	case routing.MetaPrefixKey:
+		index, err := ix.(interface{ MetaPrefix() (routing.Meta, error) }).MetaPrefix()
+		return func(r routing.Record) bool {
+			meta, err := r.Meta()
+			return err == nil && matchMeta(strings.HasPrefix, meta, routing.Meta(index))
+		}, err
+	}
+
+	return nil, fmt.Errorf("invalid index: %s", ix)
+}
+
 type matchFunc func(routing.Record) bool
 
 func (match matchFunc) Match(r routing.Record) bool {
 	return match(r)
 }
+
+func matchMeta(match func(ix, m string) bool, meta, index routing.Meta) bool {
+	if index.Len() == 0 {
+		return meta.Len() == 0
+	}
+
+	for i := 0; i < index.Len(); i++ {
+		f, err := index.At(i)
+		if err != nil {
+			return false
+		}
+
+		value, err := meta.Get(f.Key)
+		if err != nil || !match(value, f.Value) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func fieldEq(index, meta string) bool { return index == meta }

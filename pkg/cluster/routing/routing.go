@@ -42,9 +42,6 @@ type Index interface {
 
 	// Which returns a tag pointing to an index routing table.
 	Key() IndexKey
-
-	// Match returns true if the index matches the supplied record.
-	Match(Record) bool
 }
 
 // IndexKey points to a column in the routing table.

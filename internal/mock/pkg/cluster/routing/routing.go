@@ -242,20 +242,6 @@ func (mr *MockIndexMockRecorder) Key() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Key", reflect.TypeOf((*MockIndex)(nil).Key))
 }
 
-// Match mocks base method.
-func (m *MockIndex) Match(arg0 routing.Record) bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Match", arg0)
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// Match indicates an expected call of Match.
-func (mr *MockIndexMockRecorder) Match(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Match", reflect.TypeOf((*MockIndex)(nil).Match), arg0)
-}
-
 // String mocks base method.
 func (m *MockIndex) String() string {
 	m.ctrl.T.Helper()

@@ -2,7 +2,6 @@ package query_test
 
 import (
 	"math/rand"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -110,23 +109,19 @@ func TestRange(t *testing.T) {
 	// this would match *all* records in the iterator.
 	min := mock_routing.NewMockIndex(ctrl)
 	min.EXPECT().
-		Match(gomock.Any()).
-		DoAndReturn(func(r routing.Record) bool {
-			return strings.HasPrefix(string(r.Peer()), "foo")
-		}).
+		Key().
+		Return(routing.PeerPrefixKey).
 		AnyTimes()
 
 	// Now we define an index that designates the upper bound on the range.
 	// This matches the highest-order id that is part of the range.
 	max := mock_routing.NewMockIndex(ctrl)
 	max.EXPECT().
-		Match(gomock.Any()).
-		DoAndReturn(func(r routing.Record) bool {
-			return string(r.Peer()) == "foobarbaz"
-		}).
+		Key().
+		Return(routing.PeerKey).
 		AnyTimes()
 
-	selector := query.Range(min, max)
+	selector := query.Range(peerPrefixIndex(min, "foo"), peerIndex(max, "foobarbaz"))
 	it, err := selector(snap)
 	require.NoError(t, err, "selector should not return error")
 	require.NotNil(t, it, "selector should return iterator")
@@ -138,6 +133,35 @@ func TestRange(t *testing.T) {
 	}
 
 	require.Nil(t, it.Next(), "iterator should be exhausted")
+}
+
+type mockPeerPrefixIndex struct {
+	*mock_routing.MockIndex
+	id     string
+	prefix bool
+}
+
+func peerIndex(ix *mock_routing.MockIndex, id string) mockPeerPrefixIndex {
+	return mockPeerPrefixIndex{
+		MockIndex: ix,
+		id:        id,
+	}
+}
+
+func peerPrefixIndex(ix *mock_routing.MockIndex, id string) mockPeerPrefixIndex {
+	return mockPeerPrefixIndex{
+		MockIndex: ix,
+		id:        id,
+		prefix:    true,
+	}
+}
+
+func (ix mockPeerPrefixIndex) Peer() (string, error) {
+	return ix.id, nil
+}
+
+func (ix mockPeerPrefixIndex) PeerPrefix() (string, error) {
+	return ix.Peer()
 }
 
 type record struct {

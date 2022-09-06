@@ -77,8 +77,7 @@ func index(key routing.IndexKey, value string) mockIndex {
 	}
 }
 
-func (mockIndex) String() string            { return "test index" }
-func (mockIndex) Match(routing.Record) bool { return false }
-func (i mockIndex) Key() routing.IndexKey   { return i.IndexKey }
-func (i mockIndex) Host() (string, error)   { return i.Value, nil }
-func (i mockIndex) Peer() (string, error)   { return i.Value, nil }
+func (mockIndex) String() string          { return "test index" }
+func (i mockIndex) Key() routing.IndexKey { return i.IndexKey }
+func (i mockIndex) Host() (string, error) { return i.Value, nil }
+func (i mockIndex) Peer() (string, error) { return i.Value, nil }
