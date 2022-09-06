@@ -40,13 +40,13 @@ func (v View) Lookup(ctx context.Context, query Query) (FutureRecord, capnp.Rele
 // the supplied query. Callers MUST call the ReleaseFunc when
 // finished with the iterator.  Callers MUST NOT call methods
 // on the iterator after calling the ReleaseFunc.
-func (v View) Iter(ctx context.Context, query Query) (*Iterator, capnp.ReleaseFunc) {
+func (v View) Iter(ctx context.Context, query Query) (Iterator, capnp.ReleaseFunc) {
 	var (
-		h          = make(handler)
+		h          = newHandler()
 		f, release = api.View(v).Iter(ctx, h.Handler(query))
 	)
 
-	return &Iterator{
+	return Iterator{
 		f: casm.Future(f),
 		h: h,
 	}, release
@@ -59,9 +59,8 @@ func (v View) Iter(ctx context.Context, query Query) (*Iterator, capnp.ReleaseFu
 // Next returns nil.  If Err() == nil and Next() == nil,
 // the iterator is exhausted.
 type Iterator struct {
-	f    casm.Future
-	h    handler
-	curr *borrowedRecord
+	f casm.Future
+	h *handler
 }
 
 // Err returns any error encountered by the iterator.
@@ -86,71 +85,38 @@ func (it *Iterator) Err() error {
 // Records returned by Next are valid until the next call to
 // Next, or until the iterator is released.  See View.Iter().
 func (it *Iterator) Next() routing.Record {
-	it.curr.Release()
-
-	it.curr = <-it.h        // closed when handler is released
-	return it.curr.Record() // nil when it.h is closed
+	it.h.Sync()
+	return it.h.Next()
 }
 
-type borrowedRecordPool sync.Pool
+type handler struct {
+	send chan routing.Record
+	sync chan struct{}
+	once sync.Once
+}
 
-var pool borrowedRecordPool
-
-func (p *borrowedRecordPool) Borrow(r routing.Record) *borrowedRecord {
-	if v := (*sync.Pool)(p).Get(); v != nil {
-		br := v.(*borrowedRecord)
-		br.rec = r
-		return br
-	}
-
-	return &borrowedRecord{
-		rec:  r,
-		done: make(chan struct{}, 1),
+func newHandler() *handler {
+	return &handler{
+		send: make(chan routing.Record),
+		sync: make(chan struct{}, 1),
 	}
 }
 
-func (p *borrowedRecordPool) Return(r *borrowedRecord) {
-	(*sync.Pool)(p).Put(r)
-}
+func (h *handler) Shutdown()            { close(h.send) }
+func (h *handler) Sync()                { h.sync <- struct{}{} }
+func (h *handler) Next() routing.Record { return <-h.send }
 
-type borrowedRecord struct {
-	rec  routing.Record
-	done chan struct{}
-}
-
-func (br *borrowedRecord) Done() <-chan struct{} {
-	return br.done
-}
-
-func (br *borrowedRecord) Release() {
-	if br != nil {
-		br.done <- struct{}{}
-	}
-}
-
-func (br *borrowedRecord) Record() (r routing.Record) {
-	if br != nil {
-		r = br.rec
-	}
-
-	return
-}
-
-type handler chan *borrowedRecord
-
-func (ch handler) Shutdown() { close(ch) }
-
-func (ch handler) Handler(query Query) func(api.View_iter_Params) error {
+func (h *handler) Handler(query Query) func(api.View_iter_Params) error {
 	return func(ps api.View_iter_Params) (err error) {
 		if err = query(ps); err == nil {
-			err = ps.SetHandler(api.View_Handler_ServerToClient(ch))
+			err = ps.SetHandler(api.View_Handler_ServerToClient(h))
 		}
 
 		return
 	}
 }
 
-func (ch handler) Recv(ctx context.Context, call api.View_Handler_recv) error {
+func (h *handler) Recv(ctx context.Context, call api.View_Handler_recv) error {
 	rec, err := call.Args().Record()
 	if err != nil {
 		return err
@@ -161,17 +127,22 @@ func (ch handler) Recv(ctx context.Context, call api.View_Handler_recv) error {
 		return err
 	}
 
-	borrowed := pool.Borrow(r)
-	defer pool.Return(borrowed)
+	// inital call to it.Next()
+	h.once.Do(func() {
+		select {
+		case <-h.sync:
+		case <-ctx.Done():
+		}
+	})
 
 	select {
-	case ch <- borrowed:
+	case h.send <- r:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
 	select {
-	case <-borrowed.Done():
+	case <-h.sync:
 		return nil
 
 	case <-ctx.Done():
