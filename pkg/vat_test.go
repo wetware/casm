@@ -62,8 +62,7 @@ func TestVat(t *testing.T) {
 		"should use default namespace")
 
 	t.Run("Export", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := context.Background()
 
 		sv.Export(echoer(), echoServer{})
 		cv.Export(echoer(), echoServer{})
@@ -81,26 +80,19 @@ func TestVat(t *testing.T) {
 	})
 
 	t.Run("Embargo", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		sv.Embargo(echoer())
-
 		/*
-			HACK:  Embargo is asynchronous.
+			HACK:  Embargo is asynchronous; use assert.Eventually.
 			TODO:  https://github.com/wetware/casm/issues/45
 		*/
+		sv.Embargo(echoer())
 		assert.Eventually(t, func() bool {
-			conn, err := cv.Connect(ctx, addr(sv), echoer())
+			conn, err := cv.Connect(context.Background(), addr(sv), echoer())
 			return conn == nil && errors.Is(err, multistream.ErrNotSupported)
 		}, time.Second, time.Millisecond*100)
 	})
 
 	t.Run("InvalidNS", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		conn, err := cv.Connect(ctx, addr(sv), invalid())
+		conn, err := cv.Connect(context.Background(), addr(sv), invalid())
 		require.ErrorIs(t, err, casm.ErrInvalidNS)
 		require.Nil(t, conn, "should not return a capability conn")
 	})
