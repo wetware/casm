@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
@@ -60,7 +61,7 @@ func (v View) Iter(ctx context.Context, query Query) (*Iterator, capnp.ReleaseFu
 type Iterator struct {
 	f    casm.Future
 	h    handler
-	curr borrowedRecord
+	curr *borrowedRecord
 }
 
 // Err returns any error encountered by the iterator.
@@ -87,30 +88,55 @@ func (it *Iterator) Err() error {
 func (it *Iterator) Next() routing.Record {
 	it.curr.Release()
 
-	it.curr = <-it.h      // closed when handler is released
-	return it.curr.Record // nil when it.h is closed
+	it.curr = <-it.h        // closed when handler is released
+	return it.curr.Record() // nil when it.h is closed
+}
+
+type borrowedRecordPool sync.Pool
+
+var pool borrowedRecordPool
+
+func (p *borrowedRecordPool) Borrow(r routing.Record) *borrowedRecord {
+	if v := (*sync.Pool)(p).Get(); v != nil {
+		br := v.(*borrowedRecord)
+		br.rec = r
+		return br
+	}
+
+	return &borrowedRecord{
+		rec:  r,
+		done: make(chan struct{}, 1),
+	}
+}
+
+func (p *borrowedRecordPool) Return(r *borrowedRecord) {
+	(*sync.Pool)(p).Put(r)
 }
 
 type borrowedRecord struct {
-	Record routing.Record
-	done   chan<- struct{}
+	rec  routing.Record
+	done chan struct{}
 }
 
-func borrow(r routing.Record) (borrowedRecord, <-chan struct{}) {
-	done := make(chan struct{}, 1) // TODO: sync.Pool?
-	return borrowedRecord{
-		Record: r,
-		done:   done,
-	}, done
+func (br *borrowedRecord) Done() <-chan struct{} {
+	return br.done
 }
 
-func (br borrowedRecord) Release() {
-	if br.done != nil {
+func (br *borrowedRecord) Release() {
+	if br != nil {
 		br.done <- struct{}{}
 	}
 }
 
-type handler chan borrowedRecord
+func (br *borrowedRecord) Record() (r routing.Record) {
+	if br != nil {
+		r = br.rec
+	}
+
+	return
+}
+
+type handler chan *borrowedRecord
 
 func (ch handler) Shutdown() { close(ch) }
 
@@ -135,8 +161,8 @@ func (ch handler) Recv(ctx context.Context, call api.View_Handler_recv) error {
 		return err
 	}
 
-	borrowed, done := borrow(r)
-	// TODO:  defer chanPool.Put(borrowed.done)
+	borrowed := pool.Borrow(r)
+	defer pool.Return(borrowed)
 
 	select {
 	case ch <- borrowed:
@@ -145,7 +171,7 @@ func (ch handler) Recv(ctx context.Context, call api.View_Handler_recv) error {
 	}
 
 	select {
-	case <-done:
+	case <-borrowed.Done():
 		return nil
 
 	case <-ctx.Done():
