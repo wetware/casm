@@ -346,44 +346,6 @@ func (mr *MockHostIndexMockRecorder) HostBytes() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostBytes", reflect.TypeOf((*MockHostIndex)(nil).HostBytes))
 }
 
-// MockMetaIndex is a mock of MetaIndex interface.
-type MockMetaIndex struct {
-	ctrl     *gomock.Controller
-	recorder *MockMetaIndexMockRecorder
-}
-
-// MockMetaIndexMockRecorder is the mock recorder for MockMetaIndex.
-type MockMetaIndexMockRecorder struct {
-	mock *MockMetaIndex
-}
-
-// NewMockMetaIndex creates a new mock instance.
-func NewMockMetaIndex(ctrl *gomock.Controller) *MockMetaIndex {
-	mock := &MockMetaIndex{ctrl: ctrl}
-	mock.recorder = &MockMetaIndexMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockMetaIndex) EXPECT() *MockMetaIndexMockRecorder {
-	return m.recorder
-}
-
-// MetaBytes mocks base method.
-func (m *MockMetaIndex) MetaBytes() ([][]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MetaBytes")
-	ret0, _ := ret[0].([][]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// MetaBytes indicates an expected call of MetaBytes.
-func (mr *MockMetaIndexMockRecorder) MetaBytes() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MetaBytes", reflect.TypeOf((*MockMetaIndex)(nil).MetaBytes))
-}
-
 // MockIterator is a mock of Iterator interface.
 type MockIterator struct {
 	ctrl     *gomock.Controller
