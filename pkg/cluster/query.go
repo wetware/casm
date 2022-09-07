@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"errors"
 	"fmt"
 
 	"capnproto.org/go/capnp/v3"
@@ -33,82 +34,66 @@ func bindIndex(fn func() (api.View_Index, error), index routing.Index) error {
 		return err
 	}
 
-	switch index.Key() {
-	case routing.PeerKey:
+	target.SetPrefix(index.Prefix())
+
+	switch index.String() {
+	case "id":
 		return bindPeer(target, index)
 
-	case routing.PeerPrefixKey:
-		return bindPeerPrefix(target, index)
-
-	case routing.HostKey:
+	case "host":
 		return bindHost(target, index)
 
-	case routing.HostPrefixKey:
-		return bindHostPrefix(target, index)
-
-	case routing.MetaKey:
+	case "meta":
 		return bindMeta(target, index)
-
-	case routing.MetaPrefixKey:
-		return bindMetaPrefix(target, index)
 	}
 
 	return fmt.Errorf("invalid index: %s", index)
 }
 
-func bindPeer(ix api.View_Index, index routing.Index) error {
-	p, err := index.(interface{ Peer() (string, error) }).Peer()
-	if err == nil {
-		err = ix.SetPeer(p)
+func bindPeer(target api.View_Index, index routing.Index) error {
+	switch ix := index.(type) {
+	case routing.PeerIndex:
+		b, err := ix.PeerBytes()
+		if err == nil {
+			return target.SetId(string(b)) // TODO:  unsafe.Pointer
+		}
+		return err
+
+	case interface{ Peer() (string, error) }:
+		id, err := ix.Peer()
+		if err == nil {
+			err = target.SetId(id)
+		}
+		return err
 	}
 
-	return err
+	return errors.New("not a peer index")
 }
 
-func bindPeerPrefix(ix api.View_Index, index routing.Index) error {
-	p, err := index.(interface{ PeerPrefix() (string, error) }).PeerPrefix()
-	if err == nil {
-		err = ix.SetPeer(p)
+func bindHost(target api.View_Index, index routing.Index) error {
+	switch ix := index.(type) {
+	case routing.HostIndex:
+		b, err := ix.HostBytes()
+		if err == nil {
+			return target.SetHost(string(b)) // TODO:  unsafe.Pointer
+		}
+		return err
+
+	case interface{ Host() (string, error) }:
+		id, err := ix.Host()
+		if err == nil {
+			err = target.SetHost(id)
+		}
+		return err
 	}
 
-	return err
+	return errors.New("not a peer index")
 }
 
-func bindHost(ix api.View_Index, index routing.Index) error {
-	h, err := index.(interface{ Host() (string, error) }).Host()
+func bindMeta(target api.View_Index, index routing.Index) error {
+	m, err := index.(interface{ Meta() (routing.Meta, error) }).Meta()
 	if err == nil {
-		err = ix.SetHost(h)
-	}
-
-	return err
-}
-
-func bindHostPrefix(ix api.View_Index, index routing.Index) error {
-	h, err := index.(interface{ HostPrefix() (string, error) }).HostPrefix()
-	if err == nil {
-		err = ix.SetHost(h)
-	}
-
-	return err
-}
-
-func bindMeta(ix api.View_Index, index routing.Index) error {
-	m, err := index.(interface {
-		Meta() (capnp.TextList, error)
-	}).Meta()
-	if err == nil {
-		err = ix.SetMeta(m)
-	}
-
-	return err
-}
-
-func bindMetaPrefix(ix api.View_Index, index routing.Index) error {
-	m, err := index.(interface {
-		MetaPrefix() (capnp.TextList, error)
-	}).MetaPrefix()
-	if err == nil {
-		err = ix.SetMeta(m)
+		err = target.SetMeta(capnp.TextList(m))
 	}
 
 	return err

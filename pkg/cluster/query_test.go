@@ -9,7 +9,6 @@ import (
 
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster"
-	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
 func TestQuery(t *testing.T) {
@@ -28,12 +27,12 @@ func TestQuery(t *testing.T) {
 		},
 		{
 			name:  "Select",
-			query: cluster.Select(index(routing.HostKey, "foo")),
+			query: cluster.Select(hostIndex("foo")),
 			which: api.View_Selector_Which_match,
 		},
 		{
 			name:  "From",
-			query: cluster.From(index(routing.HostKey, "foo")),
+			query: cluster.From(hostIndex("foo")),
 			which: api.View_Selector_Which_from,
 		},
 	} {
@@ -65,19 +64,8 @@ func (ps *queryParams) NewConstraints(size int32) (api.View_Constraint_List, err
 	return cs, err
 }
 
-type mockIndex struct {
-	IndexKey routing.IndexKey
-	Value    string
-}
+type hostIndex string
 
-func index(key routing.IndexKey, value string) mockIndex {
-	return mockIndex{
-		IndexKey: key,
-		Value:    value,
-	}
-}
-
-func (mockIndex) String() string          { return "test index" }
-func (i mockIndex) Key() routing.IndexKey { return i.IndexKey }
-func (i mockIndex) Host() (string, error) { return i.Value, nil }
-func (i mockIndex) Peer() (string, error) { return i.Value, nil }
+func (hostIndex) String() string                { return "host" }
+func (hostIndex) Prefix() bool                  { return false }
+func (ix hostIndex) HostBytes() ([]byte, error) { return []byte(ix), nil }

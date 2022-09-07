@@ -198,3 +198,9 @@ func copyMeta(rec api.Heartbeat, r routing.Record) error {
 
 	return err
 }
+
+type index struct{ api.View_Index }
+
+func (ix index) String() string {
+	return ix.Which().String()
+}

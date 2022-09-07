@@ -94,6 +94,6 @@ func (it *predicateIter) Next() (r routing.Record) {
 
 type all struct{}
 
-func (all) String() string             { return "peer=*" }
-func (all) Key() routing.IndexKey      { return routing.PeerKey }
+func (all) String() string             { return "id" }
+func (all) Prefix() bool               { return true }
 func (all) PeerBytes() ([]byte, error) { return nil, nil }

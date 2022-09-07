@@ -3,10 +3,7 @@
 package cluster
 
 import (
-	"fmt"
-
 	api "github.com/wetware/casm/internal/api/routing"
-	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
 type (
@@ -53,38 +50,4 @@ func bindConstraints(cs []Constraint, ps QueryParams) error {
 	}
 
 	return err
-}
-
-type index struct{ api.View_Index }
-
-func (ix index) String() string {
-	var (
-		key = ix.Key()
-		val string
-	)
-
-	switch key {
-	case routing.PeerKey:
-		val, _ = ix.Peer()
-	case routing.PeerPrefixKey:
-		val, _ = ix.PeerPrefix()
-	case routing.HostKey:
-		val, _ = ix.Host()
-	case routing.HostPrefixKey:
-		val, _ = ix.HostPrefix()
-	case routing.MetaKey:
-		meta, _ := ix.Meta()
-		val = routing.Meta(meta).String()
-	case routing.MetaPrefixKey:
-		meta, _ := ix.MetaPrefix()
-		val = routing.Meta(meta).String()
-	default:
-		return ix.String()
-	}
-
-	return fmt.Sprintf("%s=%s", ix.Key(), val)
-}
-
-func (ix index) Key() routing.IndexKey {
-	return routing.IndexKey(ix.Which())
 }

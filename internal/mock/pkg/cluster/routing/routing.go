@@ -228,18 +228,18 @@ func (m *MockIndex) EXPECT() *MockIndexMockRecorder {
 	return m.recorder
 }
 
-// Key mocks base method.
-func (m *MockIndex) Key() routing.IndexKey {
+// Prefix mocks base method.
+func (m *MockIndex) Prefix() bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Key")
-	ret0, _ := ret[0].(routing.IndexKey)
+	ret := m.ctrl.Call(m, "Prefix")
+	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
-// Key indicates an expected call of Key.
-func (mr *MockIndexMockRecorder) Key() *gomock.Call {
+// Prefix indicates an expected call of Prefix.
+func (mr *MockIndexMockRecorder) Prefix() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Key", reflect.TypeOf((*MockIndex)(nil).Key))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Prefix", reflect.TypeOf((*MockIndex)(nil).Prefix))
 }
 
 // String mocks base method.

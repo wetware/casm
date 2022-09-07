@@ -2,7 +2,6 @@ package cluster_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -18,7 +17,6 @@ import (
 	"github.com/wetware/casm/pkg/boot"
 	"github.com/wetware/casm/pkg/cluster"
 	"github.com/wetware/casm/pkg/cluster/query"
-	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
 func TestModel(t *testing.T) {
@@ -242,6 +240,6 @@ func selectPeer(id peer.ID) query.Selector {
 
 type peerIndex peer.ID
 
-func (ix peerIndex) String() string             { return fmt.Sprintf("peer=%s", peer.ID(ix)) }
-func (ix peerIndex) Key() routing.IndexKey      { return routing.PeerKey }
+func (peerIndex) String() string                { return "id" }
+func (peerIndex) Prefix() bool                  { return false }
 func (ix peerIndex) PeerBytes() ([]byte, error) { return []byte(ix), nil }

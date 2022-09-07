@@ -1,6 +1,7 @@
 package query
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -94,51 +95,147 @@ func leq(m Matcher) matchFunc {
 	}
 }
 
-func matchIndex(ix routing.Index) (matchFunc, error) {
-	switch ix.Key() {
-	case routing.PeerKey:
-		id, err := ix.(interface{ Peer() (string, error) }).Peer()
-		return func(r routing.Record) bool {
-			return id == string(r.Peer())
-		}, err
+func matchIndex(index routing.Index) (matchFunc, error) {
+	switch index.String() {
+	case "id":
+		return matchPeer(index)
 
-	case routing.PeerPrefixKey:
-		id, err := ix.(interface{ PeerPrefix() (string, error) }).PeerPrefix()
+	case "host":
+		return matchHost(index)
+		// host, err := x.HostBytes()
+		// return func(r routing.Record) bool {
+		// 	name, err := r.Host()
+		// 	if err != nil {
+		// 		return false
+		// 	}
 
-		return func(r routing.Record) bool {
-			return strings.HasPrefix(string(r.Peer()), id)
-		}, err
+		// 	if ix.Prefix() {
+		// 		return strings.HasPrefix(name, string(host)) // TODO:  unsafe.Pointer
+		// 	}
 
-	case routing.HostKey:
-		index, err := ix.(interface{ Host() (string, error) }).Host()
-		return func(r routing.Record) bool {
-			name, err := r.Host()
-			return err == nil && name == index
-		}, err
+		// 	return name == string(host)
+		// }, err
 
-	case routing.HostPrefixKey:
-		prefix, err := ix.(interface{ HostPrefix() (string, error) }).HostPrefix()
-		return func(r routing.Record) bool {
-			name, err := r.Host()
-			return err == nil && strings.HasPrefix(name, prefix)
-		}, err
+	case "meta":
+		return matchMeta(index)
+		// index, err := x.Meta()
+		// return func(r routing.Record) bool {
+		// 	meta, err := r.Meta()
+		// 	if err != nil {
+		// 		return false
+		// 	}
 
-	case routing.MetaKey:
-		index, err := ix.(interface{ Meta() (routing.Meta, error) }).Meta()
-		return func(r routing.Record) bool {
-			meta, err := r.Meta()
-			return err == nil && matchMeta(fieldEq, meta, routing.Meta(index))
-		}, err
+		// 	if ix.Prefix() {
+		// 		return matchMeta(strings.HasPrefix, meta, routing.Meta(index))
+		// 	}
 
-	case routing.MetaPrefixKey:
-		index, err := ix.(interface{ MetaPrefix() (routing.Meta, error) }).MetaPrefix()
-		return func(r routing.Record) bool {
-			meta, err := r.Meta()
-			return err == nil && matchMeta(strings.HasPrefix, meta, routing.Meta(index))
-		}, err
+		// 	return err == nil && matchMeta(fieldEq, meta, routing.Meta(index))
+		// }, err
 	}
 
-	return nil, fmt.Errorf("invalid index: %s", ix)
+	return nil, fmt.Errorf("invalid index: %s", index)
+}
+
+func matchPeer(index routing.Index) (matchFunc, error) {
+	var (
+		id  string
+		err error
+	)
+
+	switch ix := index.(type) {
+	case routing.PeerIndex:
+		var b []byte
+		if b, err = ix.PeerBytes(); err == nil {
+			id = string(b) // TODO:  unsafe.Pointer
+		}
+
+	case interface{ Peer() (string, error) }:
+		id, err = ix.Peer()
+
+	default:
+		err = errors.New("not a peer index")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if index.Prefix() {
+		return func(r routing.Record) bool {
+			return strings.HasPrefix(string(r.Peer()), id) // TODO:  unsafe.Pointer
+		}, nil
+	}
+
+	return func(r routing.Record) bool {
+		return string(r.Peer()) == id // TODO:  unsafe.Pointer
+	}, nil
+}
+
+func matchHost(index routing.Index) (matchFunc, error) {
+	var (
+		host string
+		err  error
+	)
+
+	switch ix := index.(type) {
+	case routing.HostIndex:
+		var b []byte
+		if b, err = ix.HostBytes(); err == nil {
+			host = string(b) // TODO:  unsafe.Pointer
+		}
+
+	case interface{ Host() (string, error) }:
+		host, err = ix.Host()
+
+	default:
+		err = errors.New("not a host index")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if index.Prefix() {
+		return func(r routing.Record) bool {
+			return matchStr(strEq, r.Host, host)
+		}, nil
+	}
+
+	return func(r routing.Record) bool {
+		return matchStr(strings.HasPrefix, r.Host, host)
+	}, nil
+}
+
+func strEq(s0, s1 string) bool {
+	return s0 == s1
+}
+
+func matchStr(match func(s0, s1 string) bool, f func() (string, error), target string) bool {
+	s, err := f()
+	return err == nil && match(s, target)
+}
+
+func matchMeta(index routing.Index) (matchFunc, error) {
+	ix, ok := index.(interface{ Meta() (routing.Meta, error) })
+	if !ok {
+		return nil, errors.New("not a meta index")
+	}
+
+	meta, err := ix.Meta()
+	if err != nil {
+		return nil, err
+	}
+
+	if index.Prefix() {
+		return func(r routing.Record) bool {
+			return metaEq(strings.HasPrefix, r, meta)
+		}, nil
+	}
+
+	return func(r routing.Record) bool {
+		return metaEq(strEq, r, meta)
+	}, nil
+
 }
 
 type matchFunc func(routing.Record) bool
@@ -147,13 +244,19 @@ func (match matchFunc) Match(r routing.Record) bool {
 	return match(r)
 }
 
-func matchMeta(match func(ix, m string) bool, meta, index routing.Meta) bool {
-	if index.Len() == 0 {
+func metaEq(match func(s0, s1 string) bool, r routing.Record, meta routing.Meta) bool {
+	rmeta, err := r.Meta()
+	if err != nil {
+		return false
+	}
+
+	if rmeta.Len() == 0 {
 		return meta.Len() == 0
 	}
 
-	for i := 0; i < index.Len(); i++ {
-		f, err := index.At(i)
+	// TODO:  reduce allocations with FooBytes()
+	for i := 0; i < rmeta.Len(); i++ {
+		f, err := rmeta.At(i)
 		if err != nil {
 			return false
 		}
@@ -166,5 +269,3 @@ func matchMeta(match func(ix, m string) bool, meta, index routing.Meta) bool {
 
 	return true
 }
-
-func fieldEq(index, meta string) bool { return index == meta }

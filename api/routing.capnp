@@ -68,13 +68,11 @@ interface View {
     }
 
     struct Index {
+        prefix    @0 :Bool;
         union {
-            peer       @0 :PeerID;
-            peerPrefix @1 :PeerID;
-            host       @2 :Text;
-            hostPrefix @3 :Text;
-            meta       @4 :List(Text);        # key=value
-            metaPrefix @5 :List(Text);
+            id    @1 :PeerID;
+            host  @2 :Text;
+            meta  @3 :List(Text);        # key=value
         }
     }
 
