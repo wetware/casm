@@ -82,3 +82,27 @@ func (f FuturePtr) Ptr() (capnp.Ptr, error) {
 
 	return s.Ptr(0)
 }
+
+type Iterator[T any] struct {
+	Seq interface {
+		Next() (T, bool)
+	}
+
+	Future interface {
+		Done() <-chan struct{}
+		Err() error
+	}
+}
+
+func (it Iterator[T]) Err() error {
+	select {
+	case <-it.Future.Done():
+		return it.Future.Err()
+	default:
+		return nil
+	}
+}
+
+func (it Iterator[T]) Next() (T, bool) {
+	return it.Seq.Next()
+}

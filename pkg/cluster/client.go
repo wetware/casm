@@ -46,35 +46,20 @@ func (v View) Iter(ctx context.Context, query Query) (Iterator, capnp.ReleaseFun
 	)
 
 	return Iterator{
-		f: casm.Future(f),
-		h: h,
+		Future: casm.Future(f),
+		Seq:    h,
 	}, release
 }
 
-// Iterator is a stateful object that enumerates routing
-// records.
-//
-// Callers SHOULD check the value of Err after a call to
-// Next returns nil.  If Err() == nil and Next() == nil,
-// the iterator is exhausted.
-type Iterator struct {
-	f casm.Future
-	h *handler
-}
+// Iterator is a stateful object that enumerates routing records.
+// See casm.Iterator() for important information on lifetime and
+// error handling.
+type Iterator casm.Iterator[routing.Record]
 
-// Err returns any error encountered by the iterator.
-// If Err() != nil, future calls to Err() return the
-// same error, and calls to Next() return nil.
-//
-// Callers SHOULD check Err() after a call to Next()
-// returns nil.
-func (it *Iterator) Err() error {
-	select {
-	case <-it.f.Done():
-		return it.f.Err()
-	default:
-		return nil
-	}
+// Err reports any error encountered during iteration. Next will
+// always return nil when Err() != nil.
+func (it Iterator) Err() error {
+	return casm.Iterator[routing.Record](it).Err()
 }
 
 // Next upates the iterator's internal state and returns the
@@ -83,8 +68,9 @@ func (it *Iterator) Err() error {
 //
 // Records returned by Next are valid until the next call to
 // Next, or until the iterator is released.  See View.Iter().
-func (it *Iterator) Next() routing.Record {
-	return it.h.Next()
+func (it Iterator) Next() routing.Record {
+	r, _ := it.Seq.Next()
+	return r
 }
 
 type handler struct {
@@ -100,17 +86,19 @@ func newHandler() *handler {
 	}
 }
 
-func (h *handler) Shutdown() { close(h.send) }
+func (h handler) Shutdown() { close(h.send) }
 
-func (h *handler) Next() routing.Record {
+func (h handler) Next() (r routing.Record, ok bool) {
 	h.sync <- struct{}{}
-	return <-h.send
+	r, ok = <-h.send
+	return
 }
 
 func (h *handler) Handler(query Query) func(api.View_iter_Params) error {
 	return func(ps api.View_iter_Params) error {
 		if err := query(ps); err != nil {
 			close(h.send)
+			close(h.sync) // trigger panic if misused
 			return err
 		}
 
@@ -124,18 +112,18 @@ func (h *handler) Recv(ctx context.Context, call api.View_Handler_recv) error {
 		return err
 	}
 
+	if !h.init {
+		select {
+		case <-h.sync:
+			h.init = true
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	r, err := newRecord(rec)
 	if err != nil {
 		return err
-	}
-
-	// inital call to it.Next()
-	if !h.init {
-		select {
-		case <-ctx.Done():
-		case <-h.sync:
-			h.init = true
-		}
 	}
 
 	select {
