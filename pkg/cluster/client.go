@@ -84,7 +84,6 @@ func (it *Iterator) Err() error {
 // Records returned by Next are valid until the next call to
 // Next, or until the iterator is released.  See View.Iter().
 func (it *Iterator) Next() routing.Record {
-	it.h.Sync()
 	return it.h.Next()
 }
 
@@ -101,9 +100,12 @@ func newHandler() *handler {
 	}
 }
 
-func (h *handler) Shutdown()            { close(h.send) }
-func (h *handler) Sync()                { h.sync <- struct{}{} }
-func (h *handler) Next() routing.Record { return <-h.send }
+func (h *handler) Shutdown() { close(h.send) }
+
+func (h *handler) Next() routing.Record {
+	h.sync <- struct{}{}
+	return <-h.send
+}
 
 func (h *handler) Handler(query Query) func(api.View_iter_Params) error {
 	return func(ps api.View_iter_Params) error {
