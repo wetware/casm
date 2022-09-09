@@ -27,7 +27,7 @@ func schema(clock *atomic.Time) *memdb.TableSchema {
 			},
 			"instance": {
 				Name:    "instance",
-				Indexer: instanceIndexer(),
+				Indexer: instanceIndexer{},
 			},
 			"host": {
 				Name:    "host",
@@ -84,23 +84,18 @@ func (peerIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
 	return peerIndexer{}.FromArgs(args...)
 }
 
-func instanceIndexer() uint32Indexer {
-	return uint32Indexer(func(r Record) uint32 {
-		return r.Instance()
-	})
-}
+type instanceIndexer struct{}
 
-type uint32Indexer func(Record) uint32
-
-func (field uint32Indexer) FromObject(obj any) (bool, []byte, error) {
+func (instanceIndexer) FromObject(obj any) (bool, []byte, error) {
 	if rec, ok := obj.(Record); ok {
-		return true, uint32ToBytes(field(rec)), nil
+		id := rec.Instance()
+		return true, id[:], nil
 	}
 
 	return false, nil, errType(obj)
 }
 
-func (uint32Indexer) FromArgs(args ...any) ([]byte, error) {
+func (instanceIndexer) FromArgs(args ...any) ([]byte, error) {
 	u, err := argsToUint32(args...)
 	return uint32ToBytes(u), err
 }

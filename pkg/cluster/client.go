@@ -214,7 +214,7 @@ func (r clientRecord) TTL() time.Duration {
 	return r.heartbeat().TTL()
 }
 
-func (r clientRecord) Instance() uint32 {
+func (r clientRecord) Instance() routing.ID {
 	return r.heartbeat().Instance()
 }
 

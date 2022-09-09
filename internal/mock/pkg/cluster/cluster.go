@@ -5,6 +5,7 @@
 package mock_cluster
 
 import (
+	context "context"
 	reflect "reflect"
 	time "time"
 
@@ -13,80 +14,75 @@ import (
 	routing "github.com/wetware/casm/pkg/cluster/routing"
 )
 
-// MockPubSub is a mock of PubSub interface.
-type MockPubSub struct {
+// MockTopic is a mock of Topic interface.
+type MockTopic struct {
 	ctrl     *gomock.Controller
-	recorder *MockPubSubMockRecorder
+	recorder *MockTopicMockRecorder
 }
 
-// MockPubSubMockRecorder is the mock recorder for MockPubSub.
-type MockPubSubMockRecorder struct {
-	mock *MockPubSub
+// MockTopicMockRecorder is the mock recorder for MockTopic.
+type MockTopicMockRecorder struct {
+	mock *MockTopic
 }
 
-// NewMockPubSub creates a new mock instance.
-func NewMockPubSub(ctrl *gomock.Controller) *MockPubSub {
-	mock := &MockPubSub{ctrl: ctrl}
-	mock.recorder = &MockPubSubMockRecorder{mock}
+// NewMockTopic creates a new mock instance.
+func NewMockTopic(ctrl *gomock.Controller) *MockTopic {
+	mock := &MockTopic{ctrl: ctrl}
+	mock.recorder = &MockTopicMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockPubSub) EXPECT() *MockPubSubMockRecorder {
+func (m *MockTopic) EXPECT() *MockTopicMockRecorder {
 	return m.recorder
 }
 
-// Join mocks base method.
-func (m *MockPubSub) Join(arg0 string, arg1 ...pubsub.TopicOpt) (*pubsub.Topic, error) {
-	m.ctrl.T.Helper()
-	varargs := []interface{}{arg0}
-	for _, a := range arg1 {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "Join", varargs...)
-	ret0, _ := ret[0].(*pubsub.Topic)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Join indicates an expected call of Join.
-func (mr *MockPubSubMockRecorder) Join(arg0 interface{}, arg1 ...interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{arg0}, arg1...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Join", reflect.TypeOf((*MockPubSub)(nil).Join), varargs...)
-}
-
-// RegisterTopicValidator mocks base method.
-func (m *MockPubSub) RegisterTopicValidator(arg0 string, arg1 interface{}, arg2 ...pubsub.ValidatorOpt) error {
+// Publish mocks base method.
+func (m *MockTopic) Publish(arg0 context.Context, arg1 []byte, arg2 ...pubsub.PubOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{arg0, arg1}
 	for _, a := range arg2 {
 		varargs = append(varargs, a)
 	}
-	ret := m.ctrl.Call(m, "RegisterTopicValidator", varargs...)
+	ret := m.ctrl.Call(m, "Publish", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// RegisterTopicValidator indicates an expected call of RegisterTopicValidator.
-func (mr *MockPubSubMockRecorder) RegisterTopicValidator(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
+// Publish indicates an expected call of Publish.
+func (mr *MockTopicMockRecorder) Publish(arg0, arg1 interface{}, arg2 ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{arg0, arg1}, arg2...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterTopicValidator", reflect.TypeOf((*MockPubSub)(nil).RegisterTopicValidator), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockTopic)(nil).Publish), varargs...)
 }
 
-// UnregisterTopicValidator mocks base method.
-func (m *MockPubSub) UnregisterTopicValidator(arg0 string) error {
+// Relay mocks base method.
+func (m *MockTopic) Relay() (pubsub.RelayCancelFunc, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UnregisterTopicValidator", arg0)
-	ret0, _ := ret[0].(error)
+	ret := m.ctrl.Call(m, "Relay")
+	ret0, _ := ret[0].(pubsub.RelayCancelFunc)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Relay indicates an expected call of Relay.
+func (mr *MockTopicMockRecorder) Relay() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Relay", reflect.TypeOf((*MockTopic)(nil).Relay))
+}
+
+// String mocks base method.
+func (m *MockTopic) String() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "String")
+	ret0, _ := ret[0].(string)
 	return ret0
 }
 
-// UnregisterTopicValidator indicates an expected call of UnregisterTopicValidator.
-func (mr *MockPubSubMockRecorder) UnregisterTopicValidator(arg0 interface{}) *gomock.Call {
+// String indicates an expected call of String.
+func (mr *MockTopicMockRecorder) String() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnregisterTopicValidator", reflect.TypeOf((*MockPubSub)(nil).UnregisterTopicValidator), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "String", reflect.TypeOf((*MockTopic)(nil).String))
 }
 
 // MockRoutingTable is a mock of RoutingTable interface.

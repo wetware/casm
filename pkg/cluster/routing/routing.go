@@ -4,6 +4,7 @@ package routing
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,12 +12,21 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
+// ID is an opaque identifier that identifies a set of heartbeats
+// belonging to the same instance of a peer.  Contrary to peer.ID,
+// a fresh routing.ID is generated for each cluster.Router.
+type ID [4]byte
+
+func (id ID) String() string {
+	return fmt.Sprintf("%x", id[:])
+}
+
 // Record is an entry in the routing table.
 type Record interface {
 	Peer() peer.ID
 	TTL() time.Duration
 	Seq() uint64
-	Instance() uint32
+	Instance() ID
 	Host() (string, error)
 	Meta() (Meta, error)
 }
@@ -91,7 +101,7 @@ func (m Meta) At(i int) (Field, error) {
 		return Field{}, err
 	}
 
-	return parseField(s)
+	return ParseField(s)
 }
 
 // Get returns the value associated with the supplied key.
@@ -132,7 +142,7 @@ type Field struct {
 	Key, Value string
 }
 
-func parseField(s string) (Field, error) {
+func ParseField(s string) (Field, error) {
 	switch ss := strings.Split(s, "="); len(ss) {
 	case 0:
 		return Field{}, errors.New("missing key")

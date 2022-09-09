@@ -20,12 +20,8 @@ type RoutingTable interface {
 	Upsert(routing.Record) bool
 }
 
-type Setter interface {
-	SetMeta(map[string]string) error
-}
-
 type Preparer interface {
-	Prepare(Setter) error
+	Prepare(Heartbeat) error
 }
 
 func NewValidator(rt RoutingTable) pubsub.ValidatorEx {
@@ -73,7 +69,7 @@ func (r *record) Seq() uint64 {
 	return binary.BigEndian.Uint64((*pubsub.Message)(r).GetSeqno())
 }
 
-func (r *record) Instance() uint32 {
+func (r *record) Instance() routing.ID {
 	return r.heartbeat().Instance()
 }
 

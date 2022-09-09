@@ -71,7 +71,7 @@ func TestInstanceIndexer(t *testing.T) {
 
 	t.Run("FromObject", func(t *testing.T) {
 		rec := testRecord{ins: i}
-		ok, index, err := instanceIndexer().FromObject(rec)
+		ok, index, err := instanceIndexer{}.FromObject(rec)
 		assert.NoError(t, err, "should index record")
 		assert.True(t, ok, "record should have peer index")
 		assert.Equal(t, i,
@@ -79,7 +79,7 @@ func TestInstanceIndexer(t *testing.T) {
 	})
 
 	t.Run("FromArgs", func(t *testing.T) {
-		index, err := instanceIndexer().FromArgs(i)
+		index, err := instanceIndexer{}.FromArgs(i)
 		assert.NoError(t, err,
 			"should parse argument")
 		assert.Equal(t, i, binary.LittleEndian.Uint32(index),
@@ -220,8 +220,17 @@ type testRecord struct {
 func (r testRecord) Peer() peer.ID         { return r.id }
 func (r testRecord) Seq() uint64           { return r.seq }
 func (r testRecord) Host() (string, error) { return r.host, nil }
-func (r testRecord) Instance() uint32      { return r.ins }
 func (r testRecord) Meta() (Meta, error)   { return r.meta, nil }
+
+func (r testRecord) Instance() ID {
+	return ID{
+		byte(r.ins),
+		byte(r.ins >> 8),
+		byte(r.ins >> 16),
+		byte(r.ins >> 24),
+	}
+}
+
 func (r testRecord) TTL() time.Duration {
 	if r.ttl == 0 {
 		return time.Second

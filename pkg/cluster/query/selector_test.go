@@ -201,9 +201,14 @@ func (r *record) Host() (string, error) {
 	return r.host, nil
 }
 
-func (r *record) Instance() uint32 {
+func (r *record) Instance() routing.ID {
 	r.init()
-	return r.ins
+	return routing.ID{
+		byte(r.ins >> 24),
+		byte(r.ins >> 16),
+		byte(r.ins >> 8),
+		byte(r.ins),
+	}
 }
 
 func (r *record) TTL() time.Duration {

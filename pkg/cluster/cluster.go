@@ -5,21 +5,23 @@ package cluster
 
 import (
 	"context"
+	"math/rand"
+	"sync"
 	"time"
 
+	"github.com/jpillora/backoff"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/lthibault/jitterbug/v2"
+	"github.com/lthibault/log"
+	ctxutil "github.com/lthibault/util/ctx"
 	"github.com/wetware/casm/pkg/cluster/pulse"
-	"github.com/wetware/casm/pkg/cluster/query"
 	"github.com/wetware/casm/pkg/cluster/routing"
-	"github.com/wetware/casm/pkg/util/service"
 )
 
-// PubSub is used by the cluster Node to participate in the membership
-// protocol.
-type PubSub interface {
-	Join(string, ...pubsub.TopicOpt) (*pubsub.Topic, error)
-	RegisterTopicValidator(string, interface{}, ...pubsub.ValidatorOpt) error
-	UnregisterTopicValidator(string) error
+type Topic interface {
+	String() string
+	Publish(context.Context, []byte, ...pubsub.PubOpt) error
+	Relay() (pubsub.RelayCancelFunc, error)
 }
 
 // RoutingTable tracks the liveness of cluster peers and provides a
@@ -30,107 +32,245 @@ type RoutingTable interface {
 	Snapshot() routing.Snapshot
 }
 
-// Node is a peer participating in the cluster membership protocol.
+// Router is a peer participating in the cluster membership protocol.
 // It maintains a global view of the cluster with PA/EL guarantees,
 // and periodically announces its presence to others.
-type Node struct {
-	ns string
-	rt RoutingTable
-	a  *announcer
-	s  service.Set
+type Router struct {
+	Topic Topic
+
+	Log          log.Logger
+	TTL          time.Duration
+	Meta         pulse.Preparer
+	RoutingTable RoutingTable
+
+	once     sync.Once
+	err      error
+	clock    *time.Ticker
+	cancel   pubsub.RelayCancelFunc
+	hb       pulse.Heartbeat
+	done     chan struct{}
+	announce chan announcement
 }
 
-// New cluster node.  It is safe to cancel 'ctx' after 'New' returns.
-func New(ps PubSub, opt ...Option) (*Node, error) {
-	n := &Node{a: newAnnouncer()}
-	for _, option := range withDefault(opt) {
-		option(n)
-	}
+func (r *Router) Stop() {
+	r.once.Do(func() {})
 
-	n.s = service.Set{n.newTopic(ps), n.a, &clock{timer: n.rt}}
-	return n, n.s.Start()
-}
-
-func (n *Node) Close() error         { return n.s.Close() }
-func (n *Node) String() string       { return n.ns }
-func (n *Node) Topic() *pubsub.Topic { return n.a.t }
-
-func (n *Node) Loggable() map[string]interface{} {
-	return map[string]interface{}{
-		"ns": n.ns,
+	if r.clock != nil {
+		r.clock.Stop()
+		r.cancel()
 	}
 }
 
-func (n *Node) View() View {
-	return Server{RoutingTable: n.rt}.View()
+func (r *Router) String() string {
+	return r.Topic.String()
 }
 
-func (n *Node) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
-	return n.a.Emit(ctx, n.a.t, opt...)
+func (r *Router) ID() routing.ID {
+	return r.hb.Instance()
 }
 
-func (n *Node) NewQuery() query.Query {
-	return query.Query{Snapshot: n.rt.Snapshot()}
+func (r *Router) Loggable() map[string]any {
+	return r.hb.Loggable()
 }
 
-func (n *Node) newTopic(ps PubSub) service.Service {
-	var cancel pubsub.RelayCancelFunc
+func (r *Router) View() View {
+	return Server{RoutingTable: r.RoutingTable}.View()
+}
 
-	return service.Set{
-		// Update routing table via topic validator
-		service.Hook{
-			OnStart: func() (err error) {
-				return ps.RegisterTopicValidator(n.ns,
-					pulse.NewValidator(n.rt))
-			},
-			OnClose: func() error {
-				return ps.UnregisterTopicValidator(n.ns)
-			},
-		},
+func (r *Router) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
+	if err := r.initialize(); err != nil {
+		return err
+	}
 
-		// Join and relay the topic
-		service.Hook{
-			OnStart: func() (err error) {
-				if n.a.t, err = ps.Join(n.ns); err == nil {
-					cancel, err = n.a.t.Relay()
-				}
-				return
-			},
-			OnClose: func() error {
-				cancel()
-				return n.a.t.Close()
-			},
-		},
+	request := bootstrap(opt)
+	select {
+	case r.announce <- request:
+		return request.Wait(ctx)
+
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
-type clock struct {
-	cq    chan struct{}
-	timer interface{ Advance(time.Time) }
+func (r *Router) initialize() error {
+	r.once.Do(func() {
+		if r.Log == nil {
+			r.Log = log.New()
+		}
+
+		if r.RoutingTable == nil {
+			r.RoutingTable = routing.New(time.Now())
+		}
+
+		if r.Meta == nil {
+			r.Meta = nopPreparer{}
+		}
+
+		if r.TTL <= 0 {
+			r.TTL = pulse.DefaultTTL
+		}
+
+		// Start relaying messages.  Note that this will not populate
+		// the routing table unless pulse.Validator was previously set.
+		if r.cancel, r.err = r.Topic.Relay(); r.err == nil {
+			r.hb = pulse.NewHeartbeat()
+			r.Log = r.Log.With(r.hb)
+			r.clock = time.NewTicker(time.Millisecond * 10)
+			r.done = make(chan struct{})
+			r.announce = make(chan announcement, 1)
+
+			go r.advance()
+			go r.heartbeat()
+		}
+	})
+
+	return r.err
 }
 
-func (c *clock) Start() error {
-	c.cq = make(chan struct{})
+func (r *Router) advance() {
+	defer close(r.announce)
+	defer close(r.done)
 
-	go func() {
-		ticker := time.NewTicker(time.Millisecond * 10)
-		defer ticker.Stop()
+	var announce = announcement{
+		cherr: make(chan error, 1),
+	}
 
-		for {
+	jitter := jitterbug.Uniform{
+		Min:    r.TTL / 10,
+		Source: rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	for t := range r.clock.C {
+		if r.RoutingTable.Advance(t); announce.Ready(t) {
+			next := t.Add(jitter.Jitter(r.TTL / 2))
 			select {
-			case now := <-ticker.C:
-				c.timer.Advance(now)
-
-			case <-c.cq:
-				return
+			case r.announce <- announce.WithDeadline(next):
+			default:
 			}
 		}
-	}()
-
-	return nil
+	}
 }
 
-func (c *clock) Close() error {
-	close(c.cq)
-	return nil
+func (r *Router) heartbeat() {
+	backoff := &loggableBackoff{backoff.Backoff{
+		Factor: 2,
+		Min:    r.TTL / 2,
+		Max:    time.Minute * 15,
+		Jitter: true,
+	}}
+
+	ctx := ctxutil.C(r.done)
+
+	for a := range r.announce {
+		err := r.emit(ctx, a)
+		if err == nil {
+			backoff.Reset()
+			continue
+		}
+
+		// shutting down?
+		if err == context.Canceled {
+			return
+		}
+
+		r.Log.
+			With(backoff).
+			WithError(err).
+			Warn("failed to announce")
+
+		// don't retry if the context is expired
+		if err == context.DeadlineExceeded {
+			continue
+		}
+
+		// back off...
+		select {
+		case <-time.After(backoff.Duration()):
+			r.Log.Debug("resuming")
+		case <-r.done:
+			return
+		}
+
+		// ... and retry
+		select {
+		case r.announce <- a:
+			r.Log.Debug("retrying announce")
+		default:
+		}
+	}
 }
+
+func (r *Router) emit(ctx context.Context, a announcement) (err error) {
+	if err = r.Meta.Prepare(r.hb); err == nil {
+		err = a.Send(ctx, r.Topic, r.hb)
+	}
+
+	return
+}
+
+type announcement struct {
+	opt   []pubsub.PubOpt
+	dl    time.Time
+	cherr chan error
+}
+
+func bootstrap(opt []pubsub.PubOpt) announcement {
+	return announcement{
+		opt:   opt,
+		cherr: make(chan error, 1),
+	}
+}
+
+func (a announcement) Wait(ctx context.Context) error {
+	select {
+	case err := <-a.cherr:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (a announcement) Send(ctx context.Context, t Topic, h pulse.Heartbeat) error {
+	ctx, cancel := a.withDeadline(ctx)
+	defer cancel()
+
+	msg, err := h.Message().MarshalPacked()
+	if err == nil {
+		err = t.Publish(ctx, msg, a.opt...)
+	}
+
+	if a.cherr != nil {
+		a.cherr <- err
+	}
+
+	return err
+}
+
+func (a announcement) WithDeadline(dl time.Time) announcement {
+	a.dl = dl.Truncate(time.Millisecond)
+	return a
+}
+
+func (a announcement) Ready(t time.Time) bool { return !t.Before(a.dl) }
+
+func (a announcement) withDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if a.dl.IsZero() {
+		return ctx, func() {}
+	}
+
+	return context.WithDeadline(ctx, a.dl)
+}
+
+type loggableBackoff struct{ backoff.Backoff }
+
+func (b *loggableBackoff) Loggable() map[string]interface{} {
+	return map[string]interface{}{
+		"attempt": int(b.Attempt()),
+		"dur":     b.ForAttempt(b.Attempt()),
+		"max_dur": b.Max,
+	}
+}
+
+type nopPreparer struct{}
+
+func (nopPreparer) Prepare(pulse.Heartbeat) error { return nil }

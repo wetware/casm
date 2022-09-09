@@ -161,17 +161,18 @@ func copyRecord(rec api.View_Record, r routing.Record) error {
 		return b.BindRecord(rec)
 	}
 
-	if err := rec.SetPeer(string(r.Peer())); err != nil {
-		return err
-	}
-
-	hb, err := rec.NewHeartbeat()
+	err := rec.SetPeer(string(r.Peer()))
 	if err != nil {
 		return err
 	}
 
+	var hb pulse.Heartbeat
+	if hb.Heartbeat, err = rec.NewHeartbeat(); err != nil {
+		return err
+	}
+
 	rec.SetSeq(r.Seq())
-	pulse.Heartbeat{Heartbeat: hb}.SetTTL(r.TTL())
+	hb.SetTTL(r.TTL())
 	hb.SetInstance(r.Instance())
 
 	if err := copyHost(hb, r); err != nil {
@@ -181,7 +182,7 @@ func copyRecord(rec api.View_Record, r routing.Record) error {
 	return copyMeta(hb, r)
 }
 
-func copyHost(rec api.Heartbeat, r routing.Record) error {
+func copyHost(rec pulse.Heartbeat, r routing.Record) error {
 	name, err := r.Host()
 	if err == nil {
 		err = rec.SetHost(name)
@@ -190,10 +191,10 @@ func copyHost(rec api.Heartbeat, r routing.Record) error {
 	return err
 }
 
-func copyMeta(rec api.Heartbeat, r routing.Record) error {
+func copyMeta(rec pulse.Heartbeat, r routing.Record) error {
 	meta, err := r.Meta()
 	if err == nil {
-		err = rec.SetMeta(capnp.TextList(meta))
+		err = rec.Heartbeat.SetMeta(capnp.TextList(meta))
 	}
 
 	return err
