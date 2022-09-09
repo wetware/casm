@@ -26,6 +26,13 @@ func New[T ~capnp.StructKind](method Func[T]) *Stream[T] {
 	}
 }
 
+func (t *Stream[T]) Err() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.err
+}
+
 func (t *Stream[T]) Call(ctx context.Context, args func(T) error) {
 	t.mu.Lock()
 
