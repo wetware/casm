@@ -67,23 +67,34 @@ func TestInstanceIndexer(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	var i uint32 = 42
+	rec := testRecord{ins: 42}
 
 	t.Run("FromObject", func(t *testing.T) {
-		rec := testRecord{ins: i}
 		ok, index, err := instanceIndexer{}.FromObject(rec)
 		assert.NoError(t, err, "should index record")
 		assert.True(t, ok, "record should have peer index")
-		assert.Equal(t, i,
-			binary.LittleEndian.Uint32(index), "index should be %d", i)
+
+		assert.Equal(t, rec.Instance().Bytes(), index,
+			"index should be 0x%x", rec.Instance())
 	})
 
 	t.Run("FromArgs", func(t *testing.T) {
-		index, err := instanceIndexer{}.FromArgs(i)
-		assert.NoError(t, err,
-			"should parse argument")
-		assert.Equal(t, i, binary.LittleEndian.Uint32(index),
-			"index should be little-endian encoding of %d", 42)
+		t.Run("ID", func(t *testing.T) {
+			index, err := instanceIndexer{}.FromArgs(rec.Instance())
+			assert.NoError(t, err, "should parse argument")
+
+			assert.Equal(t, rec.Instance().Bytes(), index,
+				"index should be 0x%x", rec.Instance())
+		})
+
+		t.Run("String", func(t *testing.T) {
+			hexstr := rec.Instance().String()
+			index, err := instanceIndexer{}.FromArgs(hexstr)
+			assert.NoError(t, err, "should parse argument")
+
+			assert.Equal(t, rec.Instance().Bytes(), index,
+				"index should be 0x%x", hexstr)
+		})
 	})
 }
 
@@ -219,17 +230,9 @@ type testRecord struct {
 
 func (r testRecord) Peer() peer.ID         { return r.id }
 func (r testRecord) Seq() uint64           { return r.seq }
+func (r testRecord) Instance() ID          { return ID(r.ins) }
 func (r testRecord) Host() (string, error) { return r.host, nil }
 func (r testRecord) Meta() (Meta, error)   { return r.meta, nil }
-
-func (r testRecord) Instance() ID {
-	return ID{
-		byte(r.ins),
-		byte(r.ins >> 8),
-		byte(r.ins >> 16),
-		byte(r.ins >> 24),
-	}
-}
 
 func (r testRecord) TTL() time.Duration {
 	if r.ttl == 0 {

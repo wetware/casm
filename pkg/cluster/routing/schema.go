@@ -1,7 +1,7 @@
 package routing
 
 import (
-	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"time"
@@ -88,34 +88,28 @@ type instanceIndexer struct{}
 
 func (instanceIndexer) FromObject(obj any) (bool, []byte, error) {
 	if rec, ok := obj.(Record); ok {
-		id := rec.Instance()
-		return true, id[:], nil
+		return true, rec.Instance().Bytes(), nil
 	}
 
 	return false, nil, errType(obj)
 }
 
 func (instanceIndexer) FromArgs(args ...any) ([]byte, error) {
-	u, err := argsToUint32(args...)
-	return uint32ToBytes(u), err
-}
-
-func argsToUint32(args ...any) (uint32, error) {
 	if len(args) != 1 {
-		return 0, errNArgs(args)
+		return nil, errNArgs(args)
 	}
 
-	if u, ok := args[0].(uint32); ok {
-		return u, nil
+	switch id := args[0].(type) {
+	case ID:
+		return id.Bytes(), nil
+
+	case string:
+		index := make([]byte, 4)
+		_, err := hex.Decode(index, []byte(id))
+		return index, err
 	}
 
-	return 0, errNArgs(args)
-}
-
-func uint32ToBytes(u uint32) []byte {
-	b := make([]byte, 4)
-	binary.LittleEndian.PutUint32(b, u)
-	return b
+	return nil, errType(args)
 }
 
 type timeIndexer struct{}

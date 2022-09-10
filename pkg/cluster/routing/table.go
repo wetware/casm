@@ -20,7 +20,10 @@ func New(t0 time.Time) Table {
 	)
 
 	records := f.Register("record", schema(clock))
-	sched, _ := f.NewScheduler() // no err since f is freshly instantiated
+	sched, err := f.NewScheduler() // no err since f is freshly instantiated
+	if err != nil {
+		panic(err)
+	}
 
 	return Table{
 		clock:   clock,
@@ -53,15 +56,24 @@ func (table Table) Advance(t time.Time) {
 }
 
 func (table Table) expiredRecords(tx stm.Txn, t time.Time) bool {
-
-	it, _ := tx.ReverseLowerBound(table.records, "ttl", t)
+	it, err := tx.ReverseLowerBound(table.records, "ttl", t)
+	if err != nil {
+		panic(err)
+	}
 	return it != nil && it.Next() != nil
 }
 
 func (table Table) dropExpired(wx stm.Txn, t time.Time) {
-	it, _ := wx.ReverseLowerBound(table.records, "ttl", t)
+	it, err := wx.ReverseLowerBound(table.records, "ttl", t)
+	if err != nil {
+		panic(err)
+	}
+
 	for r := it.Next(); r != nil; r = it.Next() {
-		_ = wx.Delete(table.records, r)
+		if err = wx.Delete(table.records, r); err != nil {
+			panic(err)
+		}
+
 	}
 }
 
@@ -100,7 +112,10 @@ func (table Table) valid(tx stm.Txn, rec Record) bool {
 }
 
 func (table Table) upsert(wx stm.Txn, rec Record) {
-	_ = wx.Insert(table.records, table.withDeadline(rec))
+	err := wx.Insert(table.records, table.withDeadline(rec))
+	if err != nil {
+		panic(err)
+	}
 }
 
 // record wraps a Record and provides a stable deadline, calculated

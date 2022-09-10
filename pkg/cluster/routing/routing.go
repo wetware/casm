@@ -15,10 +15,22 @@ import (
 // ID is an opaque identifier that identifies a set of heartbeats
 // belonging to the same instance of a peer.  Contrary to peer.ID,
 // a fresh routing.ID is generated for each cluster.Router.
-type ID [4]byte
+type ID uint32
 
 func (id ID) String() string {
-	return fmt.Sprintf("%x", id[:])
+	return fmt.Sprintf("%x", uint32(id))
+}
+
+func (id ID) MarshalText() ([]byte, error) {
+	return []byte(id.String()), nil
+}
+
+func (id ID) Bytes() []byte {
+	return []byte{
+		byte(id),
+		byte(id >> 8),
+		byte(id >> 16),
+		byte(id >> 24)}
 }
 
 // Record is an entry in the routing table.

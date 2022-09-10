@@ -1,7 +1,6 @@
 package pulse
 
 import (
-	"encoding/binary"
 	"math/rand"
 	"time"
 
@@ -45,17 +44,11 @@ func (h Heartbeat) TTL() (d time.Duration) {
 }
 
 func (h Heartbeat) SetInstance(id routing.ID) {
-	h.Heartbeat.SetInstance(binary.LittleEndian.Uint32(id[:]))
+	h.Heartbeat.SetInstance(uint32(id))
 }
 
 func (h Heartbeat) Instance() routing.ID {
-	id := h.Heartbeat.Instance() // TODO:  get raw bytes from capnp segment
-	return routing.ID{
-		byte(id >> 24),
-		byte(id >> 16),
-		byte(id >> 8),
-		byte(id),
-	}
+	return routing.ID(h.Heartbeat.Instance())
 }
 
 func (h Heartbeat) Meta() (routing.Meta, error) {
