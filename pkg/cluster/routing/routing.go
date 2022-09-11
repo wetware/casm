@@ -3,8 +3,8 @@
 package routing
 
 import (
+	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -21,7 +21,7 @@ import (
 type ID uint32
 
 func (id ID) String() string {
-	return fmt.Sprintf("%x", uint32(id))
+	return hex.EncodeToString(id.Bytes())
 }
 
 func (id ID) MarshalText() ([]byte, error) {
@@ -29,7 +29,7 @@ func (id ID) MarshalText() ([]byte, error) {
 }
 
 func (id ID) Bytes() []byte {
-	return []byte{
+	return []byte{ // little-endian encoding
 		byte(id),
 		byte(id >> 8),
 		byte(id >> 16),

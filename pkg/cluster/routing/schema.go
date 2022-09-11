@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"encoding/hex"
 	"fmt"
 	"reflect"
 	"time"
@@ -9,6 +8,8 @@ import (
 	"github.com/hashicorp/go-memdb"
 	"github.com/libp2p/go-libp2p/core/peer"
 	b58 "github.com/mr-tron/base58/base58"
+	"github.com/multiformats/go-multihash"
+	"github.com/multiformats/go-varint"
 	"go.uber.org/atomic"
 )
 
@@ -19,19 +20,16 @@ func schema(clock *atomic.Time) *memdb.TableSchema {
 			"id": {
 				Name:    "id",
 				Unique:  true,
-				Indexer: peerIndexer{},
+				Indexer: idIndexer{},
 			},
 			"ttl": {
 				Name:    "ttl",
 				Indexer: timeIndexer{},
 			},
-			"instance": {
-				Name:    "instance",
-				Indexer: instanceIndexer{},
-			},
 			"host": {
-				Name:    "host",
-				Indexer: hostnameIndexer{},
+				Name:         "host",
+				AllowMissing: true,
+				Indexer:      hostnameIndexer{},
 			},
 			"meta": {
 				Name:         "meta",
@@ -42,74 +40,76 @@ func schema(clock *atomic.Time) *memdb.TableSchema {
 	}
 }
 
-type peerIndexer struct{}
+type idIndexer struct{}
 
-func (peerIndexer) FromObject(obj any) (bool, []byte, error) {
-	switch rec := obj.(type) {
+func (idIndexer) FromObject(obj any) (bool, []byte, error) {
+	switch r := obj.(type) {
 	case PeerIndex:
-		index, err := rec.PeerBytes()
+		peerID, err := r.PeerBytes()
+		if err == nil {
+			peerID, err = hashdigest(peerID)
+		}
+		return err == nil, peerID, err
+
+	case Record:
+		index, err := hashdigest([]byte(r.Peer())) // TODO: unsafe.Pointer (?)
 		return err == nil, index, err
-
-	case Record:
-		id := rec.Peer()
-		return true, []byte(id), nil
 	}
 
 	return false, nil, errType(obj)
 }
 
-func (peerIndexer) FromArgs(args ...any) ([]byte, error) {
-	if len(args) == 0 {
-		return nil, errNArgs(args)
-	}
-
-	switch id := args[0].(type) {
-	case PeerIndex:
-		return id.PeerBytes()
-
-	case Record:
-		return []byte(id.Peer()), nil
-
-	case string:
-		return b58.Decode(id)
-
-	case peer.ID:
-		return []byte(id), nil
-	}
-
-	return nil, errType(args)
-}
-
-func (peerIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
-	return peerIndexer{}.FromArgs(args...)
-}
-
-type instanceIndexer struct{}
-
-func (instanceIndexer) FromObject(obj any) (bool, []byte, error) {
-	if rec, ok := obj.(Record); ok {
-		return true, rec.Instance().Bytes(), nil
-	}
-
-	return false, nil, errType(obj)
-}
-
-func (instanceIndexer) FromArgs(args ...any) ([]byte, error) {
+func (idIndexer) FromArgs(args ...any) ([]byte, error) {
 	if len(args) != 1 {
 		return nil, errNArgs(args)
 	}
 
-	switch id := args[0].(type) {
-	case ID:
-		return id.Bytes(), nil
+	switch arg := args[0].(type) {
+	case Index:
+		return arg.(PeerIndex).PeerBytes()
+
+	case []byte:
+		return arg, nil
+
+	case peer.ID:
+		return hashdigest([]byte(arg)) // TODO:  unsafe.Pointer
 
 	case string:
-		index := make([]byte, 4)
-		_, err := hex.Decode(index, []byte(id))
+		index, err := b58.Decode(arg)
+		if err == nil {
+			index, err = hashdigest(index)
+		}
+		return index, err
+
+	case Record:
+		_, index, err := idIndexer{}.FromObject(arg)
 		return index, err
 	}
 
-	return nil, errType(args)
+	return nil, errType(args[0])
+}
+
+func (idIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
+	return idIndexer{}.FromArgs(args...)
+}
+
+// hashdigest trims the headers from a multihash and returns the
+// hash digest.
+func hashdigest(b []byte) (_ []byte, err error) {
+	if len(b) < 2 {
+		return nil, multihash.ErrTooShort
+	}
+
+	// read the hash code, followed by the length header
+	// https://github.com/multiformats/multihash#format
+	var n int
+	for i := 0; i < 2; i++ {
+		if _, n, err = varint.FromUvarint(b); err == nil {
+			b = b[n:]
+		}
+	}
+
+	return b, err
 }
 
 type timeIndexer struct{}
@@ -162,11 +162,15 @@ func (hostnameIndexer) FromObject(obj any) (bool, []byte, error) {
 	switch rec := obj.(type) {
 	case HostIndex:
 		index, err := rec.HostBytes()
-		return true, index, err
+		return len(index) != 0, index, err
 
 	case Record:
 		name, err := rec.Host()
-		return true, []byte(name), err
+		if name == "" {
+			return false, nil, err
+		}
+
+		return true, []byte(name), err // TODO:  unsafe.Pointer ?
 	}
 
 	return false, nil, errType(obj)
@@ -174,7 +178,7 @@ func (hostnameIndexer) FromObject(obj any) (bool, []byte, error) {
 
 func (hostnameIndexer) FromArgs(args ...any) ([]byte, error) {
 	name, err := argsToString(args...)
-	return []byte(name), err
+	return []byte(name), err // TODO:  unsafe.Pointer ?
 }
 
 func (hostnameIndexer) PrefixFromArgs(args ...any) ([]byte, error) {

@@ -27,8 +27,16 @@ func (q query) ReverseLowerBound(ix Index) (Iterator, error) {
 }
 
 func (q query) iterate(f iterFunc, ix Index) (Iterator, error) {
-	it, err := f(q.records, ix.String(), ix)
+	it, err := f(q.records, index(ix), ix)
 	return iterator{it}, err
+}
+
+func index(ix Index) string {
+	if ix.Prefix() {
+		return ix.String() + "_prefix"
+	}
+
+	return ix.String()
 }
 
 type iterFunc func(stm.TableRef, string, ...any) (memdb.ResultIterator, error)

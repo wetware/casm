@@ -10,90 +10,95 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multihash"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	t0      = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
-	randsrc = rand.New(rand.NewSource(time.Now().UnixNano()))
+	t0 = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
+	id = newPeerID()
 )
 
-func TestPeerIndex(t *testing.T) {
+func TestIDIndexer(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	id := newPeerID()
-
 	t.Run("FromObject", func(t *testing.T) {
-		rec := testRecord{id: id}
-		ok, index, err := peerIndexer{}.FromObject(rec)
-		assert.NoError(t, err, "should index record")
-		assert.Equal(t, id, peer.ID(index), "index should match peer.ID")
-		assert.True(t, ok, "record should have peer index")
+		t.Helper()
+
+		t.Run("Record", func(t *testing.T) {
+			rec := testRecord{id: id}
+			ok, index, err := idIndexer{}.FromObject(rec)
+			assert.NoError(t, err, "should index record")
+			assert.True(t, ok, "record should have primary key")
+
+			want := []byte(id)[2:]
+			assert.Equal(t, want, index, "index should match 0x%x", want)
+		})
+
+		t.Run("ErrInvalidType", func(t *testing.T) {
+			ok, index, err := idIndexer{}.FromObject("fail")
+			assert.EqualError(t, err, "invalid type: string")
+			assert.Nil(t, index, "should not return index")
+			assert.False(t, ok, "should not return index")
+		})
 	})
 
 	t.Run("FromArgs", func(t *testing.T) {
-		t.Run("PeerID", func(t *testing.T) {
-			index, err := peerIndexer{}.FromArgs(id)
-			assert.NoError(t, err, "should parse argument")
-			assert.Equal(t, id, peer.ID(index), "index should match peer.ID")
+		t.Helper()
+
+		t.Run("Succeed", func(t *testing.T) {
+			t.Helper()
+
+			for _, tt := range []struct {
+				name string
+				arg  any
+			}{
+				{name: "PeerID", arg: id},
+				{name: "Base58", arg: id.String()},
+				{name: "Bytes", arg: mustHashDigest([]byte(id))},
+				{name: "Record", arg: testRecord{id: id}},
+				{name: "Index", arg: testIndex{id: id}},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					index, err := idIndexer{}.FromArgs(tt.arg)
+					assert.NoError(t, err, "should parse argument")
+
+					want := []byte(id)[2:]
+					assert.Equal(t, want, index, "index should match 0x%x", want)
+				})
+			}
 		})
 
-		t.Run("String", func(t *testing.T) {
-			index, err := peerIndexer{}.FromArgs(id.String())
-			assert.NoError(t, err, "should parse argument")
-			assert.Equal(t, id, peer.ID(index), "index should match peer.ID")
-		})
-	})
-
-	t.Run("PrefixFromArgs", func(t *testing.T) {
-		t.Run("PeerID", func(t *testing.T) {
-			index, err := peerIndexer{}.PrefixFromArgs(id[:4])
-			assert.NoError(t, err, "should parse argument")
-			assert.Equal(t, id[:4], peer.ID(index), "index should match peer.ID")
-		})
-
-		t.Run("String", func(t *testing.T) {
-			index, err := peerIndexer{}.PrefixFromArgs(id[:4].String())
-			assert.NoError(t, err, "should parse argument")
-			assert.Equal(t, id[:4], peer.ID(index), "index should match peer.ID")
-		})
-	})
-}
-
-func TestInstanceIndexer(t *testing.T) {
-	t.Parallel()
-	t.Helper()
-
-	rec := testRecord{ins: 42}
-
-	t.Run("FromObject", func(t *testing.T) {
-		ok, index, err := instanceIndexer{}.FromObject(rec)
-		assert.NoError(t, err, "should index record")
-		assert.True(t, ok, "record should have peer index")
-
-		assert.Equal(t, rec.Instance().Bytes(), index,
-			"index should be 0x%x", rec.Instance())
-	})
-
-	t.Run("FromArgs", func(t *testing.T) {
-		t.Run("ID", func(t *testing.T) {
-			index, err := instanceIndexer{}.FromArgs(rec.Instance())
-			assert.NoError(t, err, "should parse argument")
-
-			assert.Equal(t, rec.Instance().Bytes(), index,
-				"index should be 0x%x", rec.Instance())
-		})
-
-		t.Run("String", func(t *testing.T) {
-			hexstr := rec.Instance().String()
-			index, err := instanceIndexer{}.FromArgs(hexstr)
-			assert.NoError(t, err, "should parse argument")
-
-			assert.Equal(t, rec.Instance().Bytes(), index,
-				"index should be 0x%x", hexstr)
+		t.Run("Fail", func(t *testing.T) {
+			for _, tt := range []struct {
+				name, emsg string
+				args       []any
+			}{
+				{
+					name: "ErrNumArgs",
+					emsg: "expected one argument (got 2)",
+					args: []any{"foo", "bar"},
+				},
+				{
+					name: "ErrInvalidType",
+					emsg: "invalid type: int",
+					args: []any{42},
+				},
+				{
+					name: "StringTooShort",
+					emsg: multihash.ErrTooShort.Error(),
+					args: []any{peer.ID("")},
+				},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					index, err := idIndexer{}.FromArgs(tt.args...)
+					assert.EqualError(t, err, tt.emsg)
+					assert.Nil(t, index, "should not return index")
+				})
+			}
 		})
 	})
 }
@@ -206,6 +211,7 @@ func TestMetaIndexer(t *testing.T) {
 }
 
 func newPeerID() peer.ID {
+	randsrc := rand.New(rand.NewSource(time.Now().UnixNano()))
 	sk, _, err := crypto.GenerateEd25519Key(randsrc)
 	if err != nil {
 		panic(err)
@@ -217,6 +223,26 @@ func newPeerID() peer.ID {
 	}
 
 	return id
+}
+
+type testIndex struct {
+	id     peer.ID
+	prefix bool
+}
+
+func (testIndex) String() string { return "id" }
+func (t testIndex) Prefix() bool { return t.prefix }
+
+func (t testIndex) PeerBytes() ([]byte, error) {
+	return hashdigest([]byte(t.id))
+}
+
+func mustHashDigest(buf []byte) []byte {
+	buf, err := hashdigest(buf)
+	if err != nil {
+		panic(err)
+	}
+	return buf
 }
 
 type testRecord struct {

@@ -144,7 +144,7 @@ func TestRegression_ttl_index(t *testing.T) {
 		time.Millisecond * 300,
 	} {
 		rec := &record{
-			id:  "test-id",
+			id:  "test-identifier",
 			ttl: time.Millisecond * 100,
 			seq: uint64(i),
 			ins: 42, // this needs to be held constant
@@ -351,10 +351,12 @@ func (r *record) TTL() time.Duration {
 func (r *record) Meta() (routing.Meta, error) { return r.meta, nil }
 
 func (r *record) PeerBytes() ([]byte, error) {
+	r.init()
 	return []byte(r.id), nil
 }
 
 func (r *record) HostBytes() ([]byte, error) {
+	r.init()
 	return []byte(r.host), nil
 }
 
