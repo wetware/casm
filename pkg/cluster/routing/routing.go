@@ -12,9 +12,12 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-// ID is an opaque identifier that identifies a set of heartbeats
-// belonging to the same instance of a peer.  Contrary to peer.ID,
-// a fresh routing.ID is generated for each cluster.Router.
+// ID is an opaque identifier that identifies a unique host instance
+// on the network.   A fresh ID is generated for each cluster.Router
+// instance, making it possible to distinguish between multiple runs
+// of a libp2p host with a fixed peer identity.
+//
+// IDs are not guaranteed to be globally unique.
 type ID uint32
 
 func (id ID) String() string {
