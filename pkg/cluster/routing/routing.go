@@ -21,19 +21,15 @@ import (
 type ID uint32
 
 func (id ID) String() string {
-	return hex.EncodeToString(id.Bytes())
+	return hex.EncodeToString([]byte{ // big-endian
+		byte(id >> 24),
+		byte(id >> 16),
+		byte(id >> 8),
+		byte(id)})
 }
 
 func (id ID) MarshalText() ([]byte, error) {
 	return []byte(id.String()), nil
-}
-
-func (id ID) Bytes() []byte {
-	return []byte{ // little-endian encoding
-		byte(id),
-		byte(id >> 8),
-		byte(id >> 16),
-		byte(id >> 24)}
 }
 
 // Record is an entry in the routing table.
