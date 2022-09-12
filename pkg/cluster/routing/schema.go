@@ -169,11 +169,11 @@ func (hostnameIndexer) FromObject(obj any) (bool, []byte, error) {
 
 	case Record:
 		name, err := rec.Host()
-		if name == "" {
+		if err != nil || name == "" {
 			return false, nil, err
 		}
 
-		return true, []byte(name), err // TODO:  unsafe.Pointer ?
+		return true, *(*[]byte)(unsafe.Pointer(&name)), nil
 	}
 
 	return false, nil, errType(obj)
@@ -181,7 +181,7 @@ func (hostnameIndexer) FromObject(obj any) (bool, []byte, error) {
 
 func (hostnameIndexer) FromArgs(args ...any) ([]byte, error) {
 	name, err := argsToString(args...)
-	return []byte(name), err // TODO:  unsafe.Pointer ?
+	return *(*[]byte)(unsafe.Pointer(&name)), err
 }
 
 func (hostnameIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
@@ -197,7 +197,7 @@ func argsToString(args ...any) (string, error) {
 		return s, nil
 	}
 
-	return "", errNArgs(args)
+	return "", errType(args)
 }
 
 type metaIndexer struct{}

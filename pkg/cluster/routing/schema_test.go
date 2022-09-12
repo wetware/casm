@@ -196,6 +196,24 @@ func TestHostIndexer(t *testing.T) {
 	})
 }
 
+func BenchmarkHostnameIndexer(b *testing.B) {
+	b.ReportAllocs()
+
+	b.Run("FromObject", func(b *testing.B) {
+		rec := testRecord{host: "foobarbaz"}
+
+		for i := 0; i < b.N; i++ {
+			_, _, _ = hostnameIndexer{}.FromObject(rec)
+		}
+	})
+
+	b.Run("FromArgs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, _ = hostnameIndexer{}.FromArgs("foobarbaz")
+		}
+	})
+}
+
 func TestMetaIndexer(t *testing.T) {
 	t.Parallel()
 	t.Helper()
