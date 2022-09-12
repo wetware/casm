@@ -218,7 +218,7 @@ func (metaIndexer) FromObject(obj any) (bool, [][]byte, error) {
 
 func (metaIndexer) FromArgs(args ...any) ([]byte, error) {
 	key, err := argsToString(args...)
-	return []byte(key), err
+	return *(*[]byte)(unsafe.Pointer(&key)), err
 }
 
 func (metaIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
