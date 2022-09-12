@@ -136,7 +136,7 @@ func (timeIndexer) FromArgs(args ...any) ([]byte, error) {
 
 func timeToBytes(t time.Time) []byte {
 	ms := t.UnixNano()
-	return []byte{
+	return []byte{ // big-endian; avoids branching in radix tree
 		byte(ms >> 56),
 		byte(ms >> 48),
 		byte(ms >> 40),
