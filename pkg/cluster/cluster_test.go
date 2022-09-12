@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	logtest "github.com/lthibault/log/test"
 	mock_cluster "github.com/wetware/casm/internal/mock/pkg/cluster"
 	"github.com/wetware/casm/pkg/cluster"
@@ -42,9 +43,13 @@ func TestRouter(t *testing.T) {
 		Relay().
 		Return(func() { canceled = true }, nil).
 		Times(1)
+	sync := make(chan struct{})
 	boot := topic.EXPECT().
 		Publish(gomock.Any(), gomock.Any()).
-		Return(nil).
+		DoAndReturn(func(context.Context, []byte, ...pubsub.PubOpt) error {
+			close(sync)
+			return nil
+		}).
 		Times(1)
 	topic.EXPECT().
 		Publish(gomock.Any(), gomock.Any()).
@@ -60,4 +65,10 @@ func TestRouter(t *testing.T) {
 
 	err := router.Bootstrap(context.Background())
 	assert.NoError(t, err, "bootstrap should succeed")
+
+	select {
+	case <-sync:
+	case <-time.After(time.Second):
+		t.Error("Call to Bootstrap() should trigger call to Publish()")
+	}
 }
