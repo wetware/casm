@@ -103,6 +103,24 @@ func TestIDIndexer(t *testing.T) {
 	})
 }
 
+func BenchmarkIDIndexer(b *testing.B) {
+	b.ReportAllocs()
+
+	b.Run("FromObject", func(b *testing.B) {
+		rec := testRecord{id: id}
+
+		for i := 0; i < b.N; i++ {
+			_, _, _ = idIndexer{}.FromObject(rec)
+		}
+	})
+
+	b.Run("FromArgs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, _ = idIndexer{}.FromArgs(id)
+		}
+	})
+}
+
 func TestTimeIdexer(t *testing.T) {
 	t.Parallel()
 	t.Helper()

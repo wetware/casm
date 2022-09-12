@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"time"
+	"unsafe"
 
 	"github.com/hashicorp/go-memdb"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -52,7 +53,8 @@ func (idIndexer) FromObject(obj any) (bool, []byte, error) {
 		return err == nil, peerID, err
 
 	case Record:
-		index, err := hashdigest([]byte(r.Peer())) // TODO: unsafe.Pointer (?)
+		peer := r.Peer()
+		index, err := hashdigest(*(*[]byte)(unsafe.Pointer(&peer)))
 		return err == nil, index, err
 	}
 
@@ -72,7 +74,8 @@ func (idIndexer) FromArgs(args ...any) ([]byte, error) {
 		return arg, nil
 
 	case peer.ID:
-		return hashdigest([]byte(arg)) // TODO:  unsafe.Pointer
+		id := arg // required for unsafe.Pointer to be have correctly
+		return hashdigest(*(*[]byte)(unsafe.Pointer(&id)))
 
 	case string:
 		index, err := b58.Decode(arg)
