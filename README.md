@@ -1,5 +1,5 @@
 # 🧬 CASM
-Modular middleware for distributed computing
+**Cluster Assembly.**  Modular middleware for distributed computing
 
 [![GoDoc](https://godoc.org/github.com/wetware/casm?status.svg)](https://godoc.org/github.com/wetware/casm)
 [![Go Report Card](https://goreportcard.com/badge/github.com/wetware/casm?style=flat-square)](https://goreportcard.com/report/github.com/wetware/casm)
