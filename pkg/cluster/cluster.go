@@ -198,16 +198,16 @@ func (r *Router) heartbeat() {
 }
 
 func (r *Router) emit(ctx context.Context, opt []pubsub.PubOpt) error {
+	if err := r.Meta.Prepare(r.hb); err != nil {
+		return err
+	}
+
 	msg, err := r.hb.Message().MarshalPacked()
 	if err != nil {
 		return err
 	}
 
-	if err = r.Meta.Prepare(r.hb); err == nil {
-		err = r.Topic.Publish(ctx, msg, opt...)
-	}
-
-	return err
+	return r.Topic.Publish(ctx, msg, opt...)
 }
 
 type loggableBackoff struct{ backoff.Backoff }
