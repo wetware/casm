@@ -6,112 +6,160 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/std/capnp/stream"
-	"golang.org/x/sync/semaphore"
 )
 
 type Func[T ~capnp.StructKind] func(context.Context, func(T) error) (stream.StreamResult_Future, capnp.ReleaseFunc)
 
 type Stream[T ~capnp.StructKind] struct {
-	method   Func[T]
-	inflight *queue
-	mu       sync.Mutex
-	closing  bool
-	err      error
+	method Func[T]
+
+	mu               sync.Mutex
+	err              error
+	started, closing bool
+	inflight         queue
+	signal, closed   chan struct{}
 }
 
 func New[T ~capnp.StructKind](method Func[T]) *Stream[T] {
 	return &Stream[T]{
-		method:   method,
-		inflight: newQueue(),
+		signal: make(chan struct{}, 1),
+		closed: make(chan struct{}),
+		method: method,
 	}
 }
 
-func (t *Stream[T]) Err() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	return t.err
-}
+	if !s.closing {
+		// append to inflight queue
+		s.inflight.Put(s.call(ctx, s.method, args))
 
-func (t *Stream[T]) Call(ctx context.Context, args func(T) error) {
-	t.mu.Lock()
-
-	if t.closing {
-		t.mu.Unlock()
-		return
-	}
-
-	go func() {
-		ctx, cancel := context.WithCancel(ctx)
-		f, release := t.method(ctx, args)
-		defer release()
-		defer cancel() // must happen before release()
-
-		// We delay this call until the RPC is in flight to
-		// preserve RPC ordering. We also want this call to
-		// be as close as possible to inflight.Wait.
-		t.mu.Unlock()
-
-		// acquire the semaphore, then block until the call
-		// is finished.
-		if t.maybeFail(t.inflight.Wait(ctx)) {
-			return
+		// start background loop?
+		if !s.started {
+			s.started = true
+			go s.loop()
 		}
-		defer t.inflight.Done()
 
-		_, err := f.Struct()
-		t.maybeFail(err)
-	}()
-}
-
-func (t *Stream[T]) Wait(ctx context.Context) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.closing = true
-
-	t.mu.Unlock()
-	defer t.mu.Lock()
-
-	// Don't release the semaphore.  Nobody else should
-	// be calling it.
-	if err := t.inflight.Wait(ctx); err != nil {
-		return err
-	}
-
-	return t.err
-}
-
-func (t *Stream[T]) maybeFail(err error) (fail bool) {
-	if err != nil {
-		t.mu.Lock()
-		defer t.mu.Unlock()
-
-		if fail = t.err == nil; fail {
-			t.err = err
-			t.closing = true
+		// signal that a call is in flight
+		select {
+		case s.signal <- struct{}{}:
+		default:
 		}
 	}
-
-	return
 }
 
-type queue semaphore.Weighted
+func (s *Stream[T]) Wait(ctx context.Context) error {
+	s.mu.Lock()
+	s.close()
+	s.mu.Unlock()
 
-func newQueue() *queue {
-	return (*queue)(semaphore.NewWeighted(1))
+	select {
+	case <-s.closed:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.err
+
 }
 
-// Wait returns when it is the caller's turn to proceed,
-// or the context expires, whichever happens first.
-//
-// If err == nil, callers SHOULD call Done() to unblock
-// the queue, when finished.
-func (q *queue) Wait(ctx context.Context) error {
-	return (*semaphore.Weighted)(q).Acquire(ctx, 1)
+func (s *Stream[T]) loop() {
+	defer close(s.closed)
+
+	for range s.signal {
+		for call := s.next(); call != nil; call = s.next() {
+			s.await(call)
+		}
+	}
 }
 
-// Done signals that the caller is finished, and that the
-// next thread can proceed.
-func (q *queue) Done() {
-	(*semaphore.Weighted)(q).Release(1)
+func (s *Stream[T]) next() *methodCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.inflight.Get()
+}
+
+func (s *Stream[T]) await(call *methodCall) {
+	if err := call.Wait(); err != nil && s.err == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		s.err = err
+		s.close()
+	}
+}
+
+func (s *Stream[T]) call(ctx context.Context, f Func[T], args func(T) error) *methodCall {
+	call := pool.Get()
+	call.future, call.release = f(ctx, args)
+	return call
+}
+
+func (s *Stream[T]) close() {
+	if !s.closing {
+		s.closing = true
+		close(s.signal)
+	}
+}
+
+type queue struct {
+	first, last *methodCall
+}
+
+func (q *queue) Put(call *methodCall) {
+	// empty?
+	if q.first == nil {
+		q.first = call
+		q.last = call
+	} else {
+		q.last.next = call
+		q.last = call
+	}
+}
+
+func (q *queue) Get() *methodCall {
+	call := q.first
+	if call != nil {
+		q.first = q.first.next
+	}
+	return call
+}
+
+type methodCall struct {
+	future  stream.StreamResult_Future
+	release capnp.ReleaseFunc
+	next    *methodCall
+}
+
+func (call *methodCall) Wait() error {
+	defer pool.Put(call)
+
+	_, err := call.future.Struct()
+	return err
+}
+
+var pool methodCallPool
+
+type methodCallPool sync.Pool
+
+func (p *methodCallPool) Get() *methodCall {
+	if v := (*sync.Pool)(p).Get(); v != nil {
+		return v.(*methodCall)
+	}
+
+	return new(methodCall)
+}
+
+func (p *methodCallPool) Put(call *methodCall) {
+	call.release()
+	call.next = nil
+	call.release = nil
+	call.future.Future = nil
+	(*sync.Pool)(p).Put(call)
 }
