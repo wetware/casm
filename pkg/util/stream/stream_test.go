@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"capnproto.org/go/capnp/v3"
+	capnp_stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	testing_api "github.com/wetware/casm/internal/api/testing"
 	"github.com/wetware/casm/pkg/util/stream"
 )
@@ -146,6 +148,40 @@ func TestStream(t *testing.T) {
 
 	assert.NoError(t, s.Wait(), "should succeed")
 	assert.Equal(t, 100, int(server), "should process 100 calls")
+}
+
+func BenchmarkStream(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// We don't want to benchmark capnp; just the stream manager.
+	// The focus is primarily on avoiding garbage from the underlying
+	// linked-list.
+	s := stream.New(nop)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		s.Call(ctx, nil)
+	}
+
+	if err := s.Wait(); err != nil {
+		panic(err)
+	}
+}
+
+var nopFuture = capnp_stream.StreamResult_Future{
+	Future: capnp.ErrorAnswer(capnp.Method{
+		InterfaceID:   0xef96789c0d60cd00,
+		MethodID:      0,
+		InterfaceName: "testing.capnp:Echoer",
+		MethodName:    "echo",
+	}, nil).Future(),
+}
+
+func nop(context.Context, func(testing_api.Streamer_recv_Params) error) (capnp_stream.StreamResult_Future, capnp.ReleaseFunc) {
+	return nopFuture, func() {}
 }
 
 type streamer struct{ error }
