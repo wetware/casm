@@ -13,7 +13,7 @@ import (
 	"github.com/wetware/casm/pkg/util/stream"
 )
 
-func TestStream(t *testing.T) {
+func TestState(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
@@ -123,10 +123,42 @@ func TestStream(t *testing.T) {
 	})
 }
 
+func TestStream(t *testing.T) {
+	t.Parallel()
+
+	/*
+		Test tracking of an actual stream.
+	*/
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server := counter(0)
+	client := testing_api.Streamer_ServerToClient(&server)
+	defer client.Release()
+
+	s := stream.New(client.Recv)
+
+	for i := 0; i < 100; i++ {
+		require.True(t, s.Open(), "stream should be open")
+		s.Call(ctx, nil)
+	}
+
+	assert.NoError(t, s.Wait(), "should succeed")
+	assert.Equal(t, 100, int(server), "should process 100 calls")
+}
+
 type streamer struct{ error }
 
 func (s *streamer) Recv(context.Context, testing_api.Streamer_recv) error {
 	return s.error
+}
+
+type counter int
+
+func (ctr *counter) Recv(context.Context, testing_api.Streamer_recv) error {
+	*ctr++
+	return nil
 }
 
 type sleepStreamer time.Duration
