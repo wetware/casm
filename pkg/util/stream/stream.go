@@ -57,21 +57,18 @@ func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 	}
 }
 
-func (s *Stream[T]) Wait(ctx context.Context) error {
+func (s *Stream[T]) Wait() (err error) {
 	s.mu.Lock()
 	s.close()
 	s.mu.Unlock()
 
-	select {
-	case <-s.closed:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	<-s.closed
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	err = s.err
+	s.mu.Unlock()
 
-	return s.err
+	return
 
 }
 

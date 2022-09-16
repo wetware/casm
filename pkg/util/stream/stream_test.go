@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	testing_api "github.com/wetware/casm/internal/api/testing"
 	"github.com/wetware/casm/pkg/util/stream"
@@ -45,7 +46,39 @@ func TestStream(t *testing.T) {
 			s.Call(ctx, nil)
 		}
 
-		assert.NoError(t, s.Wait(ctx), "should finish gracefully")
+		assert.NoError(t, s.Wait(), "should finish gracefully")
+	})
+
+	t.Run("AbortWait", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		server := sleepStreamer(time.Second)
+		client := testing_api.Streamer_ServerToClient(server)
+		defer client.Release()
+
+		s := stream.New(client.Recv)
+
+		s.Call(ctx, nil)
+
+		cherr := make(chan error, 1)
+		go func() {
+			cherr <- s.Wait()
+		}()
+
+		cancel()
+
+		assert.Eventually(t, func() bool {
+			return !s.Open()
+		}, time.Millisecond*100, time.Millisecond*10,
+			"call to Wait() should signal stream close")
+
+		select {
+		case <-time.After(time.Millisecond * 500):
+			t.Error("failed to abort after 500ms")
+		case err := <-cherr:
+			require.ErrorIs(t, err, context.Canceled)
+		}
 	})
 
 	t.Run("ContextExpired", func(t *testing.T) {
@@ -65,7 +98,7 @@ func TestStream(t *testing.T) {
 		s.Call(ctx, nil)
 
 		cancel()
-		assert.ErrorIs(t, s.Wait(context.Background()), context.Canceled,
+		assert.ErrorIs(t, s.Wait(), context.Canceled,
 			"Wait() should return context error")
 	})
 
@@ -85,7 +118,7 @@ func TestStream(t *testing.T) {
 		// server error, which should cause the stream to abort.
 		s.Call(ctx, nil)
 
-		assert.Error(t, s.Wait(ctx),
+		assert.Error(t, s.Wait(),
 			"Wait() should return error from server")
 	})
 }
