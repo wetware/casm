@@ -64,7 +64,7 @@ func TestView_Lookup(t *testing.T) {
 	client := cluster.View(server.Client())
 	defer client.Release()
 
-	f, release := client.Lookup(ctx, cluster.All())
+	f, release := client.Lookup(ctx, all())
 	require.NotNil(t, release)
 	defer release()
 
@@ -108,7 +108,7 @@ func TestView_Iter(t *testing.T) {
 	require.True(t, capnp.Client(client).IsValid(),
 		"should not be nil capability")
 
-	it, release := client.Iter(ctx, cluster.All())
+	it, release := client.Iter(ctx, all())
 	require.NotZero(t, it)
 	require.NotNil(t, release)
 	defer release()
@@ -162,7 +162,7 @@ func BenchmarkIterator(b *testing.B) {
 	client := cluster.View(server.Client())
 	defer client.Release()
 
-	it, release := client.Iter(ctx, cluster.All())
+	it, release := client.Iter(ctx, all())
 	require.NotZero(b, it)
 	require.NotNil(b, release)
 	defer release()
@@ -173,6 +173,10 @@ func BenchmarkIterator(b *testing.B) {
 	for r := it.Next(); r != nil; r = it.Next() {
 		// ...
 	}
+}
+
+func all() cluster.Query {
+	return cluster.NewQuery(cluster.All())
 }
 
 type record struct {

@@ -9,24 +9,32 @@ import (
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
-func All(cs ...Constraint) Query {
-	return NewQuery(func(s api.View_Selector) error {
+/*
+	Selectors
+*/
+
+func All() Selector {
+	return func(s api.View_Selector) error {
 		s.SetAll()
 		return nil
-	}, cs...)
+	}
 }
 
-func Select(index routing.Index, cs ...Constraint) Query {
-	return NewQuery(func(s api.View_Selector) error {
+func Match(index routing.Index) Selector {
+	return func(s api.View_Selector) error {
 		return bindIndex(s.NewMatch, index)
-	}, cs...)
+	}
 }
 
-func From(index routing.Index, cs ...Constraint) Query {
-	return NewQuery(func(s api.View_Selector) error {
+func From(index routing.Index) Selector {
+	return func(s api.View_Selector) error {
 		return bindIndex(s.NewFrom, index)
-	}, cs...)
+	}
 }
+
+/*
+	Helpers
+*/
 
 func bindIndex(fn func() (api.View_Index, error), index routing.Index) error {
 	target, err := fn()

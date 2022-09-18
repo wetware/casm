@@ -6,62 +6,45 @@ import (
 	"capnproto.org/go/capnp/v3"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster"
 )
 
-func TestQuery(t *testing.T) {
+func TestSelector(t *testing.T) {
 	t.Parallel()
+	t.Helper()
 
 	for _, tt := range []struct {
-		name  string
-		query cluster.Query
-		which api.View_Selector_Which
-		param queryParams
+		name     string
+		selector cluster.Selector
+		which    api.View_Selector_Which
 	}{
 		{
-			name:  "All",
-			query: cluster.All(),
-			which: api.View_Selector_Which_all,
+			name:     "Match",
+			selector: cluster.Match(hostIndex("foo")),
+			which:    api.View_Selector_Which_match,
 		},
 		{
-			name:  "Select",
-			query: cluster.Select(hostIndex("foo")),
-			which: api.View_Selector_Which_match,
-		},
-		{
-			name:  "From",
-			query: cluster.From(hostIndex("foo")),
-			which: api.View_Selector_Which_from,
+			name:     "From",
+			selector: cluster.From(hostIndex("foo")),
+			which:    api.View_Selector_Which_from,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.query(&tt.param)
-			assert.Equal(t, tt.which, tt.param.S.Which(),
-				"selector should be %s", tt.which)
+			s := selector()
+			err := tt.selector(s)
+			require.NoError(t, err, "should succeed")
+			assert.Equal(t, tt.which, s.Which(), "should be %s", tt.which)
 		})
-
 	}
 }
 
-type queryParams struct {
-	S  api.View_Selector
-	Cs api.View_Constraint_List
-}
-
-func (ps *queryParams) NewSelector() (api.View_Selector, error) {
+func selector() api.View_Selector {
 	_, seg := capnp.NewSingleSegmentMessage(nil)
-	s, err := api.NewRootView_Selector(seg)
-	ps.S = s
-	return s, err
-}
-
-func (ps *queryParams) NewConstraints(size int32) (api.View_Constraint_List, error) {
-	_, seg := capnp.NewSingleSegmentMessage(nil)
-	cs, err := api.NewView_Constraint_List(seg, size)
-	ps.Cs = cs
-	return cs, err
+	s, _ := api.NewRootView_Selector(seg)
+	return s
 }
 
 type hostIndex string
