@@ -103,7 +103,6 @@ func (h *handler) Handler(query Query) func(api.View_iter_Params) error {
 	return func(ps api.View_iter_Params) error {
 		if err := query(ps); err != nil {
 			close(h.send)
-			close(h.sync) // trigger panic if misused
 			return err
 		}
 
