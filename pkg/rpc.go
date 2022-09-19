@@ -94,22 +94,16 @@ type Iterator[T any] struct {
 	}
 }
 
-// More returns false when the iterator is exhausted.  Unlike Err(),
-// this is a non-blocking operation.
-func (it Iterator[T]) More() bool {
+// Err returns returns the first error encountered while iterating
+// over the stream.   Callers SHOULD call Err() after the iterator
+// has become exhausted, and handle any errors.
+func (it Iterator[T]) Err() error {
 	select {
 	case <-it.Future.Done():
-		return false
+		return it.Future.Err()
 	default:
-		return true
+		return nil
 	}
-}
-
-// Err blocks until the iterator is exhausted and returns any error
-// encountered.  Callers SHOULD call Err() after the iterator has
-// become exhausted, and handle any errors.
-func (it Iterator[T]) Err() error {
-	return it.Future.Err()
 }
 
 func (it Iterator[T]) Next() (T, bool) {
