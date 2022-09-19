@@ -113,7 +113,7 @@ func TestView_Iter(t *testing.T) {
 	require.NotNil(t, release)
 	defer release()
 
-	assert.NoError(t, it.Err(), "iterator should be valid")
+	assert.True(t, it.More(), "iterator should contain data")
 
 	var got []peer.ID
 	for r := it.Next(); r != nil; r = it.Next() {
