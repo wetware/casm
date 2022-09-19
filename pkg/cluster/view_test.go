@@ -2,6 +2,7 @@ package cluster_test
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"sync"
 	"testing"
@@ -127,6 +128,43 @@ func TestView_Iter(t *testing.T) {
 	}
 
 	require.NoError(t, it.Err(), "iterator should not encounter error")
+}
+
+func TestView_Iter_paramErr(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	/*
+		A failing cluster.Query passed to Iter() should not
+		call routing table methods.  It shouldn't even make
+		it to the wire.
+	*/
+	table := mock_cluster.NewMockRoutingTable(ctrl)
+
+	server := cluster.Server{RoutingTable: table}
+	client := cluster.View(server.Client())
+	defer client.Release()
+
+	require.True(t, capnp.Client(client).IsValid(),
+		"should not be nil capability")
+
+	it, release := client.Iter(ctx, failure("test"))
+	require.NotZero(t, it)
+	require.NotNil(t, release)
+	defer release()
+
+	assert.Error(t, it.Err(), "should fail with param error")
+}
+
+func failure(message string) cluster.Query {
+	return func(cluster.QueryParams) error {
+		return errors.New(message)
+	}
 }
 
 func BenchmarkIterator(b *testing.B) {
