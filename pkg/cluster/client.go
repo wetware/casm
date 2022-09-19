@@ -62,6 +62,11 @@ func (it Iterator) Err() error {
 	return casm.Iterator[routing.Record](it).Err()
 }
 
+// More returns false when the iterator has exhausted its stream.
+func (it Iterator) More() bool {
+	return casm.Iterator[routing.Record](it).More()
+}
+
 // Next upates the iterator's internal state and returns the
 // next record in the stream.  If a call to Next returns nil,
 // the iterator is exhausted.

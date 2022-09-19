@@ -72,7 +72,7 @@ interface View {
         union {
             id    @1 :PeerID;
             host  @2 :Text;
-            meta  @3 :List(Text);        # key=value
+            meta  @3 :Text;        # key=value
         }
     }
 

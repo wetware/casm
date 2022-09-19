@@ -180,24 +180,24 @@ func (hostnameIndexer) FromObject(obj any) (bool, []byte, error) {
 }
 
 func (hostnameIndexer) FromArgs(args ...any) ([]byte, error) {
-	name, err := argsToString(args...)
-	return *(*[]byte)(unsafe.Pointer(&name)), err
+	if len(args) != 1 {
+		return nil, errNArgs(args)
+	}
+
+	switch arg := args[0].(type) {
+	case HostIndex:
+		return arg.HostBytes()
+
+	case string:
+		name := arg
+		return *(*[]byte)(unsafe.Pointer(&name)), nil
+	}
+
+	return nil, errType(args[0])
 }
 
 func (hostnameIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
 	return hostnameIndexer{}.FromArgs(args...)
-}
-
-func argsToString(args ...any) (string, error) {
-	if len(args) != 1 {
-		return "", errNArgs(args)
-	}
-
-	if s, ok := args[0].(string); ok {
-		return s, nil
-	}
-
-	return "", errType(args)
 }
 
 type metaIndexer struct{}
@@ -217,8 +217,20 @@ func (metaIndexer) FromObject(obj any) (bool, [][]byte, error) {
 }
 
 func (metaIndexer) FromArgs(args ...any) ([]byte, error) {
-	key, err := argsToString(args...)
-	return *(*[]byte)(unsafe.Pointer(&key)), err
+	if len(args) != 1 {
+		return nil, errNArgs(args)
+	}
+
+	switch arg := args[0].(type) {
+	case MetaIndex:
+		return arg.MetaBytes()
+
+	case string:
+		field := arg
+		return *(*[]byte)(unsafe.Pointer(&field)), nil
+	}
+
+	return nil, errType(args[0])
 }
 
 func (metaIndexer) PrefixFromArgs(args ...any) ([]byte, error) {

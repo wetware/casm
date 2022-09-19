@@ -7,8 +7,11 @@ import (
 )
 
 type (
-	Selector   func(api.View_Selector) error
-	Constraint func(api.View_Constraint) error
+	SelectorStruct   = api.View_Selector
+	ConstraintStruct = api.View_Constraint
+
+	Selector   func(SelectorStruct) error
+	Constraint func(ConstraintStruct) error
 )
 
 type QueryParams interface {

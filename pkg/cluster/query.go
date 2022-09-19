@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"capnproto.org/go/capnp/v3"
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
@@ -14,20 +13,20 @@ import (
 */
 
 func All() Selector {
-	return func(s api.View_Selector) error {
+	return func(s SelectorStruct) error {
 		s.SetAll()
 		return nil
 	}
 }
 
 func Match(index routing.Index) Selector {
-	return func(s api.View_Selector) error {
+	return func(s SelectorStruct) error {
 		return bindIndex(s.NewMatch, index)
 	}
 }
 
 func From(index routing.Index) Selector {
-	return func(s api.View_Selector) error {
+	return func(s SelectorStruct) error {
 		return bindIndex(s.NewFrom, index)
 	}
 }
@@ -99,10 +98,21 @@ func bindHost(target api.View_Index, index routing.Index) error {
 }
 
 func bindMeta(target api.View_Index, index routing.Index) error {
-	m, err := index.(interface{ Meta() (routing.Meta, error) }).Meta()
-	if err == nil {
-		err = target.SetMeta(capnp.TextList(m))
+	switch ix := index.(type) {
+	case routing.MetaIndex:
+		b, err := ix.MetaBytes()
+		if err == nil {
+			err = target.SetMeta(string(b))
+		}
+		return err
+
+	case interface{ MetaField() (routing.Field, error) }:
+		f, err := ix.MetaField()
+		if err == nil {
+			err = target.SetMeta(f.String())
+		}
+		return err
 	}
 
-	return err
+	return errors.New("not a metadata index")
 }

@@ -63,16 +63,28 @@ type Index interface {
 	Prefix() bool
 }
 
-// PeerIndex is an optional interface that Records may implement
-// to provide fast, allocation-free construction of peer indexes.
+// PeerIndex is an optional interface for Index that designates
+// the "id" index in the routing table. The Record type MAY also
+// implement PeerIndex to provide fast, allocation-free indexing
+// of peer IDs.
 type PeerIndex interface {
 	PeerBytes() ([]byte, error)
 }
 
-// HostIndex is an optional interface that Records may implement
-// to provide fast, allocation-free construction of host indexes.
+// HostIndex is an optional interface for Index that designates
+// the "id" index in the routing table. The Record type MAY also
+// implement HostIndex to provide fast, allocation-free indexing
+// of hostnames.
 type HostIndex interface {
 	HostBytes() ([]byte, error)
+}
+
+// MetaIndex is an optional interface for Index that designates
+// a single key-value pair.   Note that Record does NOT support
+// this interface, since the Meta type already provides its own
+// indexing method.
+type MetaIndex interface {
+	MetaBytes() ([]byte, error)
 }
 
 // Iterator is a stateful object that enumerates routing
