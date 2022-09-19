@@ -30,7 +30,5 @@ func TestHandler(t *testing.T) {
 
 		assert.Panics(t, func() { close(h.send) },
 			"handler.send should be closed")
-		assert.Panics(t, func() { close(h.sync) },
-			"handler.sync should be closed")
 	})
 }
