@@ -3,7 +3,7 @@ module github.com/wetware/casm
 go 1.18
 
 require (
-	capnproto.org/go/capnp/v3 v3.0.0-alpha.5.0.20220823031506-e46116b2c236
+	capnproto.org/go/capnp/v3 v3.0.0-alpha.7
 	github.com/coreos/go-semver v0.3.0
 	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-memdb v1.3.3
@@ -120,7 +120,7 @@ require (
 	go.uber.org/zap v1.23.0 // indirect
 	golang.org/x/crypto v0.0.0-20220826181053-bd7e27e6170d // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220818022119-ed83ed61efb9 // indirect
-	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde // indirect
+	golang.org/x/sync v0.0.0-20220907140024-f12130a52804 // indirect
 	golang.org/x/sys v0.0.0-20220825204002-c680a09ffe64 // indirect
 	golang.org/x/tools v0.1.12 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
