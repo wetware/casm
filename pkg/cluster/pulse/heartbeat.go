@@ -56,7 +56,7 @@ func (h Heartbeat) Meta() (routing.Meta, error) {
 	return routing.Meta(meta), err
 }
 
-func (h Heartbeat) SetMeta(fields []routing.Field) error {
+func (h Heartbeat) SetMeta(fields []routing.MetaField) error {
 	meta, err := h.NewMeta(int32(len(fields)))
 	if err != nil {
 		return err

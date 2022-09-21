@@ -16,7 +16,7 @@ var t0 = time.Date(2020, 4, 9, 8, 0, 0, 0, time.UTC)
 func TestMetaField(t *testing.T) {
 	t.Parallel()
 
-	var f routing.Field
+	var f routing.MetaField
 	assert.Empty(t, f.String(), "should default to empty string")
 }
 

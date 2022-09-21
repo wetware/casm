@@ -118,10 +118,10 @@ func (m Meta) Len() int {
 }
 
 // At returns the metadata field at index i.
-func (m Meta) At(i int) (Field, error) {
+func (m Meta) At(i int) (MetaField, error) {
 	s, err := capnp.TextList(m).At(i)
 	if err != nil {
-		return Field{}, err
+		return MetaField{}, err
 	}
 
 	return ParseField(s)
@@ -160,21 +160,21 @@ func (m Meta) Index() (indexes [][]byte, err error) {
 	return
 }
 
-// Field is a key-value pair.
-type Field struct {
+// MetaField is a key-value pair.
+type MetaField struct {
 	Key, Value string
 }
 
-func ParseField(s string) (Field, error) {
+func ParseField(s string) (MetaField, error) {
 	switch ss := strings.Split(s, "="); len(ss) {
 	case 0:
-		return Field{}, errors.New("missing key")
+		return MetaField{}, errors.New("missing key")
 
 	case 1:
-		return Field{}, errors.New("separator not found")
+		return MetaField{}, errors.New("separator not found")
 
 	default:
-		return Field{
+		return MetaField{
 			Key:   ss[0],
 			Value: strings.Join(ss[1:], "="),
 		}, nil
@@ -182,7 +182,7 @@ func ParseField(s string) (Field, error) {
 	}
 }
 
-func (f Field) String() (s string) {
+func (f MetaField) String() (s string) {
 	if f.Key != "" {
 		s = f.Key + "=" + f.Value
 	}

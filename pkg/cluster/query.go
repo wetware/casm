@@ -106,7 +106,9 @@ func bindMeta(target api.View_Index, index routing.Index) error {
 		}
 		return err
 
-	case interface{ MetaField() (routing.Field, error) }:
+	case interface {
+		MetaField() (routing.MetaField, error)
+	}:
 		f, err := ix.MetaField()
 		if err == nil {
 			err = target.SetMeta(f.String())
