@@ -105,7 +105,12 @@ func (s *Stream[T]) call(ctx context.Context, f Func[T], args func(T) error) *me
 	return call
 }
 
+// caller must hold the Stream mutex
 func (s *Stream[T]) close() {
+	if !s.started {
+		close(s.closed)
+	}
+
 	if !s.closing {
 		s.closing = true
 		close(s.signal)

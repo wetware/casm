@@ -150,6 +150,14 @@ func TestStream(t *testing.T) {
 	assert.Equal(t, 100, int(server), "should process 100 calls")
 }
 
+func TestStream_NoCall(t *testing.T) {
+	t.Parallel()
+
+	s := stream.New(nop)
+
+	assert.NoError(t, s.Wait(), "should succeed")
+}
+
 func BenchmarkStream(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
