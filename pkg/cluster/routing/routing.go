@@ -32,6 +32,12 @@ func (id ID) MarshalText() ([]byte, error) {
 	return []byte(id.String()), nil
 }
 
+func (id ID) Loggable() map[string]any {
+	return map[string]any{
+		"instance": id,
+	}
+}
+
 // Record is an entry in the routing table.
 type Record interface {
 	Peer() peer.ID

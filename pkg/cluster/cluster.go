@@ -46,8 +46,8 @@ type Router struct {
 
 	once     sync.Once
 	err      error
+	id       uint32 // instance ID
 	cancel   pubsub.RelayCancelFunc
-	hb       pulse.Heartbeat
 	done     chan struct{}
 	announce chan []pubsub.PubOpt
 }
@@ -67,11 +67,14 @@ func (r *Router) String() string {
 }
 
 func (r *Router) ID() routing.ID {
-	return r.hb.Instance()
+	return routing.ID(r.id)
 }
 
 func (r *Router) Loggable() map[string]any {
-	return r.hb.Loggable()
+	return map[string]any{
+		"instance": r.ID(),
+		"ttl":      r.TTL,
+	}
 }
 
 func (r *Router) View() View {
@@ -113,13 +116,11 @@ func (r *Router) initialize() error {
 			r.TTL = pulse.DefaultTTL
 		}
 
-		r.hb = pulse.NewHeartbeat()
-		r.hb.SetTTL(r.TTL)
-
 		// Start relaying messages.  Note that this will not populate
 		// the routing table unless pulse.Validator was previously set.
 		if r.cancel, r.err = r.Topic.Relay(); r.err == nil {
-			r.Log = r.Log.With(r.hb)
+			r.id = rand.Uint32()
+			r.Log = r.Log.With(r)
 			r.done = make(chan struct{})
 			r.announce = make(chan []pubsub.PubOpt)
 
@@ -168,10 +169,14 @@ func (r *Router) heartbeat() {
 		Jitter: true,
 	}}
 
+	hb := pulse.NewHeartbeat()
+	hb.SetTTL(r.TTL)
+	hb.SetInstance(r.ID())
+
 	ctx := ctxutil.C(r.done)
 
 	for a := range r.announce {
-		err := r.emit(ctx, a)
+		err := r.emit(ctx, hb, a)
 		if err == nil {
 			backoff.Reset()
 			continue
@@ -197,12 +202,12 @@ func (r *Router) heartbeat() {
 	}
 }
 
-func (r *Router) emit(ctx context.Context, opt []pubsub.PubOpt) error {
-	if err := r.Meta.Prepare(r.hb); err != nil {
+func (r *Router) emit(ctx context.Context, hb pulse.Heartbeat, opt []pubsub.PubOpt) error {
+	if err := r.Meta.Prepare(hb); err != nil {
 		return err
 	}
 
-	msg, err := r.hb.Message().MarshalPacked()
+	msg, err := hb.Message().MarshalPacked()
 	if err != nil {
 		return err
 	}

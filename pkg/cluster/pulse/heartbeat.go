@@ -1,7 +1,6 @@
 package pulse
 
 import (
-	"math/rand"
 	"time"
 
 	"capnproto.org/go/capnp/v3"
@@ -18,8 +17,6 @@ type Heartbeat struct{ api.Heartbeat }
 func NewHeartbeat() Heartbeat {
 	_, seg := capnp.NewSingleSegmentMessage(nil)
 	h, _ := api.NewRootHeartbeat(seg) // single segment never fails
-	h.SetInstance(rand.Uint32())
-
 	return Heartbeat{h}
 }
 
