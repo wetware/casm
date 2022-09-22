@@ -46,7 +46,7 @@ type Router struct {
 
 	once     sync.Once
 	err      error
-	id       uint32 // instance ID
+	id       uint64 // instance ID
 	cancel   pubsub.RelayCancelFunc
 	done     chan struct{}
 	announce chan []pubsub.PubOpt
@@ -119,7 +119,7 @@ func (r *Router) initialize() error {
 		// Start relaying messages.  Note that this will not populate
 		// the routing table unless pulse.Validator was previously set.
 		if r.cancel, r.err = r.Topic.Relay(); r.err == nil {
-			r.id = rand.Uint32()
+			r.id = rand.Uint64()
 			r.Log = r.Log.With(r)
 			r.done = make(chan struct{})
 			r.announce = make(chan []pubsub.PubOpt)

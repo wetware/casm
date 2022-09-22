@@ -221,7 +221,7 @@ type record struct {
 	once sync.Once
 	id   peer.ID
 	seq  uint64
-	ins  uint32
+	ins  uint64
 	host string
 	meta routing.Meta
 	ttl  time.Duration
@@ -238,7 +238,7 @@ func (r *record) init() {
 		}
 
 		if r.ins == 0 {
-			r.ins = rand.Uint32()
+			r.ins = rand.Uint64()
 		}
 	})
 }
