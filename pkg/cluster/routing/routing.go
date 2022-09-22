@@ -81,6 +81,13 @@ type PeerIndex interface {
 	PeerBytes() ([]byte, error)
 }
 
+// ServerIndex is an optional interface for Index that designates
+// the "server" index in the routing table.   The Record type MAY
+// also implement ServerIndex to provide allocation-free indexing.
+type ServerIndex interface {
+	ServerBytes() ([]byte, error)
+}
+
 // HostIndex is an optional interface for Index that designates
 // the "id" index in the routing table. The Record type MAY also
 // implement HostIndex to provide fast, allocation-free indexing
