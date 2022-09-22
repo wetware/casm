@@ -10,6 +10,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/jpillora/backoff v1.0.0
+	github.com/libp2p/go-buffer-pool v0.1.0
 	github.com/libp2p/go-libp2p v0.22.0
 	github.com/libp2p/go-libp2p-pubsub v0.8.1
 	github.com/lthibault/go-libp2p-inproc-transport v0.3.0
@@ -66,7 +67,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.1.1 // indirect
 	github.com/koron/go-ssdp v0.0.3 // indirect
 	github.com/kr/pretty v0.3.0 // indirect
-	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.1.0 // indirect
 	github.com/libp2p/go-libp2p-asn-util v0.2.0 // indirect
