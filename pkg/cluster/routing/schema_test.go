@@ -28,7 +28,7 @@ func TestIDIndexer(t *testing.T) {
 		t.Helper()
 
 		t.Run("Record", func(t *testing.T) {
-			rec := testRecord{id: id}
+			rec := testRecord{peer: id}
 			ok, index, err := idIndexer{}.FromObject(rec)
 			assert.NoError(t, err, "should index record")
 			assert.True(t, ok, "record should have primary key")
@@ -57,8 +57,8 @@ func TestIDIndexer(t *testing.T) {
 				{name: "PeerID", arg: id},
 				{name: "Base58", arg: id.String()},
 				{name: "Bytes", arg: []byte(id)},
-				{name: "Record", arg: testRecord{id: id}},
-				{name: "Index", arg: testIndex{id: id}},
+				{name: "Record", arg: testRecord{peer: id}},
+				{name: "Index", arg: peerIndex{id: id}},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
 					index, err := idIndexer{}.FromArgs(tt.arg)
@@ -98,9 +98,9 @@ func TestIDIndexer(t *testing.T) {
 func BenchmarkIDIndexer(b *testing.B) {
 	b.ReportAllocs()
 
-	b.Run("FromObject", func(b *testing.B) {
-		rec := testRecord{id: id}
+	rec := &testRecord{peer: id}
 
+	b.Run("FromObject", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_, _, _ = idIndexer{}.FromObject(rec)
 		}
@@ -108,7 +108,103 @@ func BenchmarkIDIndexer(b *testing.B) {
 
 	b.Run("FromArgs", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_, _ = idIndexer{}.FromArgs(id)
+			_, _ = idIndexer{}.FromArgs(rec)
+		}
+	})
+}
+
+func TestServerIndexer(t *testing.T) {
+	t.Parallel()
+
+	id := ID(rand.Uint64())
+	want := make([]byte, 8)
+	binary.BigEndian.PutUint64(want, uint64(id))
+
+	t.Run("FromObject", func(t *testing.T) {
+		t.Helper()
+
+		t.Run("Record", func(t *testing.T) {
+			rec := testRecord{server: id}
+			ok, index, err := serverIndexer{}.FromObject(rec)
+			assert.NoError(t, err, "should index record")
+			assert.True(t, ok, "record should have primary key")
+
+			assert.Equal(t, want, index, "index should match 0x%x", id)
+		})
+
+		t.Run("ErrInvalidType", func(t *testing.T) {
+			ok, index, err := serverIndexer{}.FromObject("fail")
+			assert.EqualError(t, err, "invalid type: string")
+			assert.Nil(t, index, "should not return index")
+			assert.False(t, ok, "should not return index")
+		})
+	})
+
+	t.Run("FromArgs", func(t *testing.T) {
+		t.Helper()
+
+		t.Run("Succeed", func(t *testing.T) {
+			t.Helper()
+
+			for _, tt := range []struct {
+				name string
+				arg  any
+			}{
+				{name: "ID", arg: id},
+				{name: "Base64", arg: id.String()},
+				{name: "Bytes", arg: want},
+				{name: "Record", arg: testRecord{server: id}},
+				{name: "Index", arg: serverIndex{id: id}},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					index, err := serverIndexer{}.FromArgs(tt.arg)
+					assert.NoError(t, err, "should parse argument")
+
+					assert.Equal(t, want, index, "index should match 0x%x", id)
+				})
+			}
+		})
+
+		t.Run("Fail", func(t *testing.T) {
+			for _, tt := range []struct {
+				name, emsg string
+				args       []any
+			}{
+				{
+					name: "ErrNumArgs",
+					emsg: "expected one argument (got 2)",
+					args: []any{"foo", "bar"},
+				},
+				{
+					name: "ErrInvalidType",
+					emsg: "invalid type: int",
+					args: []any{42},
+				},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					index, err := serverIndexer{}.FromArgs(tt.args...)
+					assert.EqualError(t, err, tt.emsg)
+					assert.Nil(t, index, "should not return index")
+				})
+			}
+		})
+	})
+}
+
+func BenchmarkServerIndexer(b *testing.B) {
+	b.ReportAllocs()
+
+	b.Run("FromObject", func(b *testing.B) {
+		rec := &testRecord{server: ID(rand.Uint64())}
+
+		for i := 0; i < b.N; i++ {
+			_, _, _ = serverIndexer{}.FromObject(rec)
+		}
+	})
+
+	b.Run("FromArgs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, _ = serverIndexer{}.FromArgs("foobarbaz")
 		}
 	})
 }
@@ -121,6 +217,8 @@ func TestTimeIdexer(t *testing.T) {
 	deadline := t0.Add(ttl)
 
 	t.Run("FromObject", func(t *testing.T) {
+		// SHOULD fail for routing.Record; expects a *record, which
+		// provides a time.Time instance, rather than a TTL (duration).
 		_, _, err := timeIndexer{}.FromObject(testRecord{})
 		require.Error(t, err, "should fail if object is not *record")
 
@@ -160,6 +258,27 @@ func TestTimeIdexer(t *testing.T) {
 	})
 }
 
+func BenchmarkTimeIndexer(b *testing.B) {
+	b.ReportAllocs()
+
+	rec := &record{
+		Record:   &testRecord{server: ID(rand.Uint64())},
+		Deadline: time.Date(2020, 01, 01, 01, 01, 01, 01, time.UTC),
+	}
+
+	b.Run("FromObject", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, _, _ = serverIndexer{}.FromObject(rec)
+		}
+	})
+
+	b.Run("FromArgs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, _ = serverIndexer{}.FromArgs(rec)
+		}
+	})
+}
+
 func TestHostIndexer(t *testing.T) {
 	t.Parallel()
 	t.Helper()
@@ -192,7 +311,7 @@ func BenchmarkHostnameIndexer(b *testing.B) {
 	b.ReportAllocs()
 
 	b.Run("FromObject", func(b *testing.B) {
-		rec := testRecord{host: "foobarbaz"}
+		rec := &testRecord{host: "foobarbaz"}
 
 		for i := 0; i < b.N; i++ {
 			_, _, _ = hostnameIndexer{}.FromObject(rec)
@@ -253,30 +372,42 @@ func newPeerID() peer.ID {
 	return id
 }
 
-type testIndex struct {
+type peerIndex struct {
 	id     peer.ID
 	prefix bool
 }
 
-func (testIndex) String() string { return "id" }
-func (t testIndex) Prefix() bool { return t.prefix }
+func (peerIndex) String() string { return "id" }
+func (t peerIndex) Prefix() bool { return t.prefix }
 
-func (t testIndex) PeerBytes() ([]byte, error) {
+func (t peerIndex) PeerBytes() ([]byte, error) {
 	return []byte(t.id), nil
 }
 
-type testRecord struct {
-	id   peer.ID
-	seq  uint64
-	ins  uint32
-	host string
-	meta Meta
-	ttl  time.Duration
+type serverIndex struct {
+	id     ID
+	prefix bool
 }
 
-func (r testRecord) Peer() peer.ID         { return r.id }
+func (serverIndex) String() string { return "server" }
+func (t serverIndex) Prefix() bool { return t.prefix }
+
+func (t serverIndex) ServerBytes() ([]byte, error) {
+	return t.id.Bytes(), nil
+}
+
+type testRecord struct {
+	peer   peer.ID
+	server ID
+	seq    uint64
+	host   string
+	meta   Meta
+	ttl    time.Duration
+}
+
+func (r testRecord) Peer() peer.ID         { return r.peer }
 func (r testRecord) Seq() uint64           { return r.seq }
-func (r testRecord) Server() ID            { return ID(r.ins) }
+func (r testRecord) Server() ID            { return ID(r.server) }
 func (r testRecord) Host() (string, error) { return r.host, nil }
 func (r testRecord) Meta() (Meta, error)   { return r.meta, nil }
 

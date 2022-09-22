@@ -1,12 +1,15 @@
 package routing
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"time"
 	"unsafe"
 
 	"github.com/hashicorp/go-memdb"
+	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/libp2p/go-libp2p/core/peer"
 	b58 "github.com/mr-tron/base58/base58"
 	"go.uber.org/atomic"
@@ -20,6 +23,11 @@ func schema(clock *atomic.Time) *memdb.TableSchema {
 				Name:    "id",
 				Unique:  true,
 				Indexer: idIndexer{},
+			},
+			"server": {
+				Name:    "server",
+				Unique:  true,
+				Indexer: serverIndexer{},
 			},
 			"ttl": {
 				Name:    "ttl",
@@ -71,15 +79,13 @@ func (idIndexer) FromArgs(args ...any) ([]byte, error) {
 		return arg, nil
 
 	case peer.ID:
-		id := arg // required for unsafe.Pointer to be have correctly
-		return *(*[]byte)(unsafe.Pointer(&id)), nil
+		return peerToBytes(arg), nil
 
 	case string:
 		return b58.Decode(arg)
 
 	case Record:
-		peer := arg.Peer()
-		return *(*[]byte)(unsafe.Pointer(&peer)), nil
+		return peerToBytes(arg.Peer()), nil
 	}
 
 	return nil, errType(args[0])
@@ -87,6 +93,60 @@ func (idIndexer) FromArgs(args ...any) ([]byte, error) {
 
 func (idIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
 	return idIndexer{}.FromArgs(args...)
+}
+
+func peerToBytes(id peer.ID) []byte {
+	return *(*[]byte)(unsafe.Pointer(&id))
+}
+
+type serverIndexer struct{}
+
+func (serverIndexer) FromObject(obj any) (bool, []byte, error) {
+	switch rec := obj.(type) {
+	case ServerIndex:
+		index, err := rec.ServerBytes()
+		return err == nil, index, err
+
+	case Record:
+		return true, rec.Server().Bytes(), nil
+	}
+
+	return false, nil, errType(obj)
+}
+
+func (serverIndexer) FromArgs(args ...any) ([]byte, error) {
+	if len(args) != 1 {
+		return nil, errNArgs(args)
+	}
+
+	switch arg := args[0].(type) {
+	case ServerIndex:
+		return arg.ServerBytes()
+
+	case Record:
+		return arg.Server().Bytes(), nil
+
+	case ID:
+		return arg.Bytes(), nil
+
+	case string:
+		return decodeHexStr(arg), nil
+
+	case []byte:
+		return arg, nil
+	}
+
+	return nil, errType(args[0])
+}
+
+func (serverIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
+	return serverIndexer{}.FromArgs(args...)
+}
+
+func decodeHexStr(src string) []byte {
+	buf := pool.Get(8)
+	hex.Decode(buf, *(*[]byte)(unsafe.Pointer(&src)))
+	return buf
 }
 
 type timeIndexer struct{}
@@ -110,15 +170,12 @@ func (timeIndexer) FromArgs(args ...any) ([]byte, error) {
 
 func timeToBytes(t time.Time) []byte {
 	ms := t.UnixNano()
-	return []byte{ // big-endian; avoids branching in radix tree
-		byte(ms >> 56),
-		byte(ms >> 48),
-		byte(ms >> 40),
-		byte(ms >> 32),
-		byte(ms >> 24),
-		byte(ms >> 16),
-		byte(ms >> 8),
-		byte(ms)}
+	buf := pool.Get(8)
+
+	// big-endian; avoids branching in radix tree
+	binary.BigEndian.PutUint64(buf, uint64(ms))
+
+	return buf
 }
 
 func argsToTime(args ...any) (time.Time, error) {
@@ -147,7 +204,7 @@ func (hostnameIndexer) FromObject(obj any) (bool, []byte, error) {
 			return false, nil, err
 		}
 
-		return true, *(*[]byte)(unsafe.Pointer(&name)), nil
+		return true, stringToBytes(name), nil
 	}
 
 	return false, nil, errType(obj)
@@ -162,9 +219,16 @@ func (hostnameIndexer) FromArgs(args ...any) ([]byte, error) {
 	case HostIndex:
 		return arg.HostBytes()
 
+	case Record:
+		name, err := arg.Host()
+		if err != nil || name == "" {
+			return nil, err
+		}
+
+		return stringToBytes(name), nil
+
 	case string:
-		name := arg
-		return *(*[]byte)(unsafe.Pointer(&name)), nil
+		return stringToBytes(arg), nil
 	}
 
 	return nil, errType(args[0])
@@ -200,8 +264,7 @@ func (metaIndexer) FromArgs(args ...any) ([]byte, error) {
 		return arg.MetaBytes()
 
 	case string:
-		field := arg
-		return *(*[]byte)(unsafe.Pointer(&field)), nil
+		return stringToBytes(arg), nil
 	}
 
 	return nil, errType(args[0])
@@ -209,6 +272,10 @@ func (metaIndexer) FromArgs(args ...any) ([]byte, error) {
 
 func (metaIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
 	return metaIndexer{}.FromArgs(args...)
+}
+
+func stringToBytes(s string) []byte {
+	return *(*[]byte)(unsafe.Pointer(&s))
 }
 
 func errType(v any) error {

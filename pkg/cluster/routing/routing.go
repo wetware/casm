@@ -3,12 +3,15 @@
 package routing
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
+	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
+	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -21,19 +24,42 @@ import (
 type ID uint64
 
 func (id ID) String() string {
-	return hex.EncodeToString([]byte{ // big-endian
-		byte(id >> 56),
-		byte(id >> 48),
-		byte(id >> 40),
-		byte(id >> 32),
-		byte(id >> 24),
-		byte(id >> 16),
-		byte(id >> 8),
-		byte(id)})
+	b := id.Bytes()
+	defer pool.Put(b)
+
+	buf := pool.Get(16)
+	hex.Encode(buf, b)
+
+	return *(*string)(unsafe.Pointer(&buf))
+}
+
+func (id ID) Bytes() []byte {
+	buf := pool.Get(8)
+	binary.BigEndian.PutUint64(buf, uint64(id))
+	return buf
+}
+
+func (id *ID) UnmarshalText(b []byte) error {
+	buf := pool.Get(8)
+	defer pool.Put(buf)
+
+	_, err := hex.Decode(buf, b)
+	if err == nil {
+		*id = ID(binary.BigEndian.Uint64(buf))
+	}
+
+	return err
 }
 
 func (id ID) MarshalText() ([]byte, error) {
-	return []byte(id.String()), nil
+	b := pool.Get(16)
+	binary.BigEndian.PutUint64(b, uint64(id))
+
+	buf := id.Bytes()
+	defer pool.Put(buf)
+
+	hex.Encode(b, buf)
+	return b, nil
 }
 
 func (id ID) Loggable() map[string]any {
