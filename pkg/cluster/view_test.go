@@ -248,16 +248,16 @@ func (r *record) Peer() peer.ID {
 	return r.id
 }
 
+func (r *record) Server() routing.ID {
+	r.init()
+	return routing.ID(r.ins)
+}
+
 func (r *record) Seq() uint64 { return r.seq }
 
 func (r *record) Host() (string, error) {
 	r.init()
 	return r.host, nil
-}
-
-func (r *record) Instance() routing.ID {
-	r.init()
-	return routing.ID(r.ins)
 }
 
 func (r *record) TTL() time.Duration {

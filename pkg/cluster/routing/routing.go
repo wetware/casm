@@ -18,10 +18,14 @@ import (
 // of a libp2p host with a fixed peer identity.
 //
 // IDs are not guaranteed to be globally unique.
-type ID uint32
+type ID uint64
 
 func (id ID) String() string {
 	return hex.EncodeToString([]byte{ // big-endian
+		byte(id >> 56),
+		byte(id >> 48),
+		byte(id >> 40),
+		byte(id >> 32),
 		byte(id >> 24),
 		byte(id >> 16),
 		byte(id >> 8),
@@ -34,16 +38,16 @@ func (id ID) MarshalText() ([]byte, error) {
 
 func (id ID) Loggable() map[string]any {
 	return map[string]any{
-		"instance": id,
+		"server": id,
 	}
 }
 
 // Record is an entry in the routing table.
 type Record interface {
+	Server() ID
 	Peer() peer.ID
-	TTL() time.Duration
 	Seq() uint64
-	Instance() ID
+	TTL() time.Duration
 	Host() (string, error)
 	Meta() (Meta, error)
 }

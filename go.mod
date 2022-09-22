@@ -19,9 +19,7 @@ require (
 	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/termenv v0.12.0
 	github.com/multiformats/go-multiaddr v0.7.0
-	github.com/multiformats/go-multihash v0.2.1
 	github.com/multiformats/go-multistream v0.3.3
-	github.com/multiformats/go-varint v0.0.6
 	github.com/pierrec/lz4/v4 v4.1.16
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.0
@@ -99,6 +97,8 @@ require (
 	github.com/multiformats/go-multiaddr-fmt v0.1.0 // indirect
 	github.com/multiformats/go-multibase v0.1.1 // indirect
 	github.com/multiformats/go-multicodec v0.6.0 // indirect
+	github.com/multiformats/go-multihash v0.2.1 // indirect
+	github.com/multiformats/go-varint v0.0.6 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/onsi/ginkgo v1.16.5 // indirect
 	github.com/opencontainers/runtime-spec v1.0.2 // indirect

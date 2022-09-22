@@ -65,12 +65,12 @@ func (r *record) PeerBytes() ([]byte, error) {
 	return (*pubsub.Message)(r).From, nil
 }
 
-func (r *record) Seq() uint64 {
-	return binary.BigEndian.Uint64((*pubsub.Message)(r).GetSeqno())
+func (r *record) Server() routing.ID {
+	return r.heartbeat().Server()
 }
 
-func (r *record) Instance() routing.ID {
-	return r.heartbeat().Instance()
+func (r *record) Seq() uint64 {
+	return binary.BigEndian.Uint64((*pubsub.Message)(r).GetSeqno())
 }
 
 func (r *record) Host() (string, error) {

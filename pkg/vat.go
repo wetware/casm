@@ -45,8 +45,8 @@ func New(ns string, f HostFactory) (Vat, error) {
 
 func (v Vat) Loggable() map[string]interface{} {
 	return map[string]interface{}{
-		"ns": v.NS,
-		"id": v.Host.ID(),
+		"ns":   v.NS,
+		"peer": v.Host.ID(),
 	}
 }
 

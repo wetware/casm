@@ -72,8 +72,8 @@ func (r *Router) ID() routing.ID {
 
 func (r *Router) Loggable() map[string]any {
 	return map[string]any{
-		"instance": r.ID(),
-		"ttl":      r.TTL,
+		"server": r.ID(),
+		"ttl":    r.TTL,
 	}
 }
 
@@ -171,7 +171,7 @@ func (r *Router) heartbeat() {
 
 	hb := pulse.NewHeartbeat()
 	hb.SetTTL(r.TTL)
-	hb.SetInstance(r.ID())
+	hb.SetServer(r.ID())
 
 	ctx := ctxutil.C(r.done)
 

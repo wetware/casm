@@ -10,7 +10,6 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multihash"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,8 +33,7 @@ func TestIDIndexer(t *testing.T) {
 			assert.NoError(t, err, "should index record")
 			assert.True(t, ok, "record should have primary key")
 
-			want := []byte(id)[2:]
-			assert.Equal(t, want, index, "index should match 0x%x", want)
+			assert.Equal(t, []byte(id), index, "index should match 0x%x", id)
 		})
 
 		t.Run("ErrInvalidType", func(t *testing.T) {
@@ -58,7 +56,7 @@ func TestIDIndexer(t *testing.T) {
 			}{
 				{name: "PeerID", arg: id},
 				{name: "Base58", arg: id.String()},
-				{name: "Bytes", arg: mustHashDigest([]byte(id))},
+				{name: "Bytes", arg: []byte(id)},
 				{name: "Record", arg: testRecord{id: id}},
 				{name: "Index", arg: testIndex{id: id}},
 			} {
@@ -66,8 +64,7 @@ func TestIDIndexer(t *testing.T) {
 					index, err := idIndexer{}.FromArgs(tt.arg)
 					assert.NoError(t, err, "should parse argument")
 
-					want := []byte(id)[2:]
-					assert.Equal(t, want, index, "index should match 0x%x", want)
+					assert.Equal(t, []byte(id), index, "index should match 0x%x", id)
 				})
 			}
 		})
@@ -86,11 +83,6 @@ func TestIDIndexer(t *testing.T) {
 					name: "ErrInvalidType",
 					emsg: "invalid type: int",
 					args: []any{42},
-				},
-				{
-					name: "StringTooShort",
-					emsg: multihash.ErrTooShort.Error(),
-					args: []any{peer.ID("")},
 				},
 			} {
 				t.Run(tt.name, func(t *testing.T) {
@@ -270,15 +262,7 @@ func (testIndex) String() string { return "id" }
 func (t testIndex) Prefix() bool { return t.prefix }
 
 func (t testIndex) PeerBytes() ([]byte, error) {
-	return hashdigest([]byte(t.id))
-}
-
-func mustHashDigest(buf []byte) []byte {
-	buf, err := hashdigest(buf)
-	if err != nil {
-		panic(err)
-	}
-	return buf
+	return []byte(t.id), nil
 }
 
 type testRecord struct {
@@ -292,7 +276,7 @@ type testRecord struct {
 
 func (r testRecord) Peer() peer.ID         { return r.id }
 func (r testRecord) Seq() uint64           { return r.seq }
-func (r testRecord) Instance() ID          { return ID(r.ins) }
+func (r testRecord) Server() ID            { return ID(r.ins) }
 func (r testRecord) Host() (string, error) { return r.host, nil }
 func (r testRecord) Meta() (Meta, error)   { return r.meta, nil }
 

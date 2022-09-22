@@ -102,7 +102,7 @@ func (table Table) valid(tx stm.Txn, rec Record) bool {
 	old := v.(Record)
 
 	// Same instance?  Prefer most recent record.
-	if old.Instance() == rec.Instance() {
+	if old.Server() == rec.Server() {
 		return old.Seq() < rec.Seq()
 	}
 

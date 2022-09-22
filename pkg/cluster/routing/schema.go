@@ -9,8 +9,6 @@ import (
 	"github.com/hashicorp/go-memdb"
 	"github.com/libp2p/go-libp2p/core/peer"
 	b58 "github.com/mr-tron/base58/base58"
-	"github.com/multiformats/go-multihash"
-	"github.com/multiformats/go-varint"
 	"go.uber.org/atomic"
 )
 
@@ -46,16 +44,15 @@ type idIndexer struct{}
 func (idIndexer) FromObject(obj any) (bool, []byte, error) {
 	switch r := obj.(type) {
 	case PeerIndex:
-		peerID, err := r.PeerBytes()
-		if err == nil {
-			peerID, err = hashdigest(peerID)
+		index, err := r.PeerBytes()
+		if err != nil {
+			return false, nil, err
 		}
-		return err == nil, peerID, err
+		return err == nil, index, err
 
 	case Record:
 		peer := r.Peer()
-		index, err := hashdigest(*(*[]byte)(unsafe.Pointer(&peer)))
-		return err == nil, index, err
+		return true, *(*[]byte)(unsafe.Pointer(&peer)), nil
 	}
 
 	return false, nil, errType(obj)
@@ -75,18 +72,14 @@ func (idIndexer) FromArgs(args ...any) ([]byte, error) {
 
 	case peer.ID:
 		id := arg // required for unsafe.Pointer to be have correctly
-		return hashdigest(*(*[]byte)(unsafe.Pointer(&id)))
+		return *(*[]byte)(unsafe.Pointer(&id)), nil
 
 	case string:
-		index, err := b58.Decode(arg)
-		if err == nil {
-			index, err = hashdigest(index)
-		}
-		return index, err
+		return b58.Decode(arg)
 
 	case Record:
-		_, index, err := idIndexer{}.FromObject(arg)
-		return index, err
+		peer := arg.Peer()
+		return *(*[]byte)(unsafe.Pointer(&peer)), nil
 	}
 
 	return nil, errType(args[0])
@@ -94,25 +87,6 @@ func (idIndexer) FromArgs(args ...any) ([]byte, error) {
 
 func (idIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
 	return idIndexer{}.FromArgs(args...)
-}
-
-// hashdigest trims the headers from a multihash and returns the
-// hash digest.
-func hashdigest(b []byte) (_ []byte, err error) {
-	if len(b) < 2 {
-		return nil, multihash.ErrTooShort
-	}
-
-	// read the hash code, followed by the length header
-	// https://github.com/multiformats/multihash#format
-	var n int
-	for i := 0; i < 2; i++ {
-		if _, n, err = varint.FromUvarint(b); err == nil {
-			b = b[n:]
-		}
-	}
-
-	return b, err
 }
 
 type timeIndexer struct{}

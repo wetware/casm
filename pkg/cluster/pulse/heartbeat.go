@@ -22,8 +22,8 @@ func NewHeartbeat() Heartbeat {
 
 func (h Heartbeat) Loggable() map[string]any {
 	return map[string]any{
-		"ttl":      h.TTL(),
-		"instance": h.Instance(),
+		"server": h.Server(),
+		"ttl":    h.TTL(),
 	}
 }
 
@@ -40,12 +40,12 @@ func (h Heartbeat) TTL() (d time.Duration) {
 	return
 }
 
-func (h Heartbeat) SetInstance(id routing.ID) {
-	h.Heartbeat.SetInstance(uint32(id))
+func (h Heartbeat) SetServer(id routing.ID) {
+	h.Heartbeat.SetServer(uint64(id))
 }
 
-func (h Heartbeat) Instance() routing.ID {
-	return routing.ID(h.Heartbeat.Instance())
+func (h Heartbeat) Server() routing.ID {
+	return routing.ID(h.Heartbeat.Server())
 }
 
 func (h Heartbeat) Meta() (routing.Meta, error) {

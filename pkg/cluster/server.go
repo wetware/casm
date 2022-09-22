@@ -173,7 +173,7 @@ func copyRecord(rec api.View_Record, r routing.Record) error {
 
 	rec.SetSeq(r.Seq())
 	hb.SetTTL(r.TTL())
-	hb.SetInstance(r.Instance())
+	hb.SetServer(r.Server())
 
 	if err := copyHost(hb, r); err != nil {
 		return err

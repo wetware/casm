@@ -21,7 +21,7 @@ struct Heartbeat {
     # Time-to-live, in milliseconds. The originator is considered
     # failed if a subsequent heartbeat is not received within ttl.
     
-    instance @1 :UInt32;
+    server @1 :UInt64;
     # An opaque identifier that uniquely distinguishes an instance
     # of a host. This identifier is randomly generated each time a
     # host boots.

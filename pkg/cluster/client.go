@@ -205,16 +205,16 @@ func (r clientRecord) PeerBytes() ([]byte, error) {
 	return api.View_Record(r).PeerBytes()
 }
 
+func (r clientRecord) Server() routing.ID {
+	return r.heartbeat().Server()
+}
+
 func (r clientRecord) Seq() uint64 {
 	return api.View_Record(r).Seq()
 }
 
 func (r clientRecord) TTL() time.Duration {
 	return r.heartbeat().TTL()
-}
-
-func (r clientRecord) Instance() routing.ID {
-	return r.heartbeat().Instance()
 }
 
 func (r clientRecord) Host() (string, error) {
