@@ -52,14 +52,10 @@ func (idIndexer) FromObject(obj any) (bool, []byte, error) {
 	switch r := obj.(type) {
 	case PeerIndex:
 		index, err := r.PeerBytes()
-		if err != nil {
-			return false, nil, err
-		}
 		return err == nil, index, err
 
 	case Record:
-		peer := r.Peer()
-		return true, *(*[]byte)(unsafe.Pointer(&peer)), nil
+		return true, peerToBytes(r.Peer()), nil
 	}
 
 	return false, nil, errType(obj)
@@ -71,20 +67,18 @@ func (idIndexer) FromArgs(args ...any) ([]byte, error) {
 	}
 
 	switch arg := args[0].(type) {
-	case Index:
-		return arg.(PeerIndex).PeerBytes()
+	case PeerIndex:
+		return arg.PeerBytes()
 
-	case []byte:
-		return arg, nil
+	case Record:
+		return peerToBytes(arg.Peer()), nil
 
 	case peer.ID:
 		return peerToBytes(arg), nil
 
 	case string:
-		return b58.Decode(arg)
+		return stringToBytes(arg), nil
 
-	case Record:
-		return peerToBytes(arg.Peer()), nil
 	}
 
 	return nil, errType(args[0])
@@ -95,7 +89,8 @@ func (idIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
 }
 
 func peerToBytes(id peer.ID) []byte {
-	return *(*[]byte)(unsafe.Pointer(&id))
+	index := b58.Encode(*(*[]byte)(unsafe.Pointer(&id)))
+	return stringToBytes(index)
 }
 
 type serverIndexer struct{}

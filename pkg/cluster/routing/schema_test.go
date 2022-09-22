@@ -34,7 +34,8 @@ func TestIDIndexer(t *testing.T) {
 			assert.NoError(t, err, "should index record")
 			assert.True(t, ok, "record should have primary key")
 
-			assert.Equal(t, []byte(id), index, "index should match 0x%x", id)
+			assert.Equal(t, []byte(id.String()), index,
+				"index should match %s", id)
 		})
 
 		t.Run("ErrInvalidType", func(t *testing.T) {
@@ -57,7 +58,6 @@ func TestIDIndexer(t *testing.T) {
 			}{
 				{name: "PeerID", arg: id},
 				{name: "Base58", arg: id.String()},
-				{name: "Bytes", arg: []byte(id)},
 				{name: "Record", arg: testRecord{peer: id}},
 				{name: "Index", arg: peerIndex{id: id}},
 			} {
@@ -65,7 +65,8 @@ func TestIDIndexer(t *testing.T) {
 					index, err := idIndexer{}.FromArgs(tt.arg)
 					assert.NoError(t, err, "should parse argument")
 
-					assert.Equal(t, []byte(id), index, "index should match 0x%x", id)
+					assert.Equal(t, []byte(id.String()), index,
+						"index should match %s", id)
 				})
 			}
 		})
@@ -384,7 +385,7 @@ func (peerIndex) String() string { return "id" }
 func (t peerIndex) Prefix() bool { return t.prefix }
 
 func (t peerIndex) PeerBytes() ([]byte, error) {
-	return []byte(t.id), nil
+	return t.id.MarshalText()
 }
 
 type serverIndex struct {

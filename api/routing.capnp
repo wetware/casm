@@ -70,7 +70,7 @@ interface View {
     struct Index {
         prefix    @0 :Bool;
         union {
-            peer   @1 :PeerID;
+            peer   @1 :Text;
             server @2 :Data;
             host   @3 :Text;
             meta   @4 :Text;        # key=value

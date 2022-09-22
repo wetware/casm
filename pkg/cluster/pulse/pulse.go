@@ -6,11 +6,12 @@ package pulse
 import (
 	"context"
 	"encoding/binary"
-	"time"
+	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
+	b58 "github.com/mr-tron/base58/base58"
 
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/routing"
@@ -25,8 +26,8 @@ type Preparer interface {
 }
 
 func NewValidator(rt RoutingTable) pubsub.ValidatorEx {
-	return func(_ context.Context, id peer.ID, m *pubsub.Message) pubsub.ValidationResult {
-		if rec, err := bind(m); err == nil {
+	return func(_ context.Context, _ peer.ID, m *pubsub.Message) pubsub.ValidationResult {
+		if rec, err := record(m); err == nil {
 			if rt.Upsert(rec) {
 				return pubsub.ValidationAccept
 			}
@@ -40,59 +41,42 @@ func NewValidator(rt RoutingTable) pubsub.ValidatorEx {
 	}
 }
 
-type record pubsub.Message
+type routingRecord struct {
+	peer, seq []byte
+	Heartbeat
+}
 
-func bind(msg *pubsub.Message) (*record, error) {
-	var h Heartbeat
-	m, err := capnp.UnmarshalPacked(msg.Data)
-	if err == nil {
-		msg.ValidatorData = &h
-		err = h.ReadMessage(m)
+func record(msg *pubsub.Message) (*routingRecord, error) {
+	rec := &routingRecord{
+		peer: msg.Message.GetFrom(),
+		seq:  msg.GetSeqno(),
 	}
 
-	return (*record)(msg), err
+	m, err := capnp.UnmarshalPacked(msg.GetData())
+	if err != nil {
+		return nil, err
+	}
+
+	return rec, rec.ReadMessage(m)
 }
 
-func (r *record) TTL() time.Duration {
-	return r.heartbeat().TTL()
+func (r *routingRecord) Peer() peer.ID {
+	return *(*peer.ID)(unsafe.Pointer(&r.peer))
 }
 
-func (r *record) Peer() peer.ID {
-	return (*pubsub.Message)(r).GetFrom()
+func (r *routingRecord) PeerBytes() ([]byte, error) {
+	id := b58.Encode(r.peer)
+	return *(*[]byte)(unsafe.Pointer(&id)), nil
 }
 
-func (r *record) PeerBytes() ([]byte, error) {
-	return (*pubsub.Message)(r).From, nil
+func (r *routingRecord) Seq() uint64 {
+	return binary.BigEndian.Uint64(r.seq)
 }
 
-func (r *record) Server() routing.ID {
-	return r.heartbeat().Server()
-}
-
-func (r *record) Seq() uint64 {
-	return binary.BigEndian.Uint64((*pubsub.Message)(r).GetSeqno())
-}
-
-func (r *record) Host() (string, error) {
-	return r.heartbeat().Host()
-}
-
-func (r *record) HostBytes() ([]byte, error) {
-	return r.heartbeat().HostBytes()
-}
-
-func (r *record) Meta() (routing.Meta, error) {
-	return r.heartbeat().Meta()
-}
-
-func (r *record) heartbeat() *Heartbeat {
-	return r.ValidatorData.(*Heartbeat)
-}
-
-func (r *record) BindRecord(rec api.View_Record) (err error) {
+func (r *routingRecord) BindRecord(rec api.View_Record) (err error) {
 	if err = rec.SetPeer(string(r.Peer())); err == nil {
 		rec.SetSeq(r.Seq())
-		err = rec.SetHeartbeat(r.heartbeat().Heartbeat)
+		err = rec.SetHeartbeat(r.Heartbeat.Heartbeat)
 	}
 
 	return
