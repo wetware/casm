@@ -44,19 +44,17 @@ type Router struct {
 	Meta         pulse.Preparer
 	RoutingTable RoutingTable
 
-	once     sync.Once
-	err      error
-	id       uint64 // instance ID
-	cancel   pubsub.RelayCancelFunc
-	done     chan struct{}
-	announce chan []pubsub.PubOpt
+	setup, boot sync.Once
+	err         error
+	id          uint64 // instance ID
+	cancel      pubsub.RelayCancelFunc
+	done        chan struct{}
+	announce    chan []pubsub.PubOpt
 }
 
 func (r *Router) Stop() {
-	r.once.Do(func() {
-		r.done = make(chan struct{})
-		r.cancel = func() {}
-	})
+	r.init()
+	r.boot.Do(func() {})
 
 	close(r.done)
 	r.cancel()
@@ -67,10 +65,12 @@ func (r *Router) String() string {
 }
 
 func (r *Router) ID() routing.ID {
+	r.init()
 	return routing.ID(r.id)
 }
 
 func (r *Router) Loggable() map[string]any {
+	r.init()
 	return map[string]any{
 		"server": r.ID(),
 		"ttl":    r.TTL,
@@ -78,11 +78,14 @@ func (r *Router) Loggable() map[string]any {
 }
 
 func (r *Router) View() View {
+	r.init()
 	return Server{RoutingTable: r.RoutingTable}.View()
 }
 
 func (r *Router) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
-	if err := r.initialize(); err != nil {
+	r.init()
+
+	if err := r.bootstrap(); err != nil {
 		return err
 	}
 
@@ -98,8 +101,22 @@ func (r *Router) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
 	}
 }
 
-func (r *Router) initialize() error {
-	r.once.Do(func() {
+func (r *Router) bootstrap() error {
+	r.boot.Do(func() {
+		// Start relaying messages.  Note that this will not populate
+		// the routing table unless pulse.Validator was previously set.
+		if r.cancel, r.err = r.Topic.Relay(); r.err == nil {
+			r.Log = r.Log.With(r)
+			go r.advance()
+			go r.heartbeat()
+		}
+	})
+
+	return r.err
+}
+
+func (r *Router) init() {
+	r.setup.Do(func() {
 		if r.Log == nil {
 			r.Log = log.New()
 		}
@@ -116,20 +133,11 @@ func (r *Router) initialize() error {
 			r.TTL = pulse.DefaultTTL
 		}
 
-		// Start relaying messages.  Note that this will not populate
-		// the routing table unless pulse.Validator was previously set.
-		if r.cancel, r.err = r.Topic.Relay(); r.err == nil {
-			r.id = rand.Uint64()
-			r.Log = r.Log.With(r)
-			r.done = make(chan struct{})
-			r.announce = make(chan []pubsub.PubOpt)
-
-			go r.advance()
-			go r.heartbeat()
-		}
+		r.id = rand.Uint64()
+		r.done = make(chan struct{})
+		r.cancel = func() {}
+		r.announce = make(chan []pubsub.PubOpt)
 	})
-
-	return r.err
 }
 
 func (r *Router) advance() {

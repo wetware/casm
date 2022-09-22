@@ -2,7 +2,6 @@ package routing
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"reflect"
 	"time"
@@ -108,7 +107,8 @@ func (serverIndexer) FromObject(obj any) (bool, []byte, error) {
 		return err == nil, index, err
 
 	case Record:
-		return true, rec.Server().Bytes(), nil
+		index, err := rec.Server().MarshalText()
+		return true, index, err
 	}
 
 	return false, nil, errType(obj)
@@ -124,13 +124,13 @@ func (serverIndexer) FromArgs(args ...any) ([]byte, error) {
 		return arg.ServerBytes()
 
 	case Record:
-		return arg.Server().Bytes(), nil
+		return arg.Server().MarshalText()
 
 	case ID:
-		return arg.Bytes(), nil
+		return arg.MarshalText()
 
 	case string:
-		return decodeHexStr(arg), nil
+		return stringToBytes(arg), nil
 
 	case []byte:
 		return arg, nil
@@ -141,12 +141,6 @@ func (serverIndexer) FromArgs(args ...any) ([]byte, error) {
 
 func (serverIndexer) PrefixFromArgs(args ...any) ([]byte, error) {
 	return serverIndexer{}.FromArgs(args...)
-}
-
-func decodeHexStr(src string) []byte {
-	buf := pool.Get(8)
-	hex.Decode(buf, *(*[]byte)(unsafe.Pointer(&src)))
-	return buf
 }
 
 type timeIndexer struct{}

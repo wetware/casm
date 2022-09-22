@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	pool "github.com/libp2p/go-buffer-pool"
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
@@ -90,8 +91,12 @@ func bindServer(target api.View_Index, index routing.Index) error {
 		return err
 
 	case interface{ Server() routing.ID }:
-		target.SetServer(uint64(ix.Server()))
-		return nil
+		index, err := ix.Server().MarshalText()
+		if err == nil {
+			defer pool.Put(index)
+			err = target.SetServer(index) // copies index
+		}
+		return err
 	}
 
 	return errors.New("not a peer index")

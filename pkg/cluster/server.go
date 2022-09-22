@@ -211,6 +211,5 @@ func (ix index) String() string {
 }
 
 func (ix index) ServerBytes() ([]byte, error) {
-	id := routing.ID(ix.View_Index.Server())
-	return id.Bytes(), nil
+	return ix.View_Index.Server()
 }

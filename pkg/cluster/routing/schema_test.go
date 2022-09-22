@@ -2,6 +2,7 @@ package routing
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"math/rand"
 	"testing"
 	"time"
@@ -117,8 +118,10 @@ func TestServerIndexer(t *testing.T) {
 	t.Parallel()
 
 	id := ID(rand.Uint64())
-	want := make([]byte, 8)
-	binary.BigEndian.PutUint64(want, uint64(id))
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(id))
+	want := make([]byte, 16)
+	hex.Encode(want, buf)
 
 	t.Run("FromObject", func(t *testing.T) {
 		t.Helper()
@@ -129,7 +132,7 @@ func TestServerIndexer(t *testing.T) {
 			assert.NoError(t, err, "should index record")
 			assert.True(t, ok, "record should have primary key")
 
-			assert.Equal(t, want, index, "index should match 0x%x", id)
+			assert.Equal(t, want, index, "index should match 0x%s", id)
 		})
 
 		t.Run("ErrInvalidType", func(t *testing.T) {
@@ -160,7 +163,7 @@ func TestServerIndexer(t *testing.T) {
 					index, err := serverIndexer{}.FromArgs(tt.arg)
 					assert.NoError(t, err, "should parse argument")
 
-					assert.Equal(t, want, index, "index should match 0x%x", id)
+					assert.Equal(t, want, index, "index should match 0x%s", id)
 				})
 			}
 		})
@@ -393,7 +396,7 @@ func (serverIndex) String() string { return "server" }
 func (t serverIndex) Prefix() bool { return t.prefix }
 
 func (t serverIndex) ServerBytes() ([]byte, error) {
-	return t.id.Bytes(), nil
+	return t.id.MarshalText()
 }
 
 type testRecord struct {
