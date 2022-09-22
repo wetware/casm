@@ -11,7 +11,7 @@ require (
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/jpillora/backoff v1.0.0
 	github.com/libp2p/go-buffer-pool v0.1.0
-	github.com/libp2p/go-libp2p v0.22.0
+	github.com/libp2p/go-libp2p v0.23.1
 	github.com/libp2p/go-libp2p-pubsub v0.8.1
 	github.com/lthibault/go-libp2p-inproc-transport v0.3.0
 	github.com/lthibault/jitterbug/v2 v2.2.2
@@ -27,7 +27,7 @@ require (
 	github.com/urfave/cli/v2 v2.16.3
 	go.uber.org/atomic v1.10.0
 	go.uber.org/multierr v1.8.0
-	golang.org/x/net v0.0.0-20220919232410-f2f64ebce3c1
+	golang.org/x/net v0.0.0-20220921203646-d300de134e69
 	golang.org/x/time v0.0.0-20220920022843-2ce7c2934d45
 )
 
@@ -76,7 +76,8 @@ require (
 	github.com/libp2p/go-openssl v0.1.0 // indirect
 	github.com/libp2p/go-reuseport v0.2.0 // indirect
 	github.com/libp2p/go-yamux/v3 v3.1.2 // indirect
-	github.com/lucas-clemente/quic-go v0.28.1 // indirect
+	github.com/libp2p/go-yamux/v4 v4.0.0 // indirect
+	github.com/lucas-clemente/quic-go v0.29.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/marten-seemann/qtls-go1-16 v0.1.5 // indirect
 	github.com/marten-seemann/qtls-go1-17 v0.1.2 // indirect
@@ -119,6 +120,7 @@ require (
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.uber.org/zap v1.23.0 // indirect
 	golang.org/x/crypto v0.0.0-20220919173607-35f4265a4bc0 // indirect
+	golang.org/x/exp v0.0.0-20220916125017-b168a2c6b86b // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220907135952-02c991387e35 // indirect
 	golang.org/x/sync v0.0.0-20220907140024-f12130a52804 // indirect
 	golang.org/x/sys v0.0.0-20220919091848-fb04ddd9f9c8 // indirect
