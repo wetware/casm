@@ -70,16 +70,18 @@ interface View {
     struct Index {
         prefix    @0 :Bool;
         union {
-            id    @1 :PeerID;
-            host  @2 :Text;
-            meta  @3 :Text;        # key=value
+            peer     @1 :PeerID;
+            server @2 :UInt64;
+            host   @3 :Text;
+            meta   @4 :Text;        # key=value
         }
     }
 
     struct Record {
         peer      @0 :PeerID;
-        seq       @1 :UInt64;
-        heartbeat @2 :Heartbeat;
+        server    @1 :UInt64;
+        seq       @2 :UInt64;
+        heartbeat @3 :Heartbeat;
     }
 
     struct MaybeRecord {

@@ -44,8 +44,11 @@ func bindIndex(fn func() (api.View_Index, error), index routing.Index) error {
 	target.SetPrefix(index.Prefix())
 
 	switch index.String() {
-	case "id":
+	case "id", "peer":
 		return bindPeer(target, index)
+
+	case "server":
+		return bindServer(target, index)
 
 	case "host":
 		return bindHost(target, index)
@@ -62,16 +65,33 @@ func bindPeer(target api.View_Index, index routing.Index) error {
 	case routing.PeerIndex:
 		b, err := ix.PeerBytes()
 		if err == nil {
-			return target.SetId(string(b)) // TODO:  unsafe.Pointer
+			return target.SetPeer(string(b)) // TODO:  unsafe.Pointer
 		}
 		return err
 
 	case interface{ Peer() (string, error) }:
 		id, err := ix.Peer()
 		if err == nil {
-			err = target.SetId(id)
+			err = target.SetPeer(id)
 		}
 		return err
+	}
+
+	return errors.New("not a peer index")
+}
+
+func bindServer(target api.View_Index, index routing.Index) error {
+	switch ix := index.(type) {
+	case routing.ServerIndex:
+		b, err := ix.ServerBytes()
+		if err == nil {
+			return target.SetPeer(string(b)) // TODO:  unsafe.Pointer
+		}
+		return err
+
+	case interface{ Server() routing.ID }:
+		target.SetServer(uint64(ix.Server()))
+		return nil
 	}
 
 	return errors.New("not a peer index")

@@ -203,5 +203,14 @@ func copyMeta(rec pulse.Heartbeat, r routing.Record) error {
 type index struct{ api.View_Index }
 
 func (ix index) String() string {
+	if ix.Which() == api.View_Index_Which_peer {
+		return "id"
+	}
+
 	return ix.Which().String()
+}
+
+func (ix index) ServerBytes() ([]byte, error) {
+	id := routing.ID(ix.View_Index.Server())
+	return id.Bytes(), nil
 }
