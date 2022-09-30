@@ -39,6 +39,11 @@ func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if ctx.Err() != nil {
+		s.close()
+		return
+	}
+
 	if !s.closing {
 		// append to inflight queue
 		s.inflight.Put(s.call(ctx, s.method, args))
