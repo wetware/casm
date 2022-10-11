@@ -21,13 +21,13 @@ require (
 	github.com/muesli/termenv v0.13.0
 	github.com/multiformats/go-multiaddr v0.7.0
 	github.com/multiformats/go-multistream v0.3.3
-	github.com/pierrec/lz4/v4 v4.1.16
+	github.com/pierrec/lz4/v4 v4.1.17
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.0
-	github.com/urfave/cli/v2 v2.16.3
+	github.com/urfave/cli/v2 v2.19.2
 	go.uber.org/atomic v1.10.0
 	go.uber.org/multierr v1.8.0
-	golang.org/x/net v0.0.0-20220921203646-d300de134e69
+	golang.org/x/net v0.0.0-20221004154528-8021a29435af
 	golang.org/x/time v0.0.0-20220922220347-f3bd1da661af
 )
 
