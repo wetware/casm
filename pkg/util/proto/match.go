@@ -65,6 +65,12 @@ func Suffix(suffix protocol.ID) (f MatchFunc) {
 	})
 }
 
+// SemVer returns a function that compares the protocol ID with the
+// supplied semantic version string.  It returns true iff the major
+// version numbers are identical.
+//
+// SemVer is compliant with the Semantic Versioning 2.0.0 spec.
+// https://semver.org/
 func SemVer(version string) MatchFunc {
 	v := semver.New(clean(version))
 
@@ -76,7 +82,7 @@ func SemVer(version string) MatchFunc {
 			return s, false
 		}
 
-		return tail, v.Major == sv.Major && v.Minor >= sv.Minor
+		return tail, v.Major == sv.Major
 	})
 }
 
