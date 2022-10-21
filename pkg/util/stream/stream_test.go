@@ -19,6 +19,17 @@ func TestState(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
+	t.Run("ImmediateWait", func(t *testing.T) {
+		t.Parallel()
+
+		server := &streamer{}
+		client := testing_api.Streamer_ServerToClient(server)
+		defer client.Release()
+
+		s := stream.New(client.Recv)
+		assert.NoError(t, s.Wait())
+	})
+
 	t.Run("Succeed", func(t *testing.T) {
 		t.Parallel()
 
