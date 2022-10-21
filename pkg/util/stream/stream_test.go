@@ -87,7 +87,7 @@ func TestState(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		cancel()
 
 		server := &streamer{}
 		client := testing_api.Streamer_ServerToClient(server)
@@ -99,9 +99,8 @@ func TestState(t *testing.T) {
 		// started.
 		s.Call(ctx, nil)
 
-		cancel()
-		assert.ErrorIs(t, s.Wait(), context.Canceled,
-			"Wait() should return context error")
+		err := s.Wait()
+		assert.ErrorIs(t, err, context.Canceled, "error: %v", err)
 	})
 
 	t.Run("HandlerError", func(t *testing.T) {
@@ -194,7 +193,11 @@ func nop(context.Context, func(testing_api.Streamer_recv_Params) error) (capnp_s
 
 type streamer struct{ error }
 
-func (s *streamer) Recv(context.Context, testing_api.Streamer_recv) error {
+func (s *streamer) Recv(ctx context.Context, err testing_api.Streamer_recv) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	return s.error
 }
 
