@@ -3,7 +3,7 @@ module github.com/wetware/casm
 go 1.18
 
 require (
-	capnproto.org/go/capnp/v3 v3.0.0-alpha.7.0.20221017163422-cbde3a8dd951
+	capnproto.org/go/capnp/v3 v3.0.0-alpha.8
 	github.com/coreos/go-semver v0.3.0
 	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-memdb v1.3.4
@@ -113,7 +113,6 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
-	github.com/wetware/ww v0.0.0-alpha.18 // indirect
 	github.com/whyrusleeping/timecache v0.0.0-20160911033111-cfcb2f1abfee // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.uber.org/zap v1.23.0 // indirect
