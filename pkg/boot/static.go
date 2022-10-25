@@ -91,11 +91,3 @@ func staticChan(ps []peer.AddrInfo) chan peer.AddrInfo {
 	close(ch)
 	return ch
 }
-
-// func normalizeNS(ns string) string {
-// 	// HACK:  libp2p's pubsub system prefixes topic names with the string "floodsub:",
-// 	//        presumably to avoid collisions with DHT-based discovery.
-// 	//
-// 	// See:  https://github.com/libp2p/go-libp2p-pubsub/blob/v0.5.4/discovery.go#L322-L328
-// 	return strings.TrimPrefix(ns, "floodsub:")
-// }
