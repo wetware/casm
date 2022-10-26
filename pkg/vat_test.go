@@ -49,8 +49,9 @@ func TestVat(t *testing.T) {
 	sv, err := casm.New(ns, server())
 	require.NoError(t, err, "must create server vat")
 	require.NotZero(t, sv, "server vat must be populated")
-	assert.Equal(t, "casm", sv.Loggable()["ns"],
-		"should use default namespace")
+	defer sv.Host.Close()
+
+	assert.Equal(t, "casm", sv.NS, "should use default namespace")
 
 	sv.Metrics = metrics
 
@@ -58,11 +59,13 @@ func TestVat(t *testing.T) {
 	cv, err := casm.New(ns, client())
 	require.NoError(t, err, "must create client vat")
 	require.NotZero(t, cv, "client vat must be populated")
-	assert.Equal(t, "casm", sv.Loggable()["ns"],
-		"should use default namespace")
+	defer cv.Host.Close()
+
+	assert.Equal(t, "casm", sv.NS, "should use default namespace")
 
 	t.Run("Export", func(t *testing.T) {
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		sv.Export(echoer(), echoServer{})
 		cv.Export(echoer(), echoServer{})
@@ -72,11 +75,12 @@ func TestVat(t *testing.T) {
 		defer conn.Close()
 
 		e := testing_api.Echoer(conn.Bootstrap(ctx))
+		defer e.Release()
+
 		f, release := e.Echo(ctx, payload("hello, world!"))
 		defer release()
 
-		err = casm.Future{Future: f.Future}.Err()
-		require.NoError(t, err, "echo call should succeed")
+		require.NoError(t, casm.Future(f).Err(), "echo call should succeed")
 	})
 
 	t.Run("Embargo", func(t *testing.T) {
@@ -87,7 +91,11 @@ func TestVat(t *testing.T) {
 		sv.Embargo(echoer())
 		assert.Eventually(t, func() bool {
 			conn, err := cv.Connect(context.Background(), addr(sv), echoer())
-			return conn == nil && errors.Is(err, multistream.ErrNotSupported)
+			if err == nil || !errors.Is(err, multistream.ErrNotSupported) {
+				conn.Close()
+				return false
+			}
+			return true
 		}, time.Second, time.Millisecond*100)
 	})
 
