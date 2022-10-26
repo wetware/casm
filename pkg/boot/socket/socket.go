@@ -164,7 +164,7 @@ func (s *Socket) Subscribe(ns string, limit int) (<-chan peer.AddrInfo, func()) 
 
 	var (
 		once sync.Once
-		ch   = make(chan peer.AddrInfo, bufsize(limit))
+		ch   = make(chan peer.AddrInfo, 16) // arbitrary buf size
 	)
 
 	cancel := func() {
@@ -329,14 +329,6 @@ func limiter(limit int, cancel func()) (l *resultLimiter) {
 
 func (l *resultLimiter) Decr() bool {
 	return l != nil && atomic.AddInt32(&l.remaining, -1) == 0
-}
-
-func bufsize(limit int) int {
-	if limit < 0 {
-		return 0
-	}
-
-	return limit
 }
 
 type subscriber struct{ Out chan<- peer.AddrInfo }
