@@ -3,10 +3,9 @@ package crawl_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"reflect"
-	"sync"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -24,6 +23,24 @@ import (
 	"github.com/wetware/casm/pkg/boot/crawl"
 	"github.com/wetware/casm/pkg/boot/socket"
 )
+
+const (
+	reqfile = "../socket/testdata/request.golden.capnp"
+	resfile = "../socket/testdata/response.golden.capnp"
+)
+
+var reqBytes, resBytes []byte
+
+func init() {
+	var err error
+	if reqBytes, err = os.ReadFile(reqfile); err != nil {
+		panic(err)
+	}
+
+	if resBytes, err = os.ReadFile(resfile); err != nil {
+		panic(err)
+	}
+}
 
 func TestMultiaddr(t *testing.T) {
 	t.Parallel()
@@ -122,7 +139,6 @@ func TestCrawler_request_noadvert(t *testing.T) {
 	readReq := conn.EXPECT().
 		ReadFrom(gomock.Any()).
 		DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
-			err = bindTestData(&initReq, &reqBytes, "../socket/testdata/request.golden.capnp")
 			n = copy(b, reqBytes)
 			a = addr
 			return
@@ -178,7 +194,6 @@ func TestCrawler_advertise(t *testing.T) {
 	readReq := conn.EXPECT().
 		ReadFrom(gomock.Any()).
 		DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
-			err = bindTestData(&initReq, &reqBytes, "../socket/testdata/request.golden.capnp")
 			n = copy(b, reqBytes)
 			a = addr
 			<-syncAdvert
@@ -219,8 +234,6 @@ func TestCrawler_advertise(t *testing.T) {
 func TestCrawler_find_peers(t *testing.T) {
 	t.Parallel()
 
-	t.Skip("skipped flaky test; works when run individually")
-
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -259,8 +272,7 @@ func TestCrawler_find_peers(t *testing.T) {
 	conn.EXPECT().
 		ReadFrom(gomock.Any()).
 		DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
-			err = bindTestData(&initReq, &reqBytes, "../socket/testdata/response.golden.capnp")
-			n = copy(b, reqBytes)
+			n = copy(b, resBytes)
 			a = addr
 			<-syncReq
 			return
@@ -297,11 +309,6 @@ func blockUntilClosed(sync <-chan struct{}) func([]byte) (int, net.Addr, error) 
 		return 0, nil, net.ErrClosed
 	}
 }
-
-var (
-	reqBytes []byte
-	initReq  sync.Once
-)
 
 func matchOutgoingResponse() gomock.Matcher {
 	return &matchResponse{}
@@ -340,16 +347,6 @@ func (m matchResponse) String() string {
 	}
 
 	return "is response packet"
-}
-
-func bindTestData(init *sync.Once, b *[]byte, path string) (err error) {
-	init.Do(func() {
-		if *b, err = ioutil.ReadFile(path); err != nil {
-			panic(err)
-		}
-	})
-
-	return
 }
 
 type mockRange struct {
