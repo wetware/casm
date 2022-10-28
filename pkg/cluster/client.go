@@ -40,15 +40,20 @@ func (v View) Lookup(ctx context.Context, query Query) (FutureRecord, capnp.Rele
 // finished with the iterator.  Callers MUST NOT call methods
 // on the iterator after calling the ReleaseFunc.
 func (v View) Iter(ctx context.Context, query Query) (Iterator, capnp.ReleaseFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+
 	var (
 		h          = newHandler()
 		f, release = api.View(v).Iter(ctx, h.Handler(query))
 	)
 
 	return Iterator{
-		Future: casm.Future(f),
-		Seq:    h,
-	}, release
+			Future: casm.Future(f),
+			Seq:    h,
+		}, func() {
+			cancel()
+			release()
+		}
 }
 
 // Iterator is a stateful object that enumerates routing records.
