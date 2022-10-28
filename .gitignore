@@ -22,3 +22,5 @@ cmd/scratch/**
 
 # pre-commit
 .pre-commit-config.yaml
+
+**/.DS_Store
