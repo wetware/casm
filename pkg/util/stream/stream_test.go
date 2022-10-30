@@ -22,31 +22,31 @@ func TestState(t *testing.T) {
 	t.Run("ImmediateWait", func(t *testing.T) {
 		t.Parallel()
 
-		server := &streamer{}
-		client := testing_api.Streamer_ServerToClient(server)
-		defer client.Release()
+		/*
+			Test that the stream does not block when it is terminated
+			without any calls.
 
-		s := stream.New(client.Recv)
-		assert.NoError(t, s.Wait())
-	})
-
-	t.Run("Succeed", func(t *testing.T) {
-		t.Parallel()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+			Also checks that it's Open/Closed state is correct.
+		*/
 
 		server := &streamer{}
 		client := testing_api.Streamer_ServerToClient(server)
 		defer client.Release()
 
 		s := stream.New(client.Recv)
-		s.Call(ctx, nil)
+		assert.True(t, s.Open(), "stream should be open")
+		assert.NoError(t, s.Wait(), "stream should finish without error")
+		assert.False(t, s.Open(), "stream should NOT be open")
 	})
 
 	t.Run("CallAndWait", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		/*
+			Test normal stream operation by performing 10 calls,
+			all of which succeed.
+		*/
 
 		server := sleepStreamer(time.Millisecond)
 		client := testing_api.Streamer_ServerToClient(server)
@@ -59,12 +59,19 @@ func TestState(t *testing.T) {
 			s.Call(ctx, nil)
 		}
 
-		assert.NoError(t, s.Wait(), "should finish gracefully")
+		assert.True(t, s.Open(), "stream should be open")
+		assert.NoError(t, s.Wait(), "stream should finish without error")
+		assert.False(t, s.Open(), "stream should NOT be open")
 	})
 
-	t.Run("AbortWait", func(t *testing.T) {
+	t.Run("CallAndWait/Inflight", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		/*
+			Test that a stream gracefully terminates when there are in-
+			flight requests.
+		*/
 
 		server := sleepStreamer(time.Second)
 		client := testing_api.Streamer_ServerToClient(server)
@@ -101,7 +108,7 @@ func TestState(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
+		cancel() // cancel immediately
 
 		server := &streamer{}
 		client := testing_api.Streamer_ServerToClient(server)
@@ -141,6 +148,14 @@ func TestState(t *testing.T) {
 		// server error, which should cause the stream to abort.
 		s.Call(ctx, nil)
 
+		// In order to break out of loops, it is important that
+		// the context cancelation be detected *before* the call
+		// to Wait()
+		assert.Eventually(t, func() bool {
+			return !s.Open()
+		}, time.Millisecond, time.Microsecond*100,
+			"should close before call to Wait()")
+
 		assert.Error(t, s.Wait(),
 			"Wait() should return error from server")
 	})
@@ -169,14 +184,6 @@ func TestStream(t *testing.T) {
 
 	assert.NoError(t, s.Wait(), "should succeed")
 	assert.Equal(t, 100, int(server), "should process 100 calls")
-}
-
-func TestStream_NoCall(t *testing.T) {
-	t.Parallel()
-
-	s := stream.New(nop)
-
-	assert.NoError(t, s.Wait(), "should succeed")
 }
 
 func BenchmarkStream(b *testing.B) {
