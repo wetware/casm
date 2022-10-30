@@ -81,10 +81,13 @@ func TestState(t *testing.T) {
 
 		cancel()
 
+		// In order to break out of loops, it is important that
+		// the context cancelation be detected *before* the call
+		// to Wait()
 		assert.Eventually(t, func() bool {
 			return !s.Open()
-		}, time.Millisecond*100, time.Millisecond*10,
-			"call to Wait() should signal stream close")
+		}, time.Millisecond, time.Microsecond*100,
+			"should close before call to Wait()")
 
 		select {
 		case <-time.After(time.Millisecond * 500):
@@ -109,6 +112,14 @@ func TestState(t *testing.T) {
 		// make one successful call so that the receive-loop is
 		// started.
 		s.Call(ctx, nil)
+
+		// In order to break out of loops, it is important that
+		// the context cancelation be detected *before* the call
+		// to Wait()
+		assert.Eventually(t, func() bool {
+			return !s.Open()
+		}, time.Millisecond, time.Microsecond*100,
+			"should close before call to Wait()")
 
 		err := s.Wait()
 		assert.ErrorIs(t, err, context.Canceled, "error: %v", err)
