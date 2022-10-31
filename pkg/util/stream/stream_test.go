@@ -120,13 +120,12 @@ func TestState(t *testing.T) {
 		// started.
 		s.Call(ctx, nil)
 
-		// In order to break out of loops, it is important that
-		// the context cancelation be detected *before* the call
-		// to Wait()
-		assert.Eventually(t, func() bool {
-			return !s.Open()
-		}, time.Millisecond, time.Microsecond*100,
-			"should close before call to Wait()")
+		// The context was canceled *before* the call to Call(), so
+		// it should always be detected *before* Call() returns.
+		//
+		// To avoid sudden, unbounded bursts in memory consumption, it
+		// is crucial that this assertion pass.
+		assert.False(t, s.Open(), "should close before Call() returns")
 
 		err := s.Wait()
 		assert.ErrorIs(t, err, context.Canceled, "error: %v", err)
