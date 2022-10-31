@@ -54,6 +54,11 @@ func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 		case s.signal <- struct{}{}:
 		default:
 		}
+
+		// stop accepting calls?
+		if ctx.Err() != nil {
+			s.close()
+		}
 	}
 }
 
