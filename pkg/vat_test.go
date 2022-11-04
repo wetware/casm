@@ -31,16 +31,16 @@ func TestVat(t *testing.T) {
 
 	metrics := mock_casm.NewMockMetricReporter(ctrl)
 	metrics.EXPECT().
-		CountAdd(gomock.Any(), 1).
+		Incr("rpc./casm/0.0.0/casm/echo/packed.open").
 		AnyTimes()
 	metrics.EXPECT().
-		CountAdd(gomock.Any(), -1).
+		Decr("rpc./casm/0.0.0/casm/echo/packed.open").
 		AnyTimes()
 	metrics.EXPECT().
-		GaugeAdd(gomock.Any(), 1).
+		Incr("rpc.connect").
 		AnyTimes()
 	metrics.EXPECT().
-		GaugeAdd(gomock.Any(), -1).
+		Incr("rpc.disconnect").
 		AnyTimes()
 
 	const ns = "" // test use of default namespace 'casm'

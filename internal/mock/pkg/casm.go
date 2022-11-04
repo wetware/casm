@@ -192,28 +192,28 @@ func (m *MockMetricReporter) EXPECT() *MockMetricReporterMockRecorder {
 	return m.recorder
 }
 
-// CountAdd mocks base method.
-func (m *MockMetricReporter) CountAdd(key string, value int) {
+// Decr mocks base method.
+func (m *MockMetricReporter) Decr(key string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "CountAdd", key, value)
+	m.ctrl.Call(m, "Decr", key)
 }
 
-// CountAdd indicates an expected call of CountAdd.
-func (mr *MockMetricReporterMockRecorder) CountAdd(key, value interface{}) *gomock.Call {
+// Decr indicates an expected call of Decr.
+func (mr *MockMetricReporterMockRecorder) Decr(key interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountAdd", reflect.TypeOf((*MockMetricReporter)(nil).CountAdd), key, value)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Decr", reflect.TypeOf((*MockMetricReporter)(nil).Decr), key)
 }
 
-// GaugeAdd mocks base method.
-func (m *MockMetricReporter) GaugeAdd(key string, value int) {
+// Incr mocks base method.
+func (m *MockMetricReporter) Incr(key string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "GaugeAdd", key, value)
+	m.ctrl.Call(m, "Incr", key)
 }
 
-// GaugeAdd indicates an expected call of GaugeAdd.
-func (mr *MockMetricReporterMockRecorder) GaugeAdd(key, value interface{}) *gomock.Call {
+// Incr indicates an expected call of Incr.
+func (mr *MockMetricReporterMockRecorder) Incr(key interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GaugeAdd", reflect.TypeOf((*MockMetricReporter)(nil).GaugeAdd), key, value)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Incr", reflect.TypeOf((*MockMetricReporter)(nil).Incr), key)
 }
 
 // MockCapability is a mock of Capability interface.

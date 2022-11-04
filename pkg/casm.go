@@ -61,8 +61,8 @@ type Bootstrapper interface {
 
 // MetricReporter is used to track open RPC connections.
 type MetricReporter interface {
-	CountAdd(key string, value int)
-	GaugeAdd(key string, value int)
+	Incr(key string)
+	Decr(key string)
 }
 
 // HostFactory constructs a libp2p host.

@@ -175,15 +175,15 @@ type metricsReporter struct{ MetricReporter }
 
 func (m metricsReporter) StreamOpened(id protocol.ID) {
 	if m.MetricReporter != nil {
-		m.GaugeAdd(fmt.Sprintf("rpc.%s.open", id), 1)
-		m.CountAdd("rpc.connect", 1)
+		m.Incr(fmt.Sprintf("rpc.%s.open", id))
+		m.Incr("rpc.connect")
 	}
 
 }
 
 func (m metricsReporter) StreamClosed(id protocol.ID) {
 	if m.MetricReporter != nil {
-		m.GaugeAdd(fmt.Sprintf("rpc.%s.open", id), -1)
-		m.CountAdd("rpc.disconnect", 1)
+		m.Decr(fmt.Sprintf("rpc.%s.open", id))
+		m.Incr("rpc.disconnect")
 	}
 }
