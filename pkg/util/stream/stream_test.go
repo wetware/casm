@@ -64,7 +64,7 @@ func TestState(t *testing.T) {
 		assert.False(t, s.Open(), "stream should NOT be open")
 	})
 
-	t.Run("CallAndWait/Inflight", func(t *testing.T) {
+	t.Run("WaitInflight", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -104,34 +104,7 @@ func TestState(t *testing.T) {
 		}
 	})
 
-	t.Run("ContextExpired", func(t *testing.T) {
-		t.Parallel()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // cancel immediately
-
-		server := &streamer{}
-		client := testing_api.Streamer_ServerToClient(server)
-		defer client.Release()
-
-		s := stream.New(client.Recv)
-
-		// make one successful call so that the receive-loop is
-		// started.
-		s.Call(ctx, nil)
-
-		// The context was canceled *before* the call to Call(), so
-		// it should always be detected *before* Call() returns.
-		//
-		// To avoid sudden, unbounded bursts in memory consumption, it
-		// is crucial that this assertion pass.
-		assert.False(t, s.Open(), "should close before Call() returns")
-
-		err := s.Wait()
-		assert.ErrorIs(t, err, context.Canceled, "error: %v", err)
-	})
-
-	t.Run("HandlerError", func(t *testing.T) {
+	t.Run("WaitRemoteError", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -164,7 +137,7 @@ func TestStream(t *testing.T) {
 	t.Parallel()
 
 	/*
-		Test tracking of an actual stream.
+		Test tracking of an actual stream of successful calls.
 	*/
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -185,11 +158,43 @@ func TestStream(t *testing.T) {
 	assert.Equal(t, 100, int(server), "should process 100 calls")
 }
 
+func TestContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	/*
+		Test that a call with an expired context immediately causes the
+		stream to stop processing subsequent calls.  This is crucial to
+		prevent OOM failures due to a busy loop enqueuing calls.
+	*/
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	server := &streamer{}
+	client := testing_api.Streamer_ServerToClient(server)
+	defer client.Release()
+
+	s := stream.New(client.Recv)
+
+	// make one successful call so that the receive-loop is
+	// started.
+	s.Call(ctx, nil)
+
+	// The context was canceled *before* the call to Call(), so
+	// it should always be detected *before* Call() returns.
+	//
+	// To avoid sudden, unbounded bursts in memory consumption, it
+	// is crucial that this assertion pass.
+	assert.False(t, s.Open(), "should close before Call() returns")
+
+	err := s.Wait()
+	assert.ErrorIs(t, err, context.Canceled, "error: %v", err)
+}
+
 func TestPlaceArgsFailure(t *testing.T) {
 	t.Parallel()
 
 	/*
-
 		Test that a failure in PlaceArgs immediately causes s.Open() to
 		return false.  This is crucial to prevent OOM failures due to a
 		busy loop adding (failing) calls to the queue until the initial
