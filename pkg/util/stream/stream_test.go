@@ -210,8 +210,8 @@ var nopFuture = capnp_stream.StreamResult_Future{
 	Future: capnp.ErrorAnswer(capnp.Method{
 		InterfaceID:   0xef96789c0d60cd00,
 		MethodID:      0,
-		InterfaceName: "testing.capnp:Echoer",
-		MethodName:    "echo",
+		InterfaceName: "testing.capnp:Streamer",
+		MethodName:    "recv",
 	}, nil).Future(),
 }
 
