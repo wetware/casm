@@ -185,6 +185,39 @@ func TestStream(t *testing.T) {
 	assert.Equal(t, 100, int(server), "should process 100 calls")
 }
 
+func TestPlaceArgsFailure(t *testing.T) {
+	t.Parallel()
+
+	/*
+
+		Test that a failure in PlaceArgs immediately causes s.Open() to
+		return false.  This is crucial to prevent OOM failures due to a
+		busy loop adding (failing) calls to the queue until the initial
+		future is processed.
+	*/
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server := &streamer{}
+	client := testing_api.Streamer_ServerToClient(server)
+	defer client.Release()
+
+	s := stream.New(client.Recv)
+	assert.True(t, s.Open(), "should initially be open")
+
+	var errFail = errors.New("fail")
+	s.Call(ctx, func(testing_api.Streamer_recv_Params) error {
+		return errFail
+	})
+
+	assert.False(t, s.Open(), "should close after failed call to PlaceArgs")
+
+	// TODO:  uncomment when https://github.com/capnproto/go-capnproto2/pull/332
+	//        has been merged.  Tested locally in the meantime.
+	// require.ErrorIs(t, s.Wait(), errFail, "should return error from PlaceArgs")
+}
+
 func BenchmarkStream(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -215,6 +248,7 @@ var nopFuture = capnp_stream.StreamResult_Future{
 	}, nil).Future(),
 }
 
+// CAUTION:  only use nop in benchmarks. It DOES NOT call PlaceArgs.
 func nop(context.Context, func(testing_api.Streamer_recv_Params) error) (capnp_stream.StreamResult_Future, capnp.ReleaseFunc) {
 	return nopFuture, func() {}
 }
