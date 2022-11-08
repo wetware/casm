@@ -40,8 +40,11 @@ func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 	defer s.mu.Unlock()
 
 	if !s.closing {
+		// issue the RPC call
+		rpc := s.call(ctx, s.method, args)
+
 		// append to inflight queue
-		s.inflight.Put(s.call(ctx, s.method, args))
+		s.inflight.Put(rpc)
 
 		// start background loop?
 		if !s.started {
@@ -56,7 +59,7 @@ func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 		}
 
 		// stop accepting calls?
-		if ctx.Err() != nil {
+		if rpc.Failed() || ctx.Err() != nil {
 			s.close()
 		}
 	}
@@ -149,6 +152,12 @@ type methodCall struct {
 	future  stream.StreamResult_Future
 	release capnp.ReleaseFunc
 	next    *methodCall
+}
+
+func (call *methodCall) Failed() bool {
+	state := call.future.Client().State()
+	_, ok := state.Brand.Value.(error)
+	return ok
 }
 
 func (call *methodCall) Wait() error {
