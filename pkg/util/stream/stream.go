@@ -6,6 +6,7 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/std/capnp/stream"
+	"github.com/lthibault/uq"
 )
 
 type Func[T ~capnp.StructKind] func(context.Context, func(T) error) (stream.StreamResult_Future, capnp.ReleaseFunc)
@@ -16,15 +17,15 @@ type Stream[T ~capnp.StructKind] struct {
 	mu               sync.Mutex
 	err              error
 	started, closing bool
-	inflight         queue
+	inflight         uq.Queue[promise]
 	signal, closed   chan struct{}
 }
 
 func New[T ~capnp.StructKind](method Func[T]) *Stream[T] {
 	return &Stream[T]{
+		method: method,
 		signal: make(chan struct{}, 1),
 		closed: make(chan struct{}),
-		method: method,
 	}
 }
 
@@ -41,10 +42,10 @@ func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 
 	if !s.closing {
 		// issue the RPC call
-		rpc := s.call(ctx, s.method, args)
+		p := s.call(ctx, s.method, args)
 
 		// append to inflight queue
-		s.inflight.Put(rpc)
+		s.inflight.Push(p)
 
 		// start background loop?
 		if !s.started {
@@ -59,7 +60,7 @@ func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 		}
 
 		// stop accepting calls?
-		if rpc.Failed() || ctx.Err() != nil {
+		if p.Failed() || ctx.Err() != nil {
 			s.close()
 		}
 	}
@@ -84,20 +85,20 @@ func (s *Stream[T]) loop() {
 	defer close(s.closed)
 
 	for range s.signal {
-		for call := s.next(); call != nil; call = s.next() {
+		for call, ok := s.next(); ok; call, ok = s.next() {
 			s.await(call)
 		}
 	}
 }
 
-func (s *Stream[T]) next() *methodCall {
+func (s *Stream[T]) next() (promise, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.inflight.Get()
+	return s.inflight.Shift()
 }
 
-func (s *Stream[T]) await(call *methodCall) {
+func (s *Stream[T]) await(call promise) {
 	if err := call.Wait(); err != nil && s.err == nil {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -107,10 +108,12 @@ func (s *Stream[T]) await(call *methodCall) {
 	}
 }
 
-func (s *Stream[T]) call(ctx context.Context, f Func[T], args func(T) error) *methodCall {
-	call := pool.Get()
-	call.future, call.release = f(ctx, args)
-	return call
+func (s *Stream[T]) call(ctx context.Context, f Func[T], args func(T) error) promise {
+	future, release := f(ctx, args)
+	return promise{
+		future:  future,
+		release: release,
+	}
 }
 
 // caller must hold the Stream mutex
@@ -125,64 +128,20 @@ func (s *Stream[T]) close() {
 	}
 }
 
-type queue struct {
-	first, last *methodCall
-}
-
-func (q *queue) Put(call *methodCall) {
-	// empty?
-	if q.first == nil {
-		q.first = call
-		q.last = call
-	} else {
-		q.last.next = call
-		q.last = call
-	}
-}
-
-func (q *queue) Get() *methodCall {
-	call := q.first
-	if call != nil {
-		q.first = q.first.next
-	}
-	return call
-}
-
-type methodCall struct {
+type promise struct {
 	future  stream.StreamResult_Future
 	release capnp.ReleaseFunc
-	next    *methodCall
 }
 
-func (call *methodCall) Failed() bool {
-	state := call.future.Client().State()
+func (p promise) Failed() bool {
+	state := p.future.Client().State()
 	_, ok := state.Brand.Value.(error)
 	return ok
 }
 
-func (call *methodCall) Wait() error {
-	defer pool.Put(call)
+func (p promise) Wait() error {
+	defer p.release()
 
-	_, err := call.future.Struct()
+	_, err := p.future.Struct()
 	return err
-}
-
-var pool methodCallPool
-
-type methodCallPool sync.Pool
-
-func (p *methodCallPool) Get() *methodCall {
-	if v := (*sync.Pool)(p).Get(); v != nil {
-		return v.(*methodCall)
-	}
-
-	return new(methodCall)
-}
-
-func (p *methodCallPool) Put(call *methodCall) {
-	call.release()
-	call.next = nil
-	call.release = nil
-	call.future.Future = nil
-	(*sync.Pool)(p).Put(call)
 }

@@ -16,6 +16,7 @@ require (
 	github.com/lthibault/go-libp2p-inproc-transport v0.3.0
 	github.com/lthibault/jitterbug/v2 v2.2.2
 	github.com/lthibault/log v1.2.2
+	github.com/lthibault/uq v1.0.0
 	github.com/lthibault/util v0.0.12
 	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/termenv v0.13.0
@@ -23,7 +24,7 @@ require (
 	github.com/multiformats/go-multistream v0.3.3
 	github.com/pierrec/lz4/v4 v4.1.17
 	github.com/sirupsen/logrus v1.9.0
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.8.1
 	github.com/urfave/cli/v2 v2.20.2
 	go.uber.org/atomic v1.10.0
 	go.uber.org/multierr v1.8.0
