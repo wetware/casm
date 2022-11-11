@@ -223,6 +223,25 @@ func TestPlaceArgsFailure(t *testing.T) {
 	// require.ErrorIs(t, s.Wait(), errFail, "should return error from PlaceArgs")
 }
 
+func TestIdempotentWait(t *testing.T) {
+	t.Parallel()
+
+	/*
+		This is a regression test to ensure multiple calls to Wait()
+		are idempotent, and do not panic.
+	*/
+
+	s := stream.New(nop) // not making calls, so nop ok
+	err := s.Wait()
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		err = s.Wait()
+	}, "should not panic on second call to Wait()")
+
+	assert.NoError(t, err, "should be idempotent")
+}
+
 func BenchmarkStream(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
