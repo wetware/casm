@@ -83,13 +83,20 @@ func (s SamplingServer) Client() capnp.Client {
 	return capnp.Client(s.Sampler())
 }
 
-func (s SamplingServer) Sample(ctx context.Context, call api.Sampler_sample) error {
+func (s SamplingServer) Sample(ctx context.Context, call api.Sampler_sample) (err error) {
 	if s.Strategy == nil {
 		return ErrNoStrategy
 	}
 
 	w := writer(ctx, call)
+	if err = s.sample(ctx, call, w); err == nil {
+		err = w.Wait()
+	}
 
+	return
+}
+
+func (s SamplingServer) sample(ctx context.Context, call api.Sampler_sample, w streamWriter) error {
 	if err := s.Strategy.Start(w); err != nil {
 		return err
 	}
@@ -100,7 +107,7 @@ func (s SamplingServer) Sample(ctx context.Context, call api.Sampler_sample) err
 	case <-ctx.Done():
 	}
 
-	return w.Wait()
+	return ctx.Err()
 }
 
 func duration(call api.Sampler_sample) time.Duration {
