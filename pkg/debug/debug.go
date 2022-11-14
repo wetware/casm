@@ -104,7 +104,7 @@ func (d Debugger) Profiler(ctx context.Context, p Profile) (capnp.Client, capnp.
 	}
 
 	f, release := api.Debugger(d).Profiler(ctx, bind)
-	return f.Profiler().Client(), release
+	return f.Profiler(), release
 }
 
 // Tracer returns a tracer capability.  It is compatible with the Go pprof

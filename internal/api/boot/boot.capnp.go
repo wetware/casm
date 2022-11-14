@@ -251,39 +251,36 @@ func NewPacket_List(s *capnp.Segment, sz int32) (Packet_List, error) {
 // Packet_Future is a wrapper for a Packet promised by a client call.
 type Packet_Future struct{ *capnp.Future }
 
-func (p Packet_Future) Struct() (Packet, error) {
-	s, err := p.Future.Struct()
-	return Packet(s), err
+func (f Packet_Future) Struct() (Packet, error) {
+	p, err := f.Future.Ptr()
+	return Packet(p.Struct()), err
 }
-
 func (p Packet_Future) Request() Packet_request_Future { return Packet_request_Future{p.Future} }
 
 // Packet_request_Future is a wrapper for a Packet_request promised by a client call.
 type Packet_request_Future struct{ *capnp.Future }
 
-func (p Packet_request_Future) Struct() (Packet_request, error) {
-	s, err := p.Future.Struct()
-	return Packet_request(s), err
+func (f Packet_request_Future) Struct() (Packet_request, error) {
+	p, err := f.Future.Ptr()
+	return Packet_request(p.Struct()), err
 }
-
 func (p Packet_Future) Survey() Packet_survey_Future { return Packet_survey_Future{p.Future} }
 
 // Packet_survey_Future is a wrapper for a Packet_survey promised by a client call.
 type Packet_survey_Future struct{ *capnp.Future }
 
-func (p Packet_survey_Future) Struct() (Packet_survey, error) {
-	s, err := p.Future.Struct()
-	return Packet_survey(s), err
+func (f Packet_survey_Future) Struct() (Packet_survey, error) {
+	p, err := f.Future.Ptr()
+	return Packet_survey(p.Struct()), err
 }
-
 func (p Packet_Future) Response() Packet_response_Future { return Packet_response_Future{p.Future} }
 
 // Packet_response_Future is a wrapper for a Packet_response promised by a client call.
 type Packet_response_Future struct{ *capnp.Future }
 
-func (p Packet_response_Future) Struct() (Packet_response, error) {
-	s, err := p.Future.Struct()
-	return Packet_response(s), err
+func (f Packet_response_Future) Struct() (Packet_response, error) {
+	p, err := f.Future.Ptr()
+	return Packet_response(p.Struct()), err
 }
 
 const schema_fa005a3c690f4a62 = "x\xdal\x921\x8b\x13A\x14\xc7\xff\xff7{\xc9\x81" +

@@ -74,15 +74,6 @@ func (f FuturePtr) String() (string, error) {
 	return ptr.Text(), err
 }
 
-func (f FuturePtr) Ptr() (capnp.Ptr, error) {
-	s, err := f.Struct()
-	if err != nil {
-		return capnp.Ptr{}, err
-	}
-
-	return s.Ptr(0)
-}
-
 type Iterator[T any] struct {
 	Seq interface {
 		Next() (T, bool)

@@ -242,9 +242,9 @@ func NewEchoer_echo_Params_List(s *capnp.Segment, sz int32) (Echoer_echo_Params_
 // Echoer_echo_Params_Future is a wrapper for a Echoer_echo_Params promised by a client call.
 type Echoer_echo_Params_Future struct{ *capnp.Future }
 
-func (p Echoer_echo_Params_Future) Struct() (Echoer_echo_Params, error) {
-	s, err := p.Future.Struct()
-	return Echoer_echo_Params(s), err
+func (f Echoer_echo_Params_Future) Struct() (Echoer_echo_Params, error) {
+	p, err := f.Future.Ptr()
+	return Echoer_echo_Params(p.Struct()), err
 }
 
 type Echoer_echo_Results capnp.Struct
@@ -324,9 +324,9 @@ func NewEchoer_echo_Results_List(s *capnp.Segment, sz int32) (Echoer_echo_Result
 // Echoer_echo_Results_Future is a wrapper for a Echoer_echo_Results promised by a client call.
 type Echoer_echo_Results_Future struct{ *capnp.Future }
 
-func (p Echoer_echo_Results_Future) Struct() (Echoer_echo_Results, error) {
-	s, err := p.Future.Struct()
-	return Echoer_echo_Results(s), err
+func (f Echoer_echo_Results_Future) Struct() (Echoer_echo_Results, error) {
+	p, err := f.Future.Ptr()
+	return Echoer_echo_Results(p.Struct()), err
 }
 
 type Streamer capnp.Client
@@ -541,9 +541,9 @@ func NewStreamer_recv_Params_List(s *capnp.Segment, sz int32) (Streamer_recv_Par
 // Streamer_recv_Params_Future is a wrapper for a Streamer_recv_Params promised by a client call.
 type Streamer_recv_Params_Future struct{ *capnp.Future }
 
-func (p Streamer_recv_Params_Future) Struct() (Streamer_recv_Params, error) {
-	s, err := p.Future.Struct()
-	return Streamer_recv_Params(s), err
+func (f Streamer_recv_Params_Future) Struct() (Streamer_recv_Params, error) {
+	p, err := f.Future.Ptr()
+	return Streamer_recv_Params(p.Struct()), err
 }
 
 const schema_86c7b3eb31eb86de = "x\xda\x12x\xe2\xc0b\xc8[\xcf\xc2\xc0\x14h\xc2\xca" +

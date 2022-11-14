@@ -436,9 +436,9 @@ func NewDebugger_sysInfo_Params_List(s *capnp.Segment, sz int32) (Debugger_sysIn
 // Debugger_sysInfo_Params_Future is a wrapper for a Debugger_sysInfo_Params promised by a client call.
 type Debugger_sysInfo_Params_Future struct{ *capnp.Future }
 
-func (p Debugger_sysInfo_Params_Future) Struct() (Debugger_sysInfo_Params, error) {
-	s, err := p.Future.Struct()
-	return Debugger_sysInfo_Params(s), err
+func (f Debugger_sysInfo_Params_Future) Struct() (Debugger_sysInfo_Params, error) {
+	p, err := f.Future.Ptr()
+	return Debugger_sysInfo_Params(p.Struct()), err
 }
 
 type Debugger_sysInfo_Results capnp.Struct
@@ -524,11 +524,10 @@ func NewDebugger_sysInfo_Results_List(s *capnp.Segment, sz int32) (Debugger_sysI
 // Debugger_sysInfo_Results_Future is a wrapper for a Debugger_sysInfo_Results promised by a client call.
 type Debugger_sysInfo_Results_Future struct{ *capnp.Future }
 
-func (p Debugger_sysInfo_Results_Future) Struct() (Debugger_sysInfo_Results, error) {
-	s, err := p.Future.Struct()
-	return Debugger_sysInfo_Results(s), err
+func (f Debugger_sysInfo_Results_Future) Struct() (Debugger_sysInfo_Results, error) {
+	p, err := f.Future.Ptr()
+	return Debugger_sysInfo_Results(p.Struct()), err
 }
-
 func (p Debugger_sysInfo_Results_Future) SysInfo() SysInfo_Future {
 	return SysInfo_Future{Future: p.Future.Field(0, nil)}
 }
@@ -593,9 +592,9 @@ func NewDebugger_envVars_Params_List(s *capnp.Segment, sz int32) (Debugger_envVa
 // Debugger_envVars_Params_Future is a wrapper for a Debugger_envVars_Params promised by a client call.
 type Debugger_envVars_Params_Future struct{ *capnp.Future }
 
-func (p Debugger_envVars_Params_Future) Struct() (Debugger_envVars_Params, error) {
-	s, err := p.Future.Struct()
-	return Debugger_envVars_Params(s), err
+func (f Debugger_envVars_Params_Future) Struct() (Debugger_envVars_Params, error) {
+	p, err := f.Future.Ptr()
+	return Debugger_envVars_Params(p.Struct()), err
 }
 
 type Debugger_envVars_Results capnp.Struct
@@ -681,9 +680,9 @@ func NewDebugger_envVars_Results_List(s *capnp.Segment, sz int32) (Debugger_envV
 // Debugger_envVars_Results_Future is a wrapper for a Debugger_envVars_Results promised by a client call.
 type Debugger_envVars_Results_Future struct{ *capnp.Future }
 
-func (p Debugger_envVars_Results_Future) Struct() (Debugger_envVars_Results, error) {
-	s, err := p.Future.Struct()
-	return Debugger_envVars_Results(s), err
+func (f Debugger_envVars_Results_Future) Struct() (Debugger_envVars_Results, error) {
+	p, err := f.Future.Ptr()
+	return Debugger_envVars_Results(p.Struct()), err
 }
 
 type Debugger_profiler_Params capnp.Struct
@@ -753,9 +752,9 @@ func NewDebugger_profiler_Params_List(s *capnp.Segment, sz int32) (Debugger_prof
 // Debugger_profiler_Params_Future is a wrapper for a Debugger_profiler_Params promised by a client call.
 type Debugger_profiler_Params_Future struct{ *capnp.Future }
 
-func (p Debugger_profiler_Params_Future) Struct() (Debugger_profiler_Params, error) {
-	s, err := p.Future.Struct()
-	return Debugger_profiler_Params(s), err
+func (f Debugger_profiler_Params_Future) Struct() (Debugger_profiler_Params, error) {
+	p, err := f.Future.Ptr()
+	return Debugger_profiler_Params(p.Struct()), err
 }
 
 type Debugger_profiler_Results capnp.Struct
@@ -835,13 +834,12 @@ func NewDebugger_profiler_Results_List(s *capnp.Segment, sz int32) (Debugger_pro
 // Debugger_profiler_Results_Future is a wrapper for a Debugger_profiler_Results promised by a client call.
 type Debugger_profiler_Results_Future struct{ *capnp.Future }
 
-func (p Debugger_profiler_Results_Future) Struct() (Debugger_profiler_Results, error) {
-	s, err := p.Future.Struct()
-	return Debugger_profiler_Results(s), err
+func (f Debugger_profiler_Results_Future) Struct() (Debugger_profiler_Results, error) {
+	p, err := f.Future.Ptr()
+	return Debugger_profiler_Results(p.Struct()), err
 }
-
-func (p Debugger_profiler_Results_Future) Profiler() *capnp.Future {
-	return p.Future.Field(0, nil)
+func (p Debugger_profiler_Results_Future) Profiler() capnp.Client {
+	return p.Future.Field(0, nil).Client()
 }
 
 type Debugger_tracer_Params capnp.Struct
@@ -904,9 +902,9 @@ func NewDebugger_tracer_Params_List(s *capnp.Segment, sz int32) (Debugger_tracer
 // Debugger_tracer_Params_Future is a wrapper for a Debugger_tracer_Params promised by a client call.
 type Debugger_tracer_Params_Future struct{ *capnp.Future }
 
-func (p Debugger_tracer_Params_Future) Struct() (Debugger_tracer_Params, error) {
-	s, err := p.Future.Struct()
-	return Debugger_tracer_Params(s), err
+func (f Debugger_tracer_Params_Future) Struct() (Debugger_tracer_Params, error) {
+	p, err := f.Future.Ptr()
+	return Debugger_tracer_Params(p.Struct()), err
 }
 
 type Debugger_tracer_Results capnp.Struct
@@ -986,11 +984,10 @@ func NewDebugger_tracer_Results_List(s *capnp.Segment, sz int32) (Debugger_trace
 // Debugger_tracer_Results_Future is a wrapper for a Debugger_tracer_Results promised by a client call.
 type Debugger_tracer_Results_Future struct{ *capnp.Future }
 
-func (p Debugger_tracer_Results_Future) Struct() (Debugger_tracer_Results, error) {
-	s, err := p.Future.Struct()
-	return Debugger_tracer_Results(s), err
+func (f Debugger_tracer_Results_Future) Struct() (Debugger_tracer_Results, error) {
+	p, err := f.Future.Ptr()
+	return Debugger_tracer_Results(p.Struct()), err
 }
-
 func (p Debugger_tracer_Results_Future) Tracer() Sampler {
 	return Sampler(p.Future.Field(0, nil).Client())
 }
@@ -1138,15 +1135,13 @@ func NewSysInfo_List(s *capnp.Segment, sz int32) (SysInfo_List, error) {
 // SysInfo_Future is a wrapper for a SysInfo promised by a client call.
 type SysInfo_Future struct{ *capnp.Future }
 
-func (p SysInfo_Future) Struct() (SysInfo, error) {
-	s, err := p.Future.Struct()
-	return SysInfo(s), err
+func (f SysInfo_Future) Struct() (SysInfo, error) {
+	p, err := f.Future.Ptr()
+	return SysInfo(p.Struct()), err
 }
-
 func (p SysInfo_Future) Runtime() RuntimeInfo_Future {
 	return RuntimeInfo_Future{Future: p.Future.Field(2, nil)}
 }
-
 func (p SysInfo_Future) Os() OSInfo_Future {
 	return OSInfo_Future{Future: p.Future.Field(3, nil)}
 }
@@ -1272,9 +1267,9 @@ func NewRuntimeInfo_List(s *capnp.Segment, sz int32) (RuntimeInfo_List, error) {
 // RuntimeInfo_Future is a wrapper for a RuntimeInfo promised by a client call.
 type RuntimeInfo_Future struct{ *capnp.Future }
 
-func (p RuntimeInfo_Future) Struct() (RuntimeInfo, error) {
-	s, err := p.Future.Struct()
-	return RuntimeInfo(s), err
+func (f RuntimeInfo_Future) Struct() (RuntimeInfo, error) {
+	p, err := f.Future.Ptr()
+	return RuntimeInfo(p.Struct()), err
 }
 
 type OSInfo capnp.Struct
@@ -1419,7 +1414,6 @@ func (s OSInfo) NewArgs(n int32) (capnp.TextList, error) {
 	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
 	return l, err
 }
-
 func (s OSInfo) User() OSInfo_user { return OSInfo_user(s) }
 
 func (s OSInfo_user) IsValid() bool {
@@ -1615,39 +1609,36 @@ func NewOSInfo_List(s *capnp.Segment, sz int32) (OSInfo_List, error) {
 // OSInfo_Future is a wrapper for a OSInfo promised by a client call.
 type OSInfo_Future struct{ *capnp.Future }
 
-func (p OSInfo_Future) Struct() (OSInfo, error) {
-	s, err := p.Future.Struct()
-	return OSInfo(s), err
+func (f OSInfo_Future) Struct() (OSInfo, error) {
+	p, err := f.Future.Ptr()
+	return OSInfo(p.Struct()), err
 }
-
 func (p OSInfo_Future) User() OSInfo_user_Future { return OSInfo_user_Future{p.Future} }
 
 // OSInfo_user_Future is a wrapper for a OSInfo_user promised by a client call.
 type OSInfo_user_Future struct{ *capnp.Future }
 
-func (p OSInfo_user_Future) Struct() (OSInfo_user, error) {
-	s, err := p.Future.Struct()
-	return OSInfo_user(s), err
+func (f OSInfo_user_Future) Struct() (OSInfo_user, error) {
+	p, err := f.Future.Ptr()
+	return OSInfo_user(p.Struct()), err
 }
-
 func (p OSInfo_user_Future) Uid() OSInfo_user_uid_Future { return OSInfo_user_uid_Future{p.Future} }
 
 // OSInfo_user_uid_Future is a wrapper for a OSInfo_user_uid promised by a client call.
 type OSInfo_user_uid_Future struct{ *capnp.Future }
 
-func (p OSInfo_user_uid_Future) Struct() (OSInfo_user_uid, error) {
-	s, err := p.Future.Struct()
-	return OSInfo_user_uid(s), err
+func (f OSInfo_user_uid_Future) Struct() (OSInfo_user_uid, error) {
+	p, err := f.Future.Ptr()
+	return OSInfo_user_uid(p.Struct()), err
 }
-
 func (p OSInfo_user_Future) Gid() OSInfo_user_gid_Future { return OSInfo_user_gid_Future{p.Future} }
 
 // OSInfo_user_gid_Future is a wrapper for a OSInfo_user_gid promised by a client call.
 type OSInfo_user_gid_Future struct{ *capnp.Future }
 
-func (p OSInfo_user_gid_Future) Struct() (OSInfo_user_gid, error) {
-	s, err := p.Future.Struct()
-	return OSInfo_user_gid(s), err
+func (f OSInfo_user_gid_Future) Struct() (OSInfo_user_gid, error) {
+	p, err := f.Future.Ptr()
+	return OSInfo_user_gid(p.Struct()), err
 }
 
 type Snapshotter capnp.Client
@@ -1869,9 +1860,9 @@ func NewSnapshotter_snapshot_Params_List(s *capnp.Segment, sz int32) (Snapshotte
 // Snapshotter_snapshot_Params_Future is a wrapper for a Snapshotter_snapshot_Params promised by a client call.
 type Snapshotter_snapshot_Params_Future struct{ *capnp.Future }
 
-func (p Snapshotter_snapshot_Params_Future) Struct() (Snapshotter_snapshot_Params, error) {
-	s, err := p.Future.Struct()
-	return Snapshotter_snapshot_Params(s), err
+func (f Snapshotter_snapshot_Params_Future) Struct() (Snapshotter_snapshot_Params, error) {
+	p, err := f.Future.Ptr()
+	return Snapshotter_snapshot_Params(p.Struct()), err
 }
 
 type Snapshotter_snapshot_Results capnp.Struct
@@ -1946,9 +1937,9 @@ func NewSnapshotter_snapshot_Results_List(s *capnp.Segment, sz int32) (Snapshott
 // Snapshotter_snapshot_Results_Future is a wrapper for a Snapshotter_snapshot_Results promised by a client call.
 type Snapshotter_snapshot_Results_Future struct{ *capnp.Future }
 
-func (p Snapshotter_snapshot_Results_Future) Struct() (Snapshotter_snapshot_Results, error) {
-	s, err := p.Future.Struct()
-	return Snapshotter_snapshot_Results(s), err
+func (f Snapshotter_snapshot_Results_Future) Struct() (Snapshotter_snapshot_Results, error) {
+	p, err := f.Future.Ptr()
+	return Snapshotter_snapshot_Results(p.Struct()), err
 }
 
 type Sampler capnp.Client
@@ -2327,9 +2318,9 @@ func NewSampler_Writer_write_Params_List(s *capnp.Segment, sz int32) (Sampler_Wr
 // Sampler_Writer_write_Params_Future is a wrapper for a Sampler_Writer_write_Params promised by a client call.
 type Sampler_Writer_write_Params_Future struct{ *capnp.Future }
 
-func (p Sampler_Writer_write_Params_Future) Struct() (Sampler_Writer_write_Params, error) {
-	s, err := p.Future.Struct()
-	return Sampler_Writer_write_Params(s), err
+func (f Sampler_Writer_write_Params_Future) Struct() (Sampler_Writer_write_Params, error) {
+	p, err := f.Future.Ptr()
+	return Sampler_Writer_write_Params(p.Struct()), err
 }
 
 type Sampler_sample_Params capnp.Struct
@@ -2417,11 +2408,10 @@ func NewSampler_sample_Params_List(s *capnp.Segment, sz int32) (Sampler_sample_P
 // Sampler_sample_Params_Future is a wrapper for a Sampler_sample_Params promised by a client call.
 type Sampler_sample_Params_Future struct{ *capnp.Future }
 
-func (p Sampler_sample_Params_Future) Struct() (Sampler_sample_Params, error) {
-	s, err := p.Future.Struct()
-	return Sampler_sample_Params(s), err
+func (f Sampler_sample_Params_Future) Struct() (Sampler_sample_Params, error) {
+	p, err := f.Future.Ptr()
+	return Sampler_sample_Params(p.Struct()), err
 }
-
 func (p Sampler_sample_Params_Future) Writer() Sampler_Writer {
 	return Sampler_Writer(p.Future.Field(0, nil).Client())
 }
@@ -2486,9 +2476,9 @@ func NewSampler_sample_Results_List(s *capnp.Segment, sz int32) (Sampler_sample_
 // Sampler_sample_Results_Future is a wrapper for a Sampler_sample_Results promised by a client call.
 type Sampler_sample_Results_Future struct{ *capnp.Future }
 
-func (p Sampler_sample_Results_Future) Struct() (Sampler_sample_Results, error) {
-	s, err := p.Future.Struct()
-	return Sampler_sample_Results(s), err
+func (f Sampler_sample_Results_Future) Struct() (Sampler_sample_Results, error) {
+	p, err := f.Future.Ptr()
+	return Sampler_sample_Results(p.Struct()), err
 }
 
 const schema_a90d3b8939007f97 = "x\xda\xa4Vol\x1cW\x11\x9fyo\xf7\xf6\xce>" +

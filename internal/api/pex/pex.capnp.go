@@ -88,9 +88,9 @@ func NewGossip_List(s *capnp.Segment, sz int32) (Gossip_List, error) {
 // Gossip_Future is a wrapper for a Gossip promised by a client call.
 type Gossip_Future struct{ *capnp.Future }
 
-func (p Gossip_Future) Struct() (Gossip, error) {
-	s, err := p.Future.Struct()
-	return Gossip(s), err
+func (f Gossip_Future) Struct() (Gossip, error) {
+	p, err := f.Future.Ptr()
+	return Gossip(p.Struct()), err
 }
 
 const schema_bbd81c151780f030 = "x\xda\x12Ht`1\xe4\xdd\xcf\xc8\xc0\x14(\xc2\xca" +

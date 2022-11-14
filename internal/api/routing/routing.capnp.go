@@ -131,9 +131,9 @@ func NewHeartbeat_List(s *capnp.Segment, sz int32) (Heartbeat_List, error) {
 // Heartbeat_Future is a wrapper for a Heartbeat promised by a client call.
 type Heartbeat_Future struct{ *capnp.Future }
 
-func (p Heartbeat_Future) Struct() (Heartbeat, error) {
-	s, err := p.Future.Struct()
-	return Heartbeat(s), err
+func (f Heartbeat_Future) Struct() (Heartbeat, error) {
+	p, err := f.Future.Ptr()
+	return Heartbeat(p.Struct()), err
 }
 
 type View capnp.Client
@@ -617,11 +617,10 @@ func NewView_Handler_recv_Params_List(s *capnp.Segment, sz int32) (View_Handler_
 // View_Handler_recv_Params_Future is a wrapper for a View_Handler_recv_Params promised by a client call.
 type View_Handler_recv_Params_Future struct{ *capnp.Future }
 
-func (p View_Handler_recv_Params_Future) Struct() (View_Handler_recv_Params, error) {
-	s, err := p.Future.Struct()
-	return View_Handler_recv_Params(s), err
+func (f View_Handler_recv_Params_Future) Struct() (View_Handler_recv_Params, error) {
+	p, err := f.Future.Ptr()
+	return View_Handler_recv_Params(p.Struct()), err
 }
-
 func (p View_Handler_recv_Params_Future) Record() View_Record_Future {
 	return View_Record_Future{Future: p.Future.Field(0, nil)}
 }
@@ -779,15 +778,13 @@ func NewView_Selector_List(s *capnp.Segment, sz int32) (View_Selector_List, erro
 // View_Selector_Future is a wrapper for a View_Selector promised by a client call.
 type View_Selector_Future struct{ *capnp.Future }
 
-func (p View_Selector_Future) Struct() (View_Selector, error) {
-	s, err := p.Future.Struct()
-	return View_Selector(s), err
+func (f View_Selector_Future) Struct() (View_Selector, error) {
+	p, err := f.Future.Ptr()
+	return View_Selector(p.Struct()), err
 }
-
 func (p View_Selector_Future) Match() View_Index_Future {
 	return View_Index_Future{Future: p.Future.Field(0, nil)}
 }
-
 func (p View_Selector_Future) From() View_Index_Future {
 	return View_Index_Future{Future: p.Future.Field(0, nil)}
 }
@@ -917,11 +914,10 @@ func NewView_Constraint_List(s *capnp.Segment, sz int32) (View_Constraint_List, 
 // View_Constraint_Future is a wrapper for a View_Constraint promised by a client call.
 type View_Constraint_Future struct{ *capnp.Future }
 
-func (p View_Constraint_Future) Struct() (View_Constraint, error) {
-	s, err := p.Future.Struct()
-	return View_Constraint(s), err
+func (f View_Constraint_Future) Struct() (View_Constraint, error) {
+	p, err := f.Future.Ptr()
+	return View_Constraint(p.Struct()), err
 }
-
 func (p View_Constraint_Future) To() View_Index_Future {
 	return View_Index_Future{Future: p.Future.Field(0, nil)}
 }
@@ -1116,9 +1112,9 @@ func NewView_Index_List(s *capnp.Segment, sz int32) (View_Index_List, error) {
 // View_Index_Future is a wrapper for a View_Index promised by a client call.
 type View_Index_Future struct{ *capnp.Future }
 
-func (p View_Index_Future) Struct() (View_Index, error) {
-	s, err := p.Future.Struct()
-	return View_Index(s), err
+func (f View_Index_Future) Struct() (View_Index, error) {
+	p, err := f.Future.Ptr()
+	return View_Index(p.Struct()), err
 }
 
 type View_Record capnp.Struct
@@ -1238,11 +1234,10 @@ func NewView_Record_List(s *capnp.Segment, sz int32) (View_Record_List, error) {
 // View_Record_Future is a wrapper for a View_Record promised by a client call.
 type View_Record_Future struct{ *capnp.Future }
 
-func (p View_Record_Future) Struct() (View_Record, error) {
-	s, err := p.Future.Struct()
-	return View_Record(s), err
+func (f View_Record_Future) Struct() (View_Record, error) {
+	p, err := f.Future.Ptr()
+	return View_Record(p.Struct()), err
 }
-
 func (p View_Record_Future) Heartbeat() Heartbeat_Future {
 	return Heartbeat_Future{Future: p.Future.Field(1, nil)}
 }
@@ -1365,11 +1360,10 @@ func NewView_MaybeRecord_List(s *capnp.Segment, sz int32) (View_MaybeRecord_List
 // View_MaybeRecord_Future is a wrapper for a View_MaybeRecord promised by a client call.
 type View_MaybeRecord_Future struct{ *capnp.Future }
 
-func (p View_MaybeRecord_Future) Struct() (View_MaybeRecord, error) {
-	s, err := p.Future.Struct()
-	return View_MaybeRecord(s), err
+func (f View_MaybeRecord_Future) Struct() (View_MaybeRecord, error) {
+	p, err := f.Future.Ptr()
+	return View_MaybeRecord(p.Struct()), err
 }
-
 func (p View_MaybeRecord_Future) Just() View_Record_Future {
 	return View_Record_Future{Future: p.Future.Field(0, nil)}
 }
@@ -1481,11 +1475,10 @@ func NewView_lookup_Params_List(s *capnp.Segment, sz int32) (View_lookup_Params_
 // View_lookup_Params_Future is a wrapper for a View_lookup_Params promised by a client call.
 type View_lookup_Params_Future struct{ *capnp.Future }
 
-func (p View_lookup_Params_Future) Struct() (View_lookup_Params, error) {
-	s, err := p.Future.Struct()
-	return View_lookup_Params(s), err
+func (f View_lookup_Params_Future) Struct() (View_lookup_Params, error) {
+	p, err := f.Future.Ptr()
+	return View_lookup_Params(p.Struct()), err
 }
-
 func (p View_lookup_Params_Future) Selector() View_Selector_Future {
 	return View_Selector_Future{Future: p.Future.Field(0, nil)}
 }
@@ -1573,11 +1566,10 @@ func NewView_lookup_Results_List(s *capnp.Segment, sz int32) (View_lookup_Result
 // View_lookup_Results_Future is a wrapper for a View_lookup_Results promised by a client call.
 type View_lookup_Results_Future struct{ *capnp.Future }
 
-func (p View_lookup_Results_Future) Struct() (View_lookup_Results, error) {
-	s, err := p.Future.Struct()
-	return View_lookup_Results(s), err
+func (f View_lookup_Results_Future) Struct() (View_lookup_Results, error) {
+	p, err := f.Future.Ptr()
+	return View_lookup_Results(p.Struct()), err
 }
-
 func (p View_lookup_Results_Future) Result() View_MaybeRecord_Future {
 	return View_MaybeRecord_Future{Future: p.Future.Field(0, nil)}
 }
@@ -1707,11 +1699,10 @@ func NewView_iter_Params_List(s *capnp.Segment, sz int32) (View_iter_Params_List
 // View_iter_Params_Future is a wrapper for a View_iter_Params promised by a client call.
 type View_iter_Params_Future struct{ *capnp.Future }
 
-func (p View_iter_Params_Future) Struct() (View_iter_Params, error) {
-	s, err := p.Future.Struct()
-	return View_iter_Params(s), err
+func (f View_iter_Params_Future) Struct() (View_iter_Params, error) {
+	p, err := f.Future.Ptr()
+	return View_iter_Params(p.Struct()), err
 }
-
 func (p View_iter_Params_Future) Handler() View_Handler {
 	return View_Handler(p.Future.Field(0, nil).Client())
 }
@@ -1780,9 +1771,9 @@ func NewView_iter_Results_List(s *capnp.Segment, sz int32) (View_iter_Results_Li
 // View_iter_Results_Future is a wrapper for a View_iter_Results promised by a client call.
 type View_iter_Results_Future struct{ *capnp.Future }
 
-func (p View_iter_Results_Future) Struct() (View_iter_Results, error) {
-	s, err := p.Future.Struct()
-	return View_iter_Results(s), err
+func (f View_iter_Results_Future) Struct() (View_iter_Results, error) {
+	p, err := f.Future.Ptr()
+	return View_iter_Results(p.Struct()), err
 }
 
 type View_reverse_Params capnp.Struct
@@ -1845,9 +1836,9 @@ func NewView_reverse_Params_List(s *capnp.Segment, sz int32) (View_reverse_Param
 // View_reverse_Params_Future is a wrapper for a View_reverse_Params promised by a client call.
 type View_reverse_Params_Future struct{ *capnp.Future }
 
-func (p View_reverse_Params_Future) Struct() (View_reverse_Params, error) {
-	s, err := p.Future.Struct()
-	return View_reverse_Params(s), err
+func (f View_reverse_Params_Future) Struct() (View_reverse_Params, error) {
+	p, err := f.Future.Ptr()
+	return View_reverse_Params(p.Struct()), err
 }
 
 type View_reverse_Results capnp.Struct
@@ -1927,11 +1918,10 @@ func NewView_reverse_Results_List(s *capnp.Segment, sz int32) (View_reverse_Resu
 // View_reverse_Results_Future is a wrapper for a View_reverse_Results promised by a client call.
 type View_reverse_Results_Future struct{ *capnp.Future }
 
-func (p View_reverse_Results_Future) Struct() (View_reverse_Results, error) {
-	s, err := p.Future.Struct()
-	return View_reverse_Results(s), err
+func (f View_reverse_Results_Future) Struct() (View_reverse_Results, error) {
+	p, err := f.Future.Ptr()
+	return View_reverse_Results(p.Struct()), err
 }
-
 func (p View_reverse_Results_Future) View() View {
 	return View(p.Future.Field(0, nil).Client())
 }
