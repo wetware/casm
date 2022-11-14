@@ -43,7 +43,7 @@ Run `go get github.com/wetware/casm` with modules enabled.
 
 ### Getting Support
 
-The best place to get help is on [Matrix](https://matrix.to/#/!qsAqxgSQYuowuCsigM:matrix.org?via=matrix.org).  CASM is part of the [Wetware](https://github.com/wetware/ww) project, so you're welcome to ask for help there, too.
+The best place to get help is on [Matrix](https://matrix.to/#/!qsAqxgSQYuowuCsigM:matrix.org?via=matrix.org), or by asking a question on the [Wetware Q&A Board](https://github.com/wetware/ww/discussions/categories/q-a).
 
 We're friendly! Drop in and say hi! 👋
 
