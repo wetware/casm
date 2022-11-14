@@ -94,7 +94,7 @@ func TestState(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			return !s.Open()
 		}, time.Millisecond, time.Microsecond*100,
-			"should close before call to Wait()")
+			"should eventually close after call to Wait()")
 
 		select {
 		case <-time.After(time.Millisecond * 500):
