@@ -18,10 +18,7 @@ func TestRouter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	var canceled bool
-	defer func() {
-		assert.True(t, canceled, "should cancel topic relay")
-	}()
+	var relayCanceled state
 
 	logger := logtest.NewMockLogger(ctrl)
 	logger.EXPECT().
@@ -41,7 +38,7 @@ func TestRouter(t *testing.T) {
 		AnyTimes()
 	topic.EXPECT().
 		Relay().
-		Return(func() { canceled = true }, nil).
+		Return(relayCanceled.Set, nil).
 		Times(1)
 	sync := make(chan struct{})
 	boot := topic.EXPECT().
@@ -71,4 +68,18 @@ func TestRouter(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Error("Call to Bootstrap() should trigger call to Publish()")
 	}
+
+	router.Stop()
+	assert.Eventually(t, relayCanceled.Get,
+		time.Millisecond*100, time.Millisecond*10,
+		"should cancel topic relay")
+
+	err = router.Bootstrap(context.Background())
+	assert.ErrorIs(t, err, cluster.ErrClosing,
+		"should not bootstrap after router was stopped")
 }
+
+type state bool
+
+func (s *state) Set()      { *s = true }
+func (s *state) Get() bool { return bool(*s) }

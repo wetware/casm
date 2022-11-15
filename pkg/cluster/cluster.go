@@ -8,16 +8,18 @@ import (
 	"errors"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jpillora/backoff"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
-	ctxutil "github.com/lthibault/util/ctx"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
+
+var ErrClosing = errors.New("closing")
 
 type Topic interface {
 	String() string
@@ -42,81 +44,91 @@ type Router struct {
 	Log          log.Logger
 	TTL          time.Duration
 	Meta         pulse.Preparer
+	Clock        Clock
 	RoutingTable RoutingTable
 
-	setup, boot sync.Once
-	err         error
-	id          uint64 // instance ID
-	cancel      pubsub.RelayCancelFunc
-	done        chan struct{}
-	announce    chan []pubsub.PubOpt
+	mu             sync.Mutex
+	init, relaying atomic.Bool
+	id             uint64 // instance ID
+	announce       chan []pubsub.PubOpt
 }
 
 func (r *Router) Stop() {
-	r.init()
-	r.boot.Do(func() {})
-
-	close(r.done)
-	r.cancel()
+	if r.relaying.Swap(true) {
+		r.Clock.Stop()
+	}
 }
 
 func (r *Router) String() string {
 	return r.Topic.String()
 }
 
-func (r *Router) ID() routing.ID {
-	r.init()
+func (r *Router) ID() (id routing.ID) {
+	r.setup()
 	return routing.ID(r.id)
 }
 
 func (r *Router) Loggable() map[string]any {
-	r.init()
 	return map[string]any{
 		"server": r.ID(),
 		"ttl":    r.TTL,
+		"ns":     r.String(),
 	}
 }
 
 func (r *Router) View() View {
-	r.init()
+	r.setup()
 	return Server{RoutingTable: r.RoutingTable}.View()
 }
 
-func (r *Router) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) error {
-	r.init()
+func (r *Router) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) (err error) {
+	if err = r.relay(); err == nil {
+		if err = ErrClosing; r.Clock.Context().Err() == nil {
+			select {
+			case r.announce <- opt:
+				err = nil
 
-	if err := r.bootstrap(); err != nil {
-		return err
-	}
+			case <-r.Clock.Context().Done():
+				err = ErrClosing
 
-	select {
-	case r.announce <- opt:
-		return nil
-
-	case <-r.done:
-		return errors.New("closing")
-
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (r *Router) bootstrap() error {
-	r.boot.Do(func() {
-		// Start relaying messages.  Note that this will not populate
-		// the routing table unless pulse.Validator was previously set.
-		if r.cancel, r.err = r.Topic.Relay(); r.err == nil {
-			r.Log = r.Log.With(r)
-			go r.advance()
-			go r.heartbeat()
+			case <-ctx.Done():
+				err = ctx.Err()
+			}
 		}
-	})
+	}
 
-	return r.err
+	return
 }
 
-func (r *Router) init() {
-	r.setup.Do(func() {
+// Start relaying messages.  Note that this will not populate
+// the routing table unless pulse.Validator was previously set.
+func (r *Router) relay() (err error) {
+	if r.setup(); !r.relaying.Load() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
+		if !r.relaying.Swap(true) {
+			var cancel pubsub.RelayCancelFunc
+			if cancel, err = r.Topic.Relay(); err == nil {
+				r.Log = r.Log.With(r)
+				go r.advance(cancel)
+				go r.heartbeat()
+			}
+		}
+	}
+
+	return
+}
+
+func (r *Router) setup() {
+	if r.init.Load() {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.init.Swap(true) {
 		if r.Log == nil {
 			r.Log = log.New()
 		}
@@ -133,37 +145,46 @@ func (r *Router) init() {
 			r.TTL = pulse.DefaultTTL
 		}
 
+		if r.Clock == nil {
+			r.Clock = NewClock(time.Millisecond * 10)
+		}
+
 		r.id = rand.Uint64()
-		r.done = make(chan struct{})
-		r.cancel = func() {}
 		r.announce = make(chan []pubsub.PubOpt)
-	})
+	}
 }
 
-func (r *Router) advance() {
+func (r *Router) advance(cancel pubsub.RelayCancelFunc) {
 	defer close(r.announce)
+	defer cancel()
 
-	clock := time.NewTicker(time.Millisecond * 10)
-	defer clock.Stop()
+	var (
+		// jitter between announcements
+		jitter = jitterbug.Uniform{
+			Min:    r.TTL/2 - 1,
+			Source: rand.New(rand.NewSource(time.Now().UnixNano())),
+		}
 
-	ticker := jitterbug.New(r.TTL/2, jitterbug.Uniform{
-		Min:    r.TTL/2 - 1,
-		Source: rand.New(rand.NewSource(time.Now().UnixNano())),
-	})
-	defer ticker.Stop()
+		// next announcement
+		next = time.Now()
+	)
+
+	ticks := r.Clock.Tick()
+	defer r.Clock.Stop()
 
 	for {
 		select {
-		case t := <-clock.C:
-			r.RoutingTable.Advance(t)
+		case t := <-ticks:
+			if r.RoutingTable.Advance(t); t.After(next) {
+				select {
+				case r.announce <- nil:
+				default:
+				}
 
-		case <-ticker.C:
-			select {
-			case r.announce <- nil:
-			default:
+				next = t.Add(jitter.Jitter(r.TTL))
 			}
 
-		case <-r.done:
+		case <-r.Clock.Context().Done():
 			return
 		}
 	}
@@ -181,10 +202,8 @@ func (r *Router) heartbeat() {
 	hb.SetTTL(r.TTL)
 	hb.SetServer(r.ID())
 
-	ctx := ctxutil.C(r.done)
-
 	for a := range r.announce {
-		err := r.emit(ctx, hb, a)
+		err := r.emit(r.Clock.Context(), hb, a)
 		if err == nil {
 			backoff.Reset()
 			continue
@@ -204,7 +223,7 @@ func (r *Router) heartbeat() {
 		select {
 		case <-time.After(backoff.Duration()):
 			r.Log.Debug("resuming")
-		case <-r.done:
+		case <-r.Clock.Context().Done():
 			return
 		}
 	}
