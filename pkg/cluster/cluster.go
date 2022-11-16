@@ -146,7 +146,7 @@ func (r *Router) setup() {
 		}
 
 		if r.Clock == nil {
-			r.Clock = NewClock(time.Millisecond * 10)
+			r.Clock = NewClock(time.Second)
 		}
 
 		r.id = rand.Uint64()
