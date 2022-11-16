@@ -7,7 +7,7 @@ require (
 	github.com/coreos/go-semver v0.3.0
 	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-memdb v1.3.4
-	github.com/hashicorp/golang-lru v0.5.4
+	github.com/hashicorp/golang-lru/v2 v2.0.1
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/jpillora/backoff v1.0.0
 	github.com/libp2p/go-buffer-pool v0.1.0
@@ -57,6 +57,7 @@ require (
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/huin/goupnp v1.0.3 // indirect
 	github.com/ipfs/go-cid v0.3.2 // indirect
 	github.com/ipfs/go-log v1.0.5 // indirect

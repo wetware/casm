@@ -2,10 +2,9 @@ package socket
 
 import (
 	"errors"
-	"fmt"
 
 	"capnproto.org/go/capnp/v3"
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/record"
 	ma "github.com/multiformats/go-multiaddr"
@@ -28,7 +27,7 @@ type Sealer func(record.Record) (*record.Envelope, error)
 // RecordCache is a thread-safe, fixed-size cache that tracks both
 // least-frequently-used and most-recently-accessed records. It is
 // used to amortize the cost of signing discovery packets.
-type RecordCache lru.TwoQueueCache
+type RecordCache lru.TwoQueueCache[key, *record.Envelope]
 
 // NewCache creates a new RecordCache with the given size.
 // The cache uses twin queues algorithm that tracks both
@@ -42,7 +41,7 @@ func NewCache(size int) *RecordCache {
 		size = 8
 	}
 
-	c, err := lru.New2Q(size)
+	c, err := lru.New2Q[key, *record.Envelope](size)
 	if err != nil {
 		panic(err)
 	}
@@ -57,39 +56,36 @@ func (c *RecordCache) Reset() { c.cache().Purge() }
 // and returns it, if found. Else, it creates and signs a new packet
 // and adds it to the cache.
 func (c *RecordCache) LoadRequest(seal Sealer, id peer.ID, ns string) (*record.Envelope, error) {
-	key := keyRequest(ns)
-	if v, ok := c.cache().Get(key); ok {
-		return v.(*record.Envelope), nil
+	if e, ok := c.cache().Get(requestKey(ns)); ok {
+		return e, nil
 	}
 
-	return c.storeCache(request(id), seal, key)
+	return c.storeCache(request(id), seal, requestKey(ns))
 }
 
 // LoadSurveyRequest searches the cache for a signed survey packet
 // with distance 'dist', and returns it if found. Else, it creates
 // and signs a new survey-request packet and adds it to the cache.
 func (c *RecordCache) LoadSurveyRequest(seal Sealer, id peer.ID, ns string, dist uint8) (*record.Envelope, error) {
-	key := keySurvey(ns, dist)
-	if v, ok := c.cache().Get(key); ok {
-		return v.(*record.Envelope), nil
+	if e, ok := c.cache().Get(surveyKey(ns, dist)); ok {
+		return e, nil
 	}
 
-	return c.storeCache(surveyRequest(id, dist), seal, key)
+	return c.storeCache(surveyRequest(id, dist), seal, surveyKey(ns, dist))
 }
 
 // LoadResponse searches the cache for a signed response packet for ns
 // and returns it, if found. Else, it creates and signs a new response
 // packet and adds it to the cache.
 func (c *RecordCache) LoadResponse(seal Sealer, h Host, ns string) (*record.Envelope, error) {
-	key := keyResponse(ns)
-	if v, ok := c.cache().Get(key); ok {
-		return v.(*record.Envelope), nil
+	if e, ok := c.cache().Get(responseKey(ns)); ok {
+		return e, nil
 	}
 
-	return c.storeCache(response(h), seal, key)
+	return c.storeCache(response(h), seal, responseKey(ns))
 }
 
-func (c *RecordCache) storeCache(bind bindFunc, seal Sealer, key fmt.Stringer) (e *record.Envelope, err error) {
+func (c *RecordCache) storeCache(bind bindFunc, seal Sealer, key key) (e *record.Envelope, err error) {
 	if e, err = newCacheEntry(bind, seal, key); err == nil {
 		c.cache().Add(key, e)
 	}
@@ -97,32 +93,40 @@ func (c *RecordCache) storeCache(bind bindFunc, seal Sealer, key fmt.Stringer) (
 	return
 }
 
-func (c *RecordCache) cache() *lru.TwoQueueCache {
-	return (*lru.TwoQueueCache)(c)
+func (c *RecordCache) cache() *lru.TwoQueueCache[key, *record.Envelope] {
+	return (*lru.TwoQueueCache[key, *record.Envelope])(c)
 }
 
 type bindFunc func(boot.Packet) error
 
-type (
-	keyRequest       string
-	keyResponse      string
-	keySurveyRequest struct {
-		ns   string
-		dist uint8
-	}
-)
-
-func (key keyRequest) String() string  { return string(key) }
-func (key keyResponse) String() string { return string(key) }
-
-func keySurvey(ns string, dist uint8) keySurveyRequest {
-	return keySurveyRequest{ns: ns, dist: dist}
+type key struct {
+	ns   string
+	dist uint8
+	kind keyKind
 }
 
-func (key keySurveyRequest) String() string { return key.ns }
+func requestKey(ns string) key {
+	return key{ns: ns, kind: reqKind}
+}
 
-func newCacheEntry(bind bindFunc, seal Sealer, ns fmt.Stringer) (*record.Envelope, error) {
-	p, err := newPacket(capnp.SingleSegment(nil), ns.String())
+func surveyKey(ns string, dist uint8) key {
+	return key{ns: ns, dist: dist, kind: survReqKind}
+}
+
+func responseKey(ns string) key {
+	return key{ns: ns, kind: resKind}
+}
+
+type keyKind uint8
+
+const (
+	reqKind keyKind = iota
+	resKind
+	survReqKind
+)
+
+func newCacheEntry(bind bindFunc, seal Sealer, key key) (*record.Envelope, error) {
+	p, err := newPacket(capnp.SingleSegment(nil), key.ns)
 	if err != nil {
 		return nil, err
 	}
