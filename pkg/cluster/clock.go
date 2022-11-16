@@ -1,3 +1,5 @@
+//go:generate mockgen -source=clock.go -destination=../internal/mock/pkg/cluster/clock.go -package=mock_cluster
+
 package cluster
 
 import (

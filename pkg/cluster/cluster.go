@@ -1,4 +1,4 @@
-//go:generate mockgen -source=cluster.go -destination=../../internal/mock/pkg/cluster/cluster.go -package=mock_cluster
+//go:generate mockgen -source=cluster.go -destination=../internal/mock/pkg/cluster/cluster.go -package=mock_cluster
 
 // Package cluster exports an asynchronously updated model of the swarm.
 package cluster
