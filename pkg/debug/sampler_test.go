@@ -68,7 +68,7 @@ func TestSampler(t *testing.T) {
 		defer cancel()
 
 		err := server.Sampler().Sample(ctx, &buf, dur)
-		assert.NoError(t, err, "sampling should succeed")
+		assert.Error(t, err, "should abort sampling")
 		assert.NotEmpty(t, buf.Bytes(), "should write samples")
 
 		duration := strategy.Duration().Round(want)
