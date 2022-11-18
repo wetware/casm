@@ -2,7 +2,6 @@ package crawl_test
 
 import (
 	"net"
-	"net/netip"
 	"testing"
 
 	ma "github.com/multiformats/go-multiaddr"
@@ -17,62 +16,151 @@ func TestCIDR(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	t.Run("ExpectedRange", func(t *testing.T) {
+	t.Run("IPv4", func(t *testing.T) {
 		t.Parallel()
+		t.Helper()
 
-		maddr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/24")
+		t.Run("ByteAligned", func(t *testing.T) {
+			t.Parallel()
 
-		cidr, err := crawl.ParseCIDR(maddr)
-		require.NoError(t, err, "should succeed")
-		require.NotNil(t, cidr, "should return strategy")
+			maddr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/24")
 
-		c, err := cidr()
-		assert.NoError(t, err, "should succeed")
-		assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
+			cidr, err := crawl.ParseCIDR(maddr)
+			require.NoError(t, err, "should succeed")
+			require.NotNil(t, cidr, "should return strategy")
 
-		seen := map[netip.Addr]struct{}{}
+			c, err := cidr()
+			assert.NoError(t, err, "should succeed")
+			assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
 
-		var addr net.UDPAddr
-		for c.Next(&addr) {
-			ip, ok := netip.AddrFromSlice(addr.IP)
-			require.True(t, ok, "%s is not a valid IP address", addr.IP)
-			assert.NotContains(t, seen, ip, "duplicate address: %s", ip)
+			seen := map[string]struct{}{}
 
-			seen[ip] = struct{}{}
-		}
+			var addr net.UDPAddr
+			for c.Next(&addr) {
+				seen[addr.String()] = struct{}{}
+			}
 
-		assert.Len(t, seen, 254,
-			"should contain 8-bit subnet without X.X.X.0 and X.X.X.255")
+			assert.Len(t, seen, 254,
+				"should contain 8-bit subnet without network & broadcast addrs")
+		})
+
+		t.Run("Unaligned", func(t *testing.T) {
+			t.Parallel()
+
+			maddr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/21")
+
+			cidr, err := crawl.ParseCIDR(maddr)
+			require.NoError(t, err, "should succeed")
+			require.NotNil(t, cidr, "should return strategy")
+
+			c, err := cidr()
+			assert.NoError(t, err, "should succeed")
+			assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
+
+			seen := map[string]struct{}{}
+
+			var addr net.UDPAddr
+			for c.Next(&addr) {
+				seen[addr.String()] = struct{}{}
+			}
+
+			assert.Len(t, seen, 2046,
+				"should contain 6-bit subnet without network & broadcast addrs")
+		})
 	})
 
-	t.Run("ComplexCIDR", func(t *testing.T) {
+	t.Run("IPv6", func(t *testing.T) {
 		t.Parallel()
+		t.Helper()
 
-		t.Skip("TODO - FIX CIDR ITERATION LOGIC")
+		t.Run("ByteAligned", func(t *testing.T) {
+			t.Parallel()
 
-		maddr := ma.StringCast("/ip4/172.31.0.0/udp/8822/cidr/23") // n.b. /23
+			maddr := ma.StringCast("/ip6/2001:db8::/udp/8822/cidr/120")
 
-		cidr, err := crawl.ParseCIDR(maddr)
-		require.NoError(t, err, "should succeed")
-		require.NotNil(t, cidr, "should return strategy")
+			cidr, err := crawl.ParseCIDR(maddr)
+			require.NoError(t, err, "should succeed")
+			require.NotNil(t, cidr, "should return strategy")
 
-		c, err := cidr()
-		assert.NoError(t, err, "should succeed")
-		assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
+			c, err := cidr()
+			assert.NoError(t, err, "should succeed")
+			assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
 
-		seen := map[netip.Addr]struct{}{}
+			seen := map[string]struct{}{}
 
-		var addr net.UDPAddr
-		for c.Next(&addr) {
-			ip, ok := netip.AddrFromSlice(addr.IP)
-			require.True(t, ok, "%s is not a valid IP address", addr.IP)
-			assert.NotContains(t, seen, ip, "duplicate address: %s", ip)
+			var addr net.UDPAddr
+			for c.Next(&addr) {
+				seen[addr.String()] = struct{}{}
+			}
 
-			seen[ip] = struct{}{}
-		}
+			assert.Len(t, seen, 254,
+				"should contain 8-bit subnet without network & broadcast addrs")
+		})
 
-		want := netip.MustParseAddr("172.31.45.20")
-		assert.Contains(t, seen, want,
-			"%s not included in CIDR iteration range", want)
+		t.Run("Unaligned", func(t *testing.T) {
+			t.Parallel()
+
+			maddr := ma.StringCast("/ip6/2001:db8::/udp/8822/cidr/117")
+
+			cidr, err := crawl.ParseCIDR(maddr)
+			require.NoError(t, err, "should succeed")
+			require.NotNil(t, cidr, "should return strategy")
+
+			c, err := cidr()
+			assert.NoError(t, err, "should succeed")
+			assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
+
+			seen := map[string]struct{}{}
+
+			var addr net.UDPAddr
+			for c.Next(&addr) {
+				seen[addr.String()] = struct{}{}
+			}
+
+			t.Log(len(seen))
+			assert.Len(t, seen, 2046,
+				"should contain 6-bit subnet without network & broadcast addrs")
+		})
 	})
+}
+
+func BenchmarkCIDR(b *testing.B) {
+	for _, bt := range []struct {
+		name string
+		CIDR ma.Multiaddr
+	}{
+		{
+			name: "24",
+			CIDR: ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/24"),
+		},
+		{
+			name: "16",
+			CIDR: ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/16"),
+		},
+		{
+			name: "8",
+			CIDR: ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/8"),
+		},
+	} {
+		b.Run(bt.name, func(b *testing.B) {
+			cidr, err := crawl.ParseCIDR(bt.CIDR)
+			if err != nil {
+				panic(err)
+			}
+
+			c, err := cidr()
+			if err != nil {
+				panic(err)
+			}
+
+			b.ResetTimer()
+
+			var addr net.UDPAddr
+			for i := 0; i < b.N; i++ {
+				for c.Next(&addr) {
+					// iterate...
+				}
+			}
+		})
+	}
 }
