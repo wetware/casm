@@ -221,8 +221,7 @@ func (c *CIDR) skip(ip net.IP) bool {
 
 func (c *CIDR) incrIP() {
 	for i := len(c.ip) - 1; i >= 0; i-- {
-		c.ip[i]++
-		if c.ip[i] > 0 {
+		if c.ip[i]++; c.ip[i] > 0 {
 			break
 		}
 	}
