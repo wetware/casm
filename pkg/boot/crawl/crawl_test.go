@@ -287,6 +287,13 @@ func TestCrawler_FindPeers_wait(t *testing.T) {
 		defer h.Close()
 
 		logger := logtest.NewMockLogger(ctrl)
+		logger.EXPECT().
+			WithField(gomock.Any(), gomock.Any()).
+			Return(logger).
+			AnyTimes()
+		logger.EXPECT().
+			Trace(gomock.Any()).
+			AnyTimes()
 
 		conn := mock_net.NewMockPacketConn(ctrl)
 		conn.EXPECT().
@@ -336,6 +343,10 @@ func TestCrawler_FindPeers_wait(t *testing.T) {
 		errFail := errors.New("fail")
 
 		logger := logtest.NewMockLogger(ctrl)
+		logger.EXPECT().
+			WithField(gomock.Any(), gomock.Any()).
+			Return(logger).
+			AnyTimes()
 		logger.EXPECT().
 			WithError(errFail).
 			Return(logger).

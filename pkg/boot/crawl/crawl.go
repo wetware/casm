@@ -141,7 +141,7 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 				c.sock.Log().
 					WithError(err).
 					WithField("to", &addr).
-					Debug("failed to send request packet")
+					Error("failed to send request packet")
 			}
 
 			return
