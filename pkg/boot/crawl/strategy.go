@@ -3,7 +3,6 @@ package crawl
 import (
 	"crypto/rand"
 	"fmt"
-	"math/bits"
 	"net"
 	"strconv"
 
@@ -17,60 +16,46 @@ type Range interface {
 	Next(a net.Addr) bool
 }
 
+// PortRange iterates through ports on the specified IP, in order,
+// from Low to High.
+//
+// If len(ip) == 0, it defaults to 127.0.0.1.
+//
+// If Low = High = 0, the port-range defaults to match all non-
+// reserved ports, i.e. all ports in the range (1024, 65535).
 type PortRange struct {
-	IP    net.IP
-	Mask  uint16
-	pos   uint16
-	shift int
+	IP               net.IP
+	Low, High, index uint16
 }
 
-// NewPortRange returns a range that iterates through ports on
-// the specified IP.  The mask parameter is a bitmask used to
-// select which ports should be scanned. PortRange is stateful,
-// and ports are scanned in order.
-//
-// If len(ip) == 0, defaults to 127.0.0.1
-// If the IP address is unspecified, defaults to the standard
-// loopback address for the IP version.
-//
-// If mask == 0, defaults to match all non-reserved ports, i.e.
-// all ports in the range (1024, 65535).
-func NewPortScan(ip net.IP, mask uint16) Strategy {
+// NewPortRange returns a PortRange from low to high on the supplied
+// IP address.  If Low = High = 0, the range defaults to match all
+// non-reserved ports.  See PortRange.
+func NewPortRange(ip net.IP, low, high int) Strategy {
 	return func() (Range, error) {
 		pr := &PortRange{
 			IP:   ip,
-			Mask: mask,
+			Low:  uint16(low),
+			High: uint16(high),
 		}
-
 		pr.Reset()
-
 		return pr, nil
 	}
-
 }
 
 // Reset internal state, allowing p to be reused.  Does
-// not affect IP or Mask.
+// not affect IP or port range.
 func (p *PortRange) Reset() {
-	switch {
-	case p.IP.IsUnspecified():
-		if p.IP.To4() == nil {
-			p.IP = net.IPv6loopback
-			break
-		}
-
-		fallthrough
-
-	case len(p.IP) == 0:
+	if len(p.IP) == 0 {
 		p.IP = net.IPv4(127, 0, 0, 1)
 	}
 
-	if p.Mask == 0 {
-		p.Mask = 63 << 10 // matches all ports >1023
+	if p.Low == 0 && p.High == 0 {
+		p.Low = 1024
+		p.High = 65535
 	}
 
-	p.shift = bits.TrailingZeros16(p.Mask)
-	p.pos = 0
+	p.index = p.Low
 }
 
 func (p *PortRange) Next(addr net.Addr) (ok bool) {
@@ -87,21 +72,28 @@ func (p *PortRange) Next(addr net.Addr) (ok bool) {
 	return
 }
 
-func (p *PortRange) nextPort() (int, bool) {
-	for {
-		p.pos++
-
-		i := p.pos << p.shift
-		if i > p.Mask {
-			return 0, false // we're done
-		}
-
-		if i&p.Mask != 0 {
-			return int(i), true
-		}
+func (p *PortRange) nextPort() (port int, ok bool) {
+	// Are we done iterating?  We're done iterating if either
+	//   (a) we've wrapped around the uint16 index; or,
+	//   (b) we've exceeded p.High.
+	if ok = p.index != 0 && p.index <= p.High; ok {
+		port = int(p.index)
+		p.index++
 	}
+
+	return
 }
 
+// The CIDR crawl-strategy iterates through a subnet in pseudorandom
+// order, skipping over the network and broadcast addresses, issuing
+// requests to a fixed port.
+//
+// Note that /32 subnets for IPv4 and /128 subnets for IPv6 are not
+// supported, and will result in no-ops due to the aforementioned
+// address-skipping behavior.
+//
+// This is the recommended strategy for hosting environments without
+// IP Multicast support.
 type CIDR struct {
 	Port     int
 	Net      *net.IPNet
@@ -109,7 +101,7 @@ type CIDR struct {
 	mask     net.IPMask
 }
 
-// CIDR returns a range that iterates through a block of IP addreses
+// NewCIDR returns a range that iterates through a block of IP addreses
 // in pseudorandom order, with a fixed port.
 func NewCIDR(cidr string, port int) Strategy {
 	return func() (Range, error) {
