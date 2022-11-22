@@ -44,7 +44,6 @@ func TestCIDR(t *testing.T) {
 				"should contain 8-bit subnet without network & broadcast addrs")
 		})
 
-
 		t.Run("Unaligned", func(t *testing.T) {
 			t.Parallel()
 
@@ -67,30 +66,6 @@ func TestCIDR(t *testing.T) {
 
 			assert.Len(t, seen, 2046,
 				"should contain 6-bit subnet without network & broadcast addrs")
-		})
-
-		t.Run("/32", func(t *testing.T) {
-			t.Parallel()
-
-			maddr := ma.StringCast("/ip4/228.8.8.8/udp/8822/cidr/32")
-
-			cidr, err := crawl.ParseCIDR(maddr)
-			require.NoError(t, err, "should succeed")
-			require.NotNil(t, cidr, "should return strategy")
-
-			c, err := cidr()
-			assert.NoError(t, err, "should succeed")
-			assert.IsType(t, new(crawl.CIDR), c, "should return CIDR range")
-
-			seen := map[string]struct{}{}
-
-			var addr net.UDPAddr
-			for c.Next(&addr) {
-				seen[addr.String()] = struct{}{}
-			}
-
-			assert.Len(t, seen, 1,
-				"should contain 1 subnet")
 		})
 	})
 
