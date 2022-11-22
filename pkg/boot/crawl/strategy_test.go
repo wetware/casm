@@ -12,6 +12,79 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPortRange(t *testing.T) {
+	t.Parallel()
+	t.Helper()
+
+	t.Run("Reset", func(t *testing.T) {
+		t.Parallel()
+
+		var pr crawl.PortRange
+		pr.Reset()
+
+		assert.Equal(t, net.IPv4(127, 0, 0, 1), pr.IP, "should default to loopback IP")
+		assert.Equal(t, uint16(1024), pr.Low, "should start at port 1024 by default")
+		assert.Equal(t, uint16(65535), pr.High, "should stop at port 65535 by default")
+	})
+
+	t.Run("DefaultRange", func(t *testing.T) {
+		t.Parallel()
+
+		pr, err := crawl.NewPortRange(nil, 0, 0)()
+		require.NoError(t, err)
+		require.NotNil(t, pr)
+
+		seen := map[int]struct{}{}
+
+		var addr net.UDPAddr
+		for pr.Next(&addr) {
+			seen[addr.Port] = struct{}{}
+		}
+
+		assert.Len(t, seen, 64512, "should contain all non-reserved ports")
+
+		for i := 0; i < 1024; i++ {
+			require.NotContains(t, seen, i,
+				"should not contain reserved port %d", i)
+		}
+	})
+
+	t.Run("Reserved", func(t *testing.T) {
+		t.Parallel()
+
+		pr, err := crawl.NewPortRange(nil, 1, 1024)()
+		require.NoError(t, err)
+		require.NotNil(t, pr)
+
+		seen := map[int]struct{}{}
+
+		var addr net.UDPAddr
+		for pr.Next(&addr) {
+			seen[addr.Port] = struct{}{}
+		}
+
+		assert.Len(t, seen, 1024, "should contain all reserved ports")
+	})
+
+	t.Run("Single", func(t *testing.T) {
+		t.Parallel()
+
+		pr, err := crawl.NewPortRange(nil, 8822, 8822)()
+		require.NoError(t, err)
+		require.NotNil(t, pr)
+
+		seen := map[int]struct{}{}
+
+		var addr net.UDPAddr
+		for pr.Next(&addr) {
+			seen[addr.Port] = struct{}{}
+		}
+
+		assert.Len(t, seen, 1, "should contain exactly one ports")
+		assert.Contains(t, seen, 8822, "should contain specified port")
+	})
+}
+
 func TestCIDR(t *testing.T) {
 	t.Parallel()
 	t.Helper()
