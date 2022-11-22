@@ -31,12 +31,12 @@ type PortRange struct {
 // NewPortRange returns a PortRange from low to high on the supplied
 // IP address.  If Low = High = 0, the range defaults to match all
 // non-reserved ports.  See PortRange.
-func NewPortRange(ip net.IP, low, high uint16) Strategy {
+func NewPortRange(ip net.IP, low, high int) Strategy {
 	return func() (Range, error) {
 		pr := &PortRange{
 			IP:   ip,
-			Low:  low,
-			High: high,
+			Low:  uint16(low),
+			High: uint16(high),
 		}
 		pr.Reset()
 		return pr, nil
