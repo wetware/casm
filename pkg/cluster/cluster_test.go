@@ -2,6 +2,7 @@ package cluster_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ func TestRouter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	var relayCanceled state
+	var relayCanceled atomic.Bool
 
 	logger := logtest.NewMockLogger(ctrl)
 	logger.EXPECT().
@@ -38,7 +39,7 @@ func TestRouter(t *testing.T) {
 		AnyTimes()
 	topic.EXPECT().
 		Relay().
-		Return(relayCanceled.Set, nil).
+		Return(func() { relayCanceled.Store(true) }, nil).
 		Times(1)
 	sync := make(chan struct{})
 	boot := topic.EXPECT().
@@ -70,7 +71,7 @@ func TestRouter(t *testing.T) {
 	}
 
 	router.Stop()
-	assert.Eventually(t, relayCanceled.Get,
+	assert.Eventually(t, relayCanceled.Load,
 		time.Millisecond*100, time.Millisecond*10,
 		"should cancel topic relay")
 
@@ -78,8 +79,3 @@ func TestRouter(t *testing.T) {
 	assert.ErrorIs(t, err, cluster.ErrClosing,
 		"should not bootstrap after router was stopped")
 }
-
-type state bool
-
-func (s *state) Set()      { *s = true }
-func (s *state) Get() bool { return bool(*s) }
