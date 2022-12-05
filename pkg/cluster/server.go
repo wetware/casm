@@ -53,7 +53,7 @@ func (s Server) Iter(ctx context.Context, call api.View_iter) error {
 	)
 
 	if err = s.bind(iter, selector(sel)); err == nil {
-		call.Ack()
+		call.Go()
 		err = stream.Wait()
 	}
 
