@@ -4,6 +4,8 @@ capnproto.org/go/capnp/v3 v3.0.0-alpha.10 h1:yMG7hW3lVr4jwLC7wEl6xvpTEfYAzgB492M
 capnproto.org/go/capnp/v3 v3.0.0-alpha.10/go.mod h1:Dynqh9/LE2Wy7jYd2wIoYgqFwh3hZHCmG7j6/uCWX6c=
 capnproto.org/go/capnp/v3 v3.0.0-alpha.11 h1:Ccwgo3riF0N52Njc3HrpVNtsqcp6FhzQq76+Kb1GMmM=
 capnproto.org/go/capnp/v3 v3.0.0-alpha.11/go.mod h1:Dynqh9/LE2Wy7jYd2wIoYgqFwh3hZHCmG7j6/uCWX6c=
+capnproto.org/go/capnp/v3 v3.0.0-alpha.12 h1:F2K8YfgHxVi7kYdT7ZG2Xpl1ZjIbPSin0lXoKp/0akM=
+capnproto.org/go/capnp/v3 v3.0.0-alpha.12/go.mod h1:Dynqh9/LE2Wy7jYd2wIoYgqFwh3hZHCmG7j6/uCWX6c=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.31.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
