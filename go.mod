@@ -15,7 +15,7 @@ require (
 	github.com/libp2p/go-libp2p-pubsub v0.8.2
 	github.com/lthibault/go-libp2p-inproc-transport v0.4.0
 	github.com/lthibault/jitterbug/v2 v2.2.2
-	github.com/lthibault/log v1.2.2
+	github.com/lthibault/log v1.2.3
 	github.com/lthibault/uq v1.0.0
 	github.com/lthibault/util v0.0.12
 	github.com/mr-tron/base58 v1.2.0
@@ -25,11 +25,11 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.17
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.1
-	github.com/urfave/cli/v2 v2.23.5
+	github.com/urfave/cli/v2 v2.23.7
 	go.uber.org/atomic v1.10.0
 	go.uber.org/multierr v1.9.0
 	golang.org/x/net v0.4.0
-	golang.org/x/time v0.2.0
+	golang.org/x/time v0.3.0
 )
 
 require (
@@ -120,7 +120,7 @@ require (
 	go.uber.org/fx v1.18.2 // indirect
 	go.uber.org/zap v1.24.0 // indirect
 	golang.org/x/crypto v0.4.0 // indirect
-	golang.org/x/exp v0.0.0-20221205204356-47842c84f3db // indirect
+	golang.org/x/exp v0.0.0-20221212164502-fae10dda9338 // indirect
 	golang.org/x/mod v0.7.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.3.0 // indirect
