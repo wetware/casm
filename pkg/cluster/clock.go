@@ -30,7 +30,7 @@ type Clock interface {
 	Stop()
 }
 
-type clock struct {
+type systemClock struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	ticker *time.Ticker
@@ -39,22 +39,22 @@ type clock struct {
 // NewClock with the specified tick interval.
 func NewClock(tick time.Duration) Clock {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &clock{
+	return &systemClock{
 		ctx:    ctx,
 		cancel: cancel,
 		ticker: time.NewTicker(tick),
 	}
 }
 
-func (c *clock) Context() context.Context {
+func (c *systemClock) Context() context.Context {
 	return c.ctx
 }
 
-func (c *clock) Tick() <-chan time.Time {
+func (c *systemClock) Tick() <-chan time.Time {
 	return c.ticker.C
 }
 
-func (c *clock) Stop() {
+func (c *systemClock) Stop() {
 	defer c.cancel()
 	c.ticker.Stop()
 }

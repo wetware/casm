@@ -232,11 +232,12 @@ func TestPlaceArgsFailure(t *testing.T) {
 		return errFail
 	})
 
-	assert.False(t, s.Open(), "should close after failed call to PlaceArgs")
+	assert.Eventually(t, func() bool {
+		return !s.Open()
+	}, time.Millisecond*100, time.Millisecond*10,
+		"should close quickly after failed call to PlaceArgs")
 
-	// TODO:  uncomment when https://github.com/capnproto/go-capnproto2/pull/332
-	//        has been merged.  Tested locally in the meantime.
-	// require.ErrorIs(t, s.Wait(), errFail, "should return error from PlaceArgs")
+	require.ErrorIs(t, s.Wait(), errFail, "should return error from PlaceArgs")
 }
 
 func TestIdempotentWait(t *testing.T) {

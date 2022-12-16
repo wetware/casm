@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"capnproto.org/go/capnp/v3"
+	"capnproto.org/go/capnp/v3/exp/clock"
+	"capnproto.org/go/capnp/v3/flowcontrol/bbr"
 
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/pulse"
@@ -46,10 +48,12 @@ func (s Server) Iter(ctx context.Context, call api.View_iter) error {
 		return err
 	}
 
+	handler := call.Args().Handler()
+	handler.SetFlowLimiter(bbr.NewLimiter(clock.System))
+
 	var (
-		handler = call.Args().Handler() // TODO(soon):  set up BBR here.
-		stream  = stream.New(handler.Recv)
-		iter    = iterator(ctx, stream, handler)
+		stream = stream.New(handler.Recv)
+		iter   = iterator(ctx, stream, handler)
 	)
 
 	if err = s.bind(iter, selector(sel)); err == nil {

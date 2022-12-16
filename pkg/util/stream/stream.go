@@ -9,8 +9,15 @@ import (
 	"github.com/lthibault/uq"
 )
 
+// Func is a streaming RPC method.
 type Func[T ~capnp.StructKind] func(context.Context, func(T) error) (stream.StreamResult_Future, capnp.ReleaseFunc)
 
+// Stream implements capnp streaming RPC calls.
+//
+// WARNING:  Stream makes use of an unbounded queue to track in-
+// flight RPC calls.  Callers should carefully review the stream
+// documentation before using Stream.  Use of capnp flow control
+// is strongly RECOMMENDED.
 type Stream[T ~capnp.StructKind] struct {
 	method Func[T]
 
@@ -21,6 +28,8 @@ type Stream[T ~capnp.StructKind] struct {
 	signal, closed   chan struct{}
 }
 
+// New RPC stream.  To avoid unbounded memory usage, callers SHOULD
+// ensure a flowcontrol.FlowLimiter is assigned to method's client.
 func New[T ~capnp.StructKind](method Func[T]) *Stream[T] {
 	return &Stream[T]{
 		method: method,
@@ -29,6 +38,9 @@ func New[T ~capnp.StructKind](method Func[T]) *Stream[T] {
 	}
 }
 
+// Open returns true if the stream is open.  A stream is open until
+// an invocation of Call() fails or Wait() returns, whichever comes
+// fist.
 func (s *Stream[T]) Open() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -36,6 +48,12 @@ func (s *Stream[T]) Open() bool {
 	return !s.closing
 }
 
+// Call the streaming method.  Callers SHOULD pass the same context
+// to each invocation of Call().   The stream is immediately closed
+// if ctx.Err() != nil.
+//
+// After invoking Call(), callers MUST Wait() before discarding the
+// stream.  Failure to do so will leak a goroutine.
 func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -60,12 +78,14 @@ func (s *Stream[T]) Call(ctx context.Context, args func(T) error) {
 		}
 
 		// stop accepting calls?
-		if p.Failed() || ctx.Err() != nil {
+		if ctx.Err() != nil {
 			s.close()
 		}
 	}
 }
 
+// Wait closes the stream and blocks until all in-flight RPC
+// has terminated.  It returns the first error encountered.
 func (s *Stream[T]) Wait() (err error) {
 	s.mu.Lock()
 	s.close()
@@ -132,12 +152,6 @@ func (s *Stream[T]) close() {
 type promise struct {
 	future  stream.StreamResult_Future
 	release capnp.ReleaseFunc
-}
-
-func (p promise) Failed() bool {
-	state := p.future.Client().State()
-	_, ok := state.Brand.Value.(error)
-	return ok
 }
 
 func (p promise) Wait() error {
