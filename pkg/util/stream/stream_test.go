@@ -3,6 +3,7 @@ package stream_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -14,6 +15,17 @@ import (
 	testing_api "github.com/wetware/casm/internal/api/testing"
 	"github.com/wetware/casm/pkg/util/stream"
 )
+
+func init() {
+	capnp.SetClientLeakFunc(func(msg string) {
+		panic(msg)
+	})
+}
+
+func TestMain(m *testing.M) {
+	defer runtime.GC()
+	m.Run()
+}
 
 func TestState(t *testing.T) {
 	t.Parallel()
