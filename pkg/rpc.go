@@ -88,15 +88,22 @@ type Iterator[T any] struct {
 // Err returns returns the first error encountered while iterating
 // over the stream.   Callers SHOULD call Err() after the iterator
 // has become exhausted, and handle any errors.
-func (it Iterator[T]) Err() error {
-	select {
-	case <-it.Future.Done():
-		return it.Future.Err()
-	default:
-		return nil
+func (it Iterator[T]) Err() (err error) {
+	if it.Future != nil {
+		select {
+		case <-it.Future.Done():
+			err = it.Future.Err()
+		default:
+		}
 	}
+
+	return
 }
 
-func (it Iterator[T]) Next() (T, bool) {
-	return it.Seq.Next()
+func (it Iterator[T]) Next() (t T, ok bool) {
+	if it.Seq != nil {
+		t, ok = it.Seq.Next()
+	}
+
+	return
 }

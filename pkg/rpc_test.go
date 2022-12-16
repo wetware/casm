@@ -12,7 +12,25 @@ func TestIterator(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
+	t.Run("Zero", func(t *testing.T) {
+		t.Parallel()
+
+		/*
+			Test that the zero-value Iterator is empty.
+		*/
+
+		it := casm.Iterator[string]{}
+
+		s, ok := it.Next()
+		assert.Zero(t, s, "should return zero-value string")
+		assert.False(t, ok, "should be exhausted")
+
+		assert.NoError(t, it.Err(), "should not encounter error")
+	})
+
 	t.Run("Succeed", func(t *testing.T) {
+		t.Parallel()
+
 		seq := mockSeq{"hello, world!"}
 
 		it := casm.Iterator[string]{
@@ -32,6 +50,8 @@ func TestIterator(t *testing.T) {
 	})
 
 	t.Run("Abort", func(t *testing.T) {
+		t.Parallel()
+
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
