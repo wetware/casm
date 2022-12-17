@@ -69,7 +69,7 @@ func (c *Crawler) Close() error {
 
 func (c *Crawler) handler() socket.RequestHandler {
 	return func(r socket.Request) error {
-		return c.sock.SendResponse(c.sealer(), c.host, r.From, r.NS)
+		return c.sock.SendResponse(c.sealer, c.host, r.From, r.NS)
 	}
 }
 
@@ -105,16 +105,46 @@ func (c *Crawler) FindPeers(ctx context.Context, ns string, opt ...discovery.Opt
 	go func() {
 		defer cancel()
 
-		var addr net.UDPAddr
+		var (
+			addr net.UDPAddr
+			id   = c.host.ID()
+		)
+
+		// Iterate through the IP range and send request packets.
+		// This is rate-limited by the socket.
 		for c.active(ctx) && iter.Next(&addr) {
-			err := c.sock.SendRequest(ctx, c.sealer(), &addr, c.host.ID(), ns)
-			if err != nil {
+			switch err := c.sock.SendRequest(ctx, c.sealer, &addr, id, ns); err {
+			case nil:
+				// Packet sent.  Keep crawling.
+				c.sock.Log().
+					WithField("to", &addr).
+					Trace("sent request packet")
+				continue
+
+			case context.Canceled:
+				// Graceful abort.  The caller cancels the context when it
+				// has found enough peers.
+				c.sock.Log().
+					Trace("peer discovery finished")
+
+			case context.DeadlineExceeded:
+				// Timeout.  The caller hasn't found enough peers, but has
+				// timed out.  This isn't always an error.  In most cases,
+				// the caller will know what to do.
+				c.sock.Log().
+					WithField("reason", err).
+					Debug("peer discovery aborted")
+
+			default:
+				// Any other error indicates a failure to send the request
+				// packet.  Something definitely went wrong.
 				c.sock.Log().
 					WithError(err).
 					WithField("to", &addr).
-					Debug("failed to send request packet")
-				return
+					Error("failed to send request packet")
 			}
+
+			return
 		}
 
 		// Wait for response
@@ -138,10 +168,8 @@ func (c *Crawler) active(ctx context.Context) (ok bool) {
 	return
 }
 
-func (c *Crawler) sealer() socket.Sealer {
-	return func(r record.Record) (*record.Envelope, error) {
-		return record.Seal(r, privkey(c.host))
-	}
+func (c *Crawler) sealer(r record.Record) (*record.Envelope, error) {
+	return record.Seal(r, privkey(c.host))
 }
 
 func privkey(h host.Host) crypto.PrivKey {

@@ -2,11 +2,13 @@ package crawl_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/libp2p/go-libp2p"
@@ -231,6 +233,165 @@ func TestCrawler_advertise(t *testing.T) {
 	<-syncReply
 }
 
+func TestCrawler_FindPeers_strategy_error(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h := newTestHost()
+	defer h.Close()
+
+	logger := logtest.NewMockLogger(ctrl)
+
+	conn := mock_net.NewMockPacketConn(ctrl)
+	conn.EXPECT().
+		ReadFrom(gomock.Any()).
+		DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
+			n = copy(b, resBytes)
+			a = &net.UDPAddr{}
+			return
+		}).
+		AnyTimes()
+	conn.EXPECT().
+		Close().
+		Return(nil).
+		Times(1)
+
+	errFail := errors.New("fail")
+	fail := func() (crawl.Range, error) {
+		return nil, errFail
+	}
+
+	c := crawl.New(h, conn, fail, socket.WithLogger(logger))
+	defer func() {
+		assert.NoError(t, c.Close(), "should close gracefully")
+	}()
+
+	ch, err := c.FindPeers(context.TODO(), "test")
+	require.ErrorIs(t, err, errFail, "should return strategy error")
+	require.Nil(t, ch, "should return nil channel")
+}
+
+func TestCrawler_FindPeers_wait(t *testing.T) {
+	t.Parallel()
+	t.Helper()
+
+	t.Run("GracefulAbort", func(t *testing.T) {
+		t.Parallel()
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		h := newTestHost()
+		defer h.Close()
+
+		logger := logtest.NewMockLogger(ctrl)
+		logger.EXPECT().
+			WithField(gomock.Any(), gomock.Any()).
+			Return(logger).
+			AnyTimes()
+		logger.EXPECT().
+			Trace(gomock.Any()).
+			AnyTimes()
+
+		conn := mock_net.NewMockPacketConn(ctrl)
+		conn.EXPECT().
+			ReadFrom(gomock.Any()).
+			DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
+				n = copy(b, resBytes)
+				a = &net.UDPAddr{}
+				return
+			}).
+			AnyTimes()
+		conn.EXPECT().
+			Close().
+			Return(nil).
+			Times(1)
+		conn.EXPECT().
+			WriteTo(gomock.Any(), gomock.Any()).
+			Return(0, context.Canceled).
+			Times(1)
+
+		c := crawl.New(h, conn, rangeUDP(&net.UDPAddr{}), socket.WithLogger(logger))
+		defer c.Close()
+
+		ch, err := c.FindPeers(context.TODO(), "test")
+		require.NoError(t, err, "should not return error")
+		require.NotNil(t, ch, "should return valid channel")
+
+		assert.Eventually(t, func() bool {
+			select {
+			case <-ch:
+				return true
+			default:
+				return false
+			}
+		}, time.Millisecond*100, time.Millisecond*10,
+			"should close channel when error is encountered")
+	})
+
+	t.Run("SocketError", func(t *testing.T) {
+		t.Parallel()
+
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		h := newTestHost()
+		defer h.Close()
+
+		errFail := errors.New("fail")
+
+		logger := logtest.NewMockLogger(ctrl)
+		logger.EXPECT().
+			WithField(gomock.Any(), gomock.Any()).
+			Return(logger).
+			AnyTimes()
+		logger.EXPECT().
+			WithError(errFail).
+			Return(logger).
+			Times(1)
+		logger.EXPECT().
+			Error("failed to send request packet").
+			Times(1)
+
+		conn := mock_net.NewMockPacketConn(ctrl)
+		conn.EXPECT().
+			ReadFrom(gomock.Any()).
+			DoAndReturn(func(b []byte) (n int, a net.Addr, err error) {
+				n = copy(b, resBytes)
+				a = &net.UDPAddr{}
+				return
+			}).
+			AnyTimes()
+		conn.EXPECT().
+			Close().
+			Return(nil).
+			Times(1)
+		conn.EXPECT().
+			WriteTo(gomock.Any(), gomock.Any()).
+			Return(0, errFail).
+			Times(1)
+
+		c := crawl.New(h, conn, rangeUDP(&net.UDPAddr{}), socket.WithLogger(logger))
+		defer c.Close()
+
+		ch, err := c.FindPeers(context.TODO(), "test")
+		require.NoError(t, err, "should not return error")
+		require.NotNil(t, ch, "should return valid channel")
+
+		assert.Eventually(t, func() bool {
+			select {
+			case <-ch:
+				return true
+			default:
+				return false
+			}
+		}, time.Millisecond*100, time.Millisecond*10,
+			"should close channel when error is encountered")
+	})
+}
+
 func TestCrawler_find_peers(t *testing.T) {
 	t.Parallel()
 
@@ -251,6 +412,13 @@ func TestCrawler_find_peers(t *testing.T) {
 	defer h.Close()
 
 	logger := logtest.NewMockLogger(ctrl)
+	logger.EXPECT().
+		WithField(gomock.Any(), gomock.Any()).
+		Return(logger).
+		AnyTimes()
+	logger.EXPECT().
+		Trace(gomock.Any()).
+		AnyTimes()
 
 	conn := mock_net.NewMockPacketConn(ctrl)
 	conn.EXPECT().
