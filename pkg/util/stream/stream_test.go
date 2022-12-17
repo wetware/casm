@@ -104,19 +104,12 @@ func TestState(t *testing.T) {
 
 		cancel()
 
-		// In order to break out of loops, it is important that
-		// the context cancelation be detected *before* the call
-		// to Wait()
-		assert.Eventually(t, func() bool {
-			return !s.Open()
-		}, time.Millisecond, time.Microsecond*100,
-			"should eventually close after call to Wait()")
-
 		select {
-		case <-time.After(time.Millisecond * 500):
+		case <-time.After(time.Millisecond * 100):
 			t.Error("failed to abort after 500ms")
 		case err := <-cherr:
-			require.ErrorIs(t, err, context.Canceled)
+			assert.ErrorIs(t, err, context.Canceled)
+			assert.False(t, s.Open(), "should be closed")
 		}
 	})
 
@@ -141,7 +134,7 @@ func TestState(t *testing.T) {
 		// to Wait()
 		assert.Eventually(t, func() bool {
 			return !s.Open()
-		}, time.Millisecond, time.Microsecond*100,
+		}, time.Millisecond*100, time.Millisecond*10,
 			"should close before call to Wait()")
 
 		assert.Error(t, s.Wait(),
