@@ -18,6 +18,7 @@ import (
 
 	mock_cluster "github.com/wetware/casm/internal/mock/pkg/cluster"
 	mock_routing "github.com/wetware/casm/internal/mock/pkg/cluster/routing"
+	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/cluster"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
@@ -221,7 +222,7 @@ type record struct {
 	once sync.Once
 	id   peer.ID
 	seq  uint64
-	ins  uint64
+	ins  casm.ID
 	host string
 	meta routing.Meta
 	ttl  time.Duration
@@ -238,7 +239,7 @@ func (r *record) init() {
 		}
 
 		if r.ins == 0 {
-			r.ins = rand.Uint64()
+			r.ins = casm.ID(rand.Uint64())
 		}
 	})
 }
@@ -248,9 +249,9 @@ func (r *record) Peer() peer.ID {
 	return r.id
 }
 
-func (r *record) Server() routing.ID {
+func (r *record) Server() casm.ID {
 	r.init()
-	return routing.ID(r.ins)
+	return casm.ID(r.ins)
 }
 
 func (r *record) Seq() uint64 { return r.seq }

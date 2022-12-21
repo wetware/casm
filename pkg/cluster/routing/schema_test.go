@@ -2,7 +2,6 @@ package routing
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"math/rand"
 	"testing"
 	"time"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	casm "github.com/wetware/casm/pkg"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,11 +118,8 @@ func BenchmarkIDIndexer(b *testing.B) {
 func TestServerIndexer(t *testing.T) {
 	t.Parallel()
 
-	id := ID(rand.Uint64())
-	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, uint64(id))
-	want := make([]byte, 16)
-	hex.Encode(want, buf)
+	id := casm.ID(rand.Uint64())
+	want, _ := id.MarshalText()
 
 	t.Run("FromObject", func(t *testing.T) {
 		t.Helper()
@@ -199,7 +196,7 @@ func BenchmarkServerIndexer(b *testing.B) {
 	b.ReportAllocs()
 
 	b.Run("FromObject", func(b *testing.B) {
-		rec := &testRecord{server: ID(rand.Uint64())}
+		rec := &testRecord{server: casm.ID(rand.Uint64())}
 
 		for i := 0; i < b.N; i++ {
 			_, _, _ = serverIndexer{}.FromObject(rec)
@@ -266,7 +263,7 @@ func BenchmarkTimeIndexer(b *testing.B) {
 	b.ReportAllocs()
 
 	rec := &record{
-		Record:   &testRecord{server: ID(rand.Uint64())},
+		Record:   &testRecord{server: casm.ID(rand.Uint64())},
 		Deadline: time.Date(2020, 01, 01, 01, 01, 01, 01, time.UTC),
 	}
 
@@ -389,7 +386,7 @@ func (t peerIndex) PeerBytes() ([]byte, error) {
 }
 
 type serverIndex struct {
-	id     ID
+	id     casm.ID
 	prefix bool
 }
 
@@ -402,7 +399,7 @@ func (t serverIndex) ServerBytes() ([]byte, error) {
 
 type testRecord struct {
 	peer   peer.ID
-	server ID
+	server casm.ID
 	seq    uint64
 	host   string
 	meta   Meta
@@ -411,7 +408,7 @@ type testRecord struct {
 
 func (r testRecord) Peer() peer.ID         { return r.peer }
 func (r testRecord) Seq() uint64           { return r.seq }
-func (r testRecord) Server() ID            { return ID(r.server) }
+func (r testRecord) Server() casm.ID       { return casm.ID(r.server) }
 func (r testRecord) Host() (string, error) { return r.host, nil }
 func (r testRecord) Meta() (Meta, error)   { return r.meta, nil }
 

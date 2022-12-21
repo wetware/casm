@@ -210,7 +210,7 @@ func (r clientRecord) PeerBytes() ([]byte, error) {
 	return api.View_Record(r).PeerBytes()
 }
 
-func (r clientRecord) Server() routing.ID {
+func (r clientRecord) Server() casm.ID {
 	return r.heartbeat().Server()
 }
 

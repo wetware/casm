@@ -7,6 +7,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 
 	api "github.com/wetware/casm/internal/api/routing"
+	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
@@ -40,12 +41,12 @@ func (h Heartbeat) TTL() (d time.Duration) {
 	return
 }
 
-func (h Heartbeat) SetServer(id routing.ID) {
+func (h Heartbeat) SetServer(id casm.ID) {
 	h.Heartbeat.SetServer(uint64(id))
 }
 
-func (h Heartbeat) Server() routing.ID {
-	return routing.ID(h.Heartbeat.Server())
+func (h Heartbeat) Server() casm.ID {
+	return casm.ID(h.Heartbeat.Server())
 }
 
 func (h Heartbeat) Meta() (routing.Meta, error) {

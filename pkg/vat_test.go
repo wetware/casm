@@ -1,7 +1,9 @@
 package casm_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -22,6 +24,33 @@ import (
 	testing_api "github.com/wetware/casm/internal/api/testing"
 	casm "github.com/wetware/casm/pkg"
 )
+
+func TestID(t *testing.T) {
+	t.Parallel()
+	t.Helper()
+
+	var id = casm.ID(42)
+
+	t.Run("Format", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Len(t, id.Bytes(), 8, "should be 8 bytes long")
+		assert.Len(t, id.String(), 16, "should be string of length 16")
+	})
+
+	t.Run("JSON", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		err := json.NewEncoder(&buf).Encode(id)
+		require.NoError(t, err, "should marshal JSON")
+
+		var got casm.ID
+		err = json.NewDecoder(&buf).Decode(&got)
+		require.NoError(t, err, "should unmarshal JSON")
+		assert.Equal(t, id, got, "IDs should be equal")
+	})
+}
 
 func TestVat(t *testing.T) {
 	t.Parallel()

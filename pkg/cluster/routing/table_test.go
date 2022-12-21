@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
@@ -147,7 +148,7 @@ func TestRegression_ttl_index(t *testing.T) {
 			id:  "test-identifier",
 			ttl: time.Millisecond * 100,
 			seq: uint64(i),
-			ins: 42, // this needs to be held constant
+			ins: casm.ID(42), // this needs to be held constant
 		}
 
 		_ = table.Upsert(rec)
@@ -301,7 +302,7 @@ type record struct {
 	once sync.Once
 	id   peer.ID
 	seq  uint64
-	ins  uint64
+	ins  casm.ID
 	host string
 	meta routing.Meta
 	ttl  time.Duration
@@ -318,7 +319,7 @@ func (r *record) init() {
 		}
 
 		if r.ins == 0 {
-			r.ins = rand.Uint64()
+			r.ins = casm.ID(rand.Uint64())
 		}
 	})
 }
@@ -328,9 +329,9 @@ func (r *record) Peer() peer.ID {
 	return r.id
 }
 
-func (r *record) Server() routing.ID {
+func (r *record) Server() casm.ID {
 	r.init()
-	return routing.ID(r.ins)
+	return r.ins
 }
 
 func (r *record) Seq() uint64 { return r.seq }
@@ -373,3 +374,15 @@ type all struct{}
 func (all) String() string             { return "id" }
 func (all) Prefix() bool               { return true }
 func (all) PeerBytes() ([]byte, error) { return nil, nil }
+
+var globalReader globalRand
+
+type globalRand struct{ init bool }
+
+func (g *globalRand) Read(b []byte) (int, error) {
+	if !g.init {
+		rand.Seed(time.Now().UnixNano())
+	}
+
+	return rand.Read(b)
+}

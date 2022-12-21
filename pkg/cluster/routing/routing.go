@@ -3,74 +3,18 @@
 package routing
 
 import (
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
-	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
-	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/libp2p/go-libp2p/core/peer"
+	casm "github.com/wetware/casm/pkg"
 )
-
-// ID is an opaque identifier that identifies a unique host instance
-// on the network.   A fresh ID is generated for each cluster.Router
-// instance, making it possible to distinguish between multiple runs
-// of a libp2p host with a fixed peer identity.
-//
-// IDs are not guaranteed to be globally unique.
-type ID uint64
-
-func (id ID) String() string {
-	b := id.Bytes()
-	defer pool.Put(b)
-
-	buf := pool.Get(16)
-	hex.Encode(buf, b)
-
-	return *(*string)(unsafe.Pointer(&buf))
-}
-
-func (id ID) Bytes() []byte {
-	buf := pool.Get(8)
-	binary.BigEndian.PutUint64(buf, uint64(id))
-	return buf
-}
-
-func (id *ID) UnmarshalText(b []byte) error {
-	buf := pool.Get(8)
-	defer pool.Put(buf)
-
-	_, err := hex.Decode(buf, b)
-	if err == nil {
-		*id = ID(binary.BigEndian.Uint64(buf))
-	}
-
-	return err
-}
-
-func (id ID) MarshalText() ([]byte, error) {
-	b := pool.Get(16)
-	binary.BigEndian.PutUint64(b, uint64(id))
-
-	buf := id.Bytes()
-	defer pool.Put(buf)
-
-	hex.Encode(b, buf)
-	return b, nil
-}
-
-func (id ID) Loggable() map[string]any {
-	return map[string]any{
-		"server": id,
-	}
-}
 
 // Record is an entry in the routing table.
 type Record interface {
-	Server() ID
+	Server() casm.ID
 	Peer() peer.ID
 	Seq() uint64
 	TTL() time.Duration

@@ -10,6 +10,7 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	peer "github.com/libp2p/go-libp2p/core/peer"
+	casm "github.com/wetware/casm/pkg"
 	routing "github.com/wetware/casm/pkg/cluster/routing"
 )
 
@@ -95,10 +96,10 @@ func (mr *MockRecordMockRecorder) Seq() *gomock.Call {
 }
 
 // Server mocks base method.
-func (m *MockRecord) Server() routing.ID {
+func (m *MockRecord) Server() casm.ID {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Server")
-	ret0, _ := ret[0].(routing.ID)
+	ret0, _ := ret[0].(casm.ID)
 	return ret0
 }
 

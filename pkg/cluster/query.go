@@ -7,6 +7,7 @@ import (
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/libp2p/go-libp2p/core/peer"
 	api "github.com/wetware/casm/internal/api/routing"
+	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
 
@@ -87,7 +88,7 @@ func bindServer(target api.View_Index, index routing.Index) error {
 		}
 		return err
 
-	case interface{ Server() routing.ID }:
+	case interface{ Server() casm.ID }:
 		index, err := ix.Server().MarshalText()
 		if err == nil {
 			defer pool.Put(index)

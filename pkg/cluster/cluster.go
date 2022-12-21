@@ -15,6 +15,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
+	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )
@@ -39,6 +40,7 @@ type RoutingTable interface {
 // It maintains a global view of the cluster with PA/EL guarantees,
 // and periodically announces its presence to others.
 type Router struct {
+	ID    casm.ID
 	Topic Topic
 
 	Log          log.Logger
@@ -63,14 +65,9 @@ func (r *Router) String() string {
 	return r.Topic.String()
 }
 
-func (r *Router) ID() (id routing.ID) {
-	r.setup()
-	return routing.ID(r.id)
-}
-
 func (r *Router) Loggable() map[string]any {
 	return map[string]any{
-		"server": r.ID(),
+		"server": r.ID,
 		"ttl":    r.TTL,
 		"ns":     r.String(),
 	}
@@ -200,7 +197,7 @@ func (r *Router) heartbeat() {
 
 	hb := pulse.NewHeartbeat()
 	hb.SetTTL(r.TTL)
-	hb.SetServer(r.ID())
+	hb.SetServer(r.ID)
 
 	for a := range r.announce {
 		err := r.emit(r.Clock.Context(), hb, a)

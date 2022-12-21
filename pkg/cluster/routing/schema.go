@@ -11,6 +11,7 @@ import (
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/libp2p/go-libp2p/core/peer"
 	b58 "github.com/mr-tron/base58/base58"
+	casm "github.com/wetware/casm/pkg"
 )
 
 func schema() *memdb.TableSchema {
@@ -120,7 +121,7 @@ func (serverIndexer) FromArgs(args ...any) ([]byte, error) {
 	case Record:
 		return arg.Server().MarshalText()
 
-	case ID:
+	case casm.ID:
 		return arg.MarshalText()
 
 	case string:

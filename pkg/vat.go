@@ -2,9 +2,12 @@ package casm
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
+	"unsafe"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -17,6 +20,52 @@ import (
 )
 
 var ErrInvalidNS = errors.New("invalid namespace")
+
+// ID is an opaque identifier that identifies a unique vat on the
+// on the network.  A fresh identifier SHOULD be created for each
+// host restart, such that individual runs of the libp2p host may
+// be distinguished.  Use of a cryptographic PRNG is NOT REQUIRED.
+type ID uint64
+
+// String returns the hexadecimal representation of the ID.
+func (id ID) String() string {
+	b, _ := id.MarshalText()
+	return *(*string)(unsafe.Pointer(&b))
+}
+
+// Bytes returns the ID as a byte array.
+func (id ID) Bytes() []byte {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(id))
+	return buf
+}
+
+func (id *ID) UnmarshalText(b []byte) error {
+	if len(b) != 16 {
+		return fmt.Errorf("invalid length: expected 16, got %d", len(b))
+	}
+
+	var buf [8]byte
+	_, err := hex.Decode(buf[:], b)
+	if err == nil {
+		*(*uint64)(id) = binary.BigEndian.Uint64(buf[:])
+	}
+
+	return err
+}
+
+func (id ID) MarshalText() ([]byte, error) {
+	buf := make([]byte, 16)
+	binary.BigEndian.PutUint64(buf[8:], uint64(id))
+	hex.Encode(buf, buf[8:])
+	return buf, nil
+}
+
+func (id ID) Loggable() map[string]any {
+	return map[string]any{
+		"server": id,
+	}
+}
 
 // Vat wraps a libp2p Host and provides a high-level interface to a
 // capability-oriented network. Host has no private fields, and can

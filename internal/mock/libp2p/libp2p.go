@@ -264,6 +264,20 @@ func (mr *MockConnMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockConn)(nil).Close))
 }
 
+// ConnState mocks base method.
+func (m *MockConn) ConnState() network.ConnectionState {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConnState")
+	ret0, _ := ret[0].(network.ConnectionState)
+	return ret0
+}
+
+// ConnState indicates an expected call of ConnState.
+func (mr *MockConnMockRecorder) ConnState() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConnState", reflect.TypeOf((*MockConn)(nil).ConnState))
+}
+
 // GetStreams mocks base method.
 func (m *MockConn) GetStreams() []network.Stream {
 	m.ctrl.T.Helper()
