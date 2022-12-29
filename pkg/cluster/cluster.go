@@ -40,14 +40,20 @@ type RoutingTable interface {
 // It maintains a global view of the cluster with PA/EL guarantees,
 // and periodically announces its presence to others.
 type Router struct {
+	// required fields
+
 	ID    casm.ID
 	Topic Topic
+
+	// optional fields
 
 	Log          log.Logger
 	TTL          time.Duration
 	Meta         pulse.Preparer
 	Clock        Clock
 	RoutingTable RoutingTable
+
+	// private fields
 
 	mu             sync.Mutex
 	init, relaying atomic.Bool
