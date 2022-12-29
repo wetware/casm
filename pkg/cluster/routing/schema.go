@@ -11,10 +11,9 @@ import (
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/libp2p/go-libp2p/core/peer"
 	b58 "github.com/mr-tron/base58/base58"
-	"go.uber.org/atomic"
 )
 
-func schema(clock *atomic.Time) *memdb.TableSchema {
+func schema(clock *Clock) *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: "record",
 		Indexes: map[string]*memdb.IndexSchema{

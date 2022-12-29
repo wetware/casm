@@ -1,22 +1,41 @@
 package routing
 
 import (
+	"sync"
 	"time"
 
 	"github.com/wetware/casm/pkg/stm"
-	"go.uber.org/atomic"
 )
 
+type Clock struct {
+	time time.Time
+	mu   sync.RWMutex
+}
+
 type Table struct {
-	clock   *atomic.Time
+	clock   *Clock
 	records stm.TableRef
 	sched   stm.Scheduler
+}
+
+func (c *Clock) Load() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.time
+}
+
+func (c *Clock) Store(val time.Time) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	c.time = val
 }
 
 func New(t0 time.Time) Table {
 	var (
 		f     stm.Factory
-		clock = atomic.NewTime(t0)
+		clock = &Clock{
+			time: t0,
+		}
 	)
 
 	records := f.Register("record", schema(clock))
