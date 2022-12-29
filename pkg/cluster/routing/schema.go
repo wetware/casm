@@ -13,7 +13,7 @@ import (
 	b58 "github.com/mr-tron/base58/base58"
 )
 
-func schema(clock *Clock) *memdb.TableSchema {
+func schema() *memdb.TableSchema {
 	return &memdb.TableSchema{
 		Name: "record",
 		Indexes: map[string]*memdb.IndexSchema{
