@@ -13,36 +13,34 @@ import (
 	b58 "github.com/mr-tron/base58/base58"
 )
 
-func schema() *memdb.TableSchema {
-	return &memdb.TableSchema{
-		Name: "record",
-		Indexes: map[string]*memdb.IndexSchema{
-			"id": {
-				Name:    "id",
-				Unique:  true,
-				Indexer: idIndexer{},
-			},
-			"server": {
-				Name:    "server",
-				Unique:  true,
-				Indexer: serverIndexer{},
-			},
-			"ttl": {
-				Name:    "ttl",
-				Indexer: timeIndexer{},
-			},
-			"host": {
-				Name:         "host",
-				AllowMissing: true,
-				Indexer:      hostnameIndexer{},
-			},
-			"meta": {
-				Name:         "meta",
-				AllowMissing: true,
-				Indexer:      metaIndexer{},
-			},
+var schema = memdb.TableSchema{
+	Name: "record",
+	Indexes: map[string]*memdb.IndexSchema{
+		"id": {
+			Name:    "id",
+			Unique:  true,
+			Indexer: idIndexer{},
 		},
-	}
+		"server": {
+			Name:    "server",
+			Unique:  true,
+			Indexer: serverIndexer{},
+		},
+		"ttl": {
+			Name:    "ttl",
+			Indexer: timeIndexer{},
+		},
+		"host": {
+			Name:         "host",
+			AllowMissing: true,
+			Indexer:      hostnameIndexer{},
+		},
+		"meta": {
+			Name:         "meta",
+			AllowMissing: true,
+			Indexer:      metaIndexer{},
+		},
+	},
 }
 
 type idIndexer struct{}
