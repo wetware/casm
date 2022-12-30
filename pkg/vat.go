@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 	"unsafe"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -72,6 +74,7 @@ func (id ID) Loggable() map[string]any {
 // be instantiated directly. The New() function is also provided as
 // convenient way of populating the Host field.
 type Vat struct {
+	ID      ID
 	NS      string
 	Host    host.Host
 	Metrics MetricReporter
@@ -79,14 +82,20 @@ type Vat struct {
 
 // New is a convenience method that constructs a libp2p host and uses
 // it to populate the Vat's Host field.  The Metrics field MAY be set
-// manually before any of the returned Vat's methods are called.
+// manually before any of the returned Vat's methods are called.  The
+// ID field is generated using math/rand.
 func New(ns string, f HostFactory) (Vat, error) {
 	if ns == "" {
 		ns = "casm"
 	}
 
+	// Use throw-away source to avoid seeding the global source in
+	// math/rand.
+	source := rand.NewSource(time.Now().UnixNano()).(rand.Source64)
+
 	h, err := f()
 	return Vat{
+		ID:   ID(source.Uint64()),
 		NS:   ns,
 		Host: h,
 	}, err
@@ -94,6 +103,7 @@ func New(ns string, f HostFactory) (Vat, error) {
 
 func (v Vat) Loggable() map[string]interface{} {
 	return map[string]interface{}{
+		"id":   v.ID,
 		"ns":   v.NS,
 		"peer": v.Host.ID(),
 	}
