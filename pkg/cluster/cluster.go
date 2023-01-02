@@ -39,7 +39,12 @@ type RoutingTable interface {
 // It maintains a global view of the cluster with PA/EL guarantees,
 // and periodically announces its presence to others.
 type Router struct {
+	// required fields
+
+	ID    routing.ID
 	Topic Topic
+
+	// optional fields
 
 	Log          log.Logger
 	TTL          time.Duration
@@ -47,9 +52,10 @@ type Router struct {
 	Clock        Clock
 	RoutingTable RoutingTable
 
+	// private fields
+
 	mu             sync.Mutex
 	init, relaying atomic.Bool
-	id             uint64 // instance ID
 	announce       chan []pubsub.PubOpt
 }
 
@@ -63,14 +69,9 @@ func (r *Router) String() string {
 	return r.Topic.String()
 }
 
-func (r *Router) ID() (id routing.ID) {
-	r.setup()
-	return routing.ID(r.id)
-}
-
 func (r *Router) Loggable() map[string]any {
 	return map[string]any{
-		"server": r.ID(),
+		"server": r.ID,
 		"ttl":    r.TTL,
 		"ns":     r.String(),
 	}
@@ -149,7 +150,6 @@ func (r *Router) setup() {
 			r.Clock = NewClock(time.Second)
 		}
 
-		r.id = rand.Uint64()
 		r.announce = make(chan []pubsub.PubOpt)
 	}
 }
@@ -200,7 +200,7 @@ func (r *Router) heartbeat() {
 
 	hb := pulse.NewHeartbeat()
 	hb.SetTTL(r.TTL)
-	hb.SetServer(r.ID())
+	hb.SetServer(r.ID)
 
 	for a := range r.announce {
 		err := r.emit(r.Clock.Context(), hb, a)
