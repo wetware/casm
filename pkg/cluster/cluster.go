@@ -78,7 +78,7 @@ func (r *Router) Loggable() map[string]any {
 }
 
 func (r *Router) View() View {
-	r.setup()
+	r.setup() // TODO:  can we get rid of this and swap the lock/atomics for a single sync.Once?
 	return Server{RoutingTable: r.RoutingTable}.View()
 }
 
