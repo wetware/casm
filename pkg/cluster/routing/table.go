@@ -38,7 +38,7 @@ func New(t0 time.Time) Table {
 		}
 	)
 
-	records := f.Register("record", schema())
+	records := f.Register("record", &schema)
 	sched, err := f.NewScheduler() // no err since f is freshly instantiated
 	if err != nil {
 		panic(err)
