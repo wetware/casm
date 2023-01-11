@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/flowcontrol"
 	api "github.com/wetware/casm/internal/api/debug"
 	casm "github.com/wetware/casm/pkg"
 	"github.com/wetware/casm/pkg/util/stream"
@@ -130,7 +129,7 @@ type streamWriter struct {
 
 func writer(ctx context.Context, call api.Sampler_sample) streamWriter {
 	w := call.Args().Writer()
-	w.SetFlowLimiter(flowcontrol.NewFixedLimiter(1024)) // TODO(soon): use BBR once scheduler bug is fixed
+	// TODO(soon): use BBR once scheduler bug is fixed
 
 	return streamWriter{
 		ctx:    ctx,

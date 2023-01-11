@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/flowcontrol"
 
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/pulse"
@@ -48,7 +47,7 @@ func (s Server) Iter(ctx context.Context, call api.View_iter) error {
 	}
 
 	handler := call.Args().Handler()
-	handler.SetFlowLimiter(flowcontrol.NewFixedLimiter(1024)) // TODO(soon): use BBR once scheduler bug is fixed
+	// TODO(soon): use BBR once scheduler bug is fixed
 
 	var (
 		stream = stream.New(handler.Recv)
