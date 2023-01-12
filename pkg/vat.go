@@ -210,7 +210,14 @@ func (r streamErrorReporter) ReportError(err error) {
 	if r.l != nil && err != nil {
 		log := r.l.WithError(err)
 
-		if ex, ok := err.(exc.Exception); ok {
+		switch ex := err.(type) {
+		case exc.Exception:
+			log = log.WithField("exc_type", ex.Type)
+		case *exc.Exception:
+			if ex == nil { // BUG: capnp sometimes passes nil *Exception
+				return
+			}
+
 			log = log.WithField("exc_type", ex.Type)
 		}
 
