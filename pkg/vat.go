@@ -86,7 +86,7 @@ func (v Vat) Connect(ctx context.Context, vat peer.AddrInfo, c Capability) (*rpc
 
 	return rpc.NewConn(c.Upgrade(s), &rpc.Options{
 		BootstrapClient: bootstrapper(c),
-		ErrorReporter:   StreamErrorReporter{l: v.Logger, s: s},
+		ErrorReporter:   streamErrorReporter{l: v.Logger, s: s},
 	}), nil
 }
 
@@ -191,12 +191,12 @@ func (m metricsReporter) StreamClosed(id protocol.ID) {
 	}
 }
 
-type StreamErrorReporter struct {
+type streamErrorReporter struct {
 	l log.Logger
 	s network.Stream
 }
 
-func (r StreamErrorReporter) ReportError(err error) {
+func (r streamErrorReporter) ReportError(err error) {
 	if r.l != nil {
 		r.l.WithField("stream", r.s.ID()).Warn(err)
 	}
