@@ -207,11 +207,10 @@ type streamErrorReporter struct {
 }
 
 func (r streamErrorReporter) ReportError(err error) {
-	if r.l != nil {
+	if r.l != nil && err != nil {
 		log := r.l.WithError(err)
 
-		var ex exc.Exception
-		if errors.As(err, &ex) {
+		if ex, ok := err.(exc.Exception); ok {
 			log = log.WithField("exc_type", ex.Type)
 		}
 
