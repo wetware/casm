@@ -14,6 +14,7 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/lthibault/log"
 )
 
 var ErrInvalidNS = errors.New("invalid namespace")
@@ -26,6 +27,7 @@ type Vat struct {
 	NS      string
 	Host    host.Host
 	Metrics MetricReporter
+	Logger  log.Logger
 }
 
 // New is a convenience method that constructs a libp2p host and uses
@@ -84,6 +86,7 @@ func (v Vat) Connect(ctx context.Context, vat peer.AddrInfo, c Capability) (*rpc
 
 	return rpc.NewConn(c.Upgrade(s), &rpc.Options{
 		BootstrapClient: bootstrapper(c),
+		ErrorReporter:   StreamErrorReporter{l: v.Logger, s: s},
 	}), nil
 }
 
@@ -185,5 +188,16 @@ func (m metricsReporter) StreamClosed(id protocol.ID) {
 	if m.MetricReporter != nil {
 		m.Decr(fmt.Sprintf("rpc.%s", id))
 		m.Decr("rpc.connected")
+	}
+}
+
+type StreamErrorReporter struct {
+	l log.Logger
+	s network.Stream
+}
+
+func (r StreamErrorReporter) ReportError(err error) {
+	if r.l != nil {
+		r.l.WithField("stream", r.s.ID()).Warn(err)
 	}
 }
