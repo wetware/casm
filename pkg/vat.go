@@ -13,6 +13,7 @@ import (
 	"github.com/multiformats/go-multistream"
 
 	"capnproto.org/go/capnp/v3"
+	"capnproto.org/go/capnp/v3/exc"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/lthibault/log"
 )
@@ -86,7 +87,7 @@ func (v Vat) Connect(ctx context.Context, vat peer.AddrInfo, c Capability) (*rpc
 
 	return rpc.NewConn(c.Upgrade(s), &rpc.Options{
 		BootstrapClient: bootstrapper(c),
-		ErrorReporter:   streamErrorReporter{l: v.Logger, s: s},
+		ErrorReporter:   v.errorReporter(s),
 	}), nil
 }
 
@@ -151,6 +152,16 @@ func (v Vat) isInvalidNS(id peer.ID, c Capability) bool {
 	return false // not a ns issue; proto actually unsupported
 }
 
+func (v Vat) errorReporter(s network.Stream) rpc.ErrorReporter {
+	if v.Logger == nil {
+		return nil
+	}
+
+	return streamErrorReporter{
+		l: v.Logger.WithField("stream", s.ID()),
+	}
+}
+
 func (v Vat) metrics() metricsReporter {
 	return metricsReporter{v.Metrics}
 }
@@ -193,11 +204,17 @@ func (m metricsReporter) StreamClosed(id protocol.ID) {
 
 type streamErrorReporter struct {
 	l log.Logger
-	s network.Stream
 }
 
 func (r streamErrorReporter) ReportError(err error) {
 	if r.l != nil {
-		r.l.WithField("stream", r.s.ID()).Warn(err)
+		log := r.l.WithError(err)
+
+		var ex exc.Exception
+		if errors.As(err, &ex) {
+			log = log.WithField("exc_type", ex.Type)
+		}
+
+		log.Debug("error encountered in rpc protocol")
 	}
 }
