@@ -47,6 +47,29 @@ The best place to get help is on [Matrix](https://matrix.to/#/!qsAqxgSQYuowuCsig
 
 We're friendly! Drop in and say hi! 👋
 
+## CASM Users
+
+Organizations using CASM in production
+
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center"><a href="https://blocknative.com"><img src="https://avatars.githubusercontent.com/u/40773874?s=100" width="100px;" alt="Blocknative"/><br /><sub><b>Blocknative</b></sub></a><br /></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+## Contributors
+
+<a href="https://github.com/wetware/casm/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=wetware/casm" />
+</a>
+
 ## Footnotes
 
 1. The term "zero-cost" is obviously a figure of speech, which is intended to emphasize the following point.  As a matter of principle, CASM emphasizes "thin", non-leaky abstractions that do not significantly impact performance.
