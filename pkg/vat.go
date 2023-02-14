@@ -10,7 +10,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/multiformats/go-multistream"
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/exc"
@@ -74,15 +73,11 @@ func (v Vat) Connect(ctx context.Context, vat peer.AddrInfo, c Capability) (*rpc
 
 	s, err := v.Host.NewStream(ctx, vat.ID, v.protocolsFor(c)...)
 	if err != nil {
-		if err != multistream.ErrNotSupported {
-			return nil, err
-		}
-
 		if v.isInvalidNS(vat.ID, c) {
 			return nil, ErrInvalidNS
 		}
 
-		return nil, err // TODO:  catch multistream.ErrNotSupported
+		return nil, err
 	}
 
 	return rpc.NewConn(c.Upgrade(s), &rpc.Options{
