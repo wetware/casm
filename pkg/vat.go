@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -31,8 +30,8 @@ type Vat struct {
 }
 
 // New is a convenience method that constructs a libp2p host and uses
-// it to populate the Vat's Host field.  The Metrics field MAY be set
-// manually before any of the returned Vat's methods are called.
+// it to populate the Vat's Host field.   Callers MUST NOT mutate any
+// of the returned Vat's fields after calling its methods.
 func New(ns string, f HostFactory) (Vat, error) {
 	if ns == "" {
 		ns = "casm"
@@ -162,14 +161,18 @@ func (v Vat) metrics() metricsReporter {
 }
 
 // match the protocol, ignoring namespace
-func matches(c Capability, proto string) bool {
+func matches(c Capability, proto protocol.ID) bool {
 	for _, p := range c.Protocols() {
-		if strings.HasSuffix(proto, string(p)) {
+		if hasSuffix(proto, p) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func hasSuffix(s, suffix protocol.ID) bool {
+	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }
 
 func bootstrapper(c Capability) capnp.Client {

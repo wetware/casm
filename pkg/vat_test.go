@@ -10,6 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/multiformats/go-multistream"
 
@@ -91,7 +92,7 @@ func TestVat(t *testing.T) {
 		sv.Embargo(echoer())
 		assert.Eventually(t, func() bool {
 			conn, err := cv.Connect(context.Background(), addr(sv), echoer())
-			if err == nil || !errors.Is(err, multistream.ErrNotSupported) {
+			if err == nil || !errors.As(err, new(multistream.ErrNotSupported[protocol.ID])) {
 				conn.Close()
 				return false
 			}
