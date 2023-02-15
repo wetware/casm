@@ -216,7 +216,7 @@ func (mr *MockHostMockRecorder) SetStreamHandler(pid, handler interface{}) *gomo
 }
 
 // SetStreamHandlerMatch mocks base method.
-func (m *MockHost) SetStreamHandlerMatch(arg0 protocol.ID, arg1 func(string) bool, arg2 network.StreamHandler) {
+func (m *MockHost) SetStreamHandlerMatch(arg0 protocol.ID, arg1 func(protocol.ID) bool, arg2 network.StreamHandler) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetStreamHandlerMatch", arg0, arg1, arg2)
 }
@@ -262,6 +262,20 @@ func (m *MockConn) Close() error {
 func (mr *MockConnMockRecorder) Close() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockConn)(nil).Close))
+}
+
+// ConnState mocks base method.
+func (m *MockConn) ConnState() network.ConnectionState {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConnState")
+	ret0, _ := ret[0].(network.ConnectionState)
+	return ret0
+}
+
+// ConnState indicates an expected call of ConnState.
+func (mr *MockConnMockRecorder) ConnState() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConnState", reflect.TypeOf((*MockConn)(nil).ConnState))
 }
 
 // GetStreams mocks base method.
