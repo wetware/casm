@@ -92,7 +92,7 @@ func TestVat(t *testing.T) {
 		sv.Embargo(echoer())
 		assert.Eventually(t, func() bool {
 			conn, err := cv.Connect(context.Background(), addr(sv), echoer())
-			if err == nil || !errors.As(err, new(multistream.ErrNotSupported[protocol.ID])) {
+			if err == nil || !errors.Is(err, multistream.ErrNotSupported[protocol.ID]{}) {
 				conn.Close()
 				return false
 			}
