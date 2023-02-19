@@ -160,7 +160,7 @@ type matcherTest struct {
 
 func (mt matcherTest) Run(t *testing.T) {
 	t.Run(mt.name, func(t *testing.T) {
-		if match := mt.matcher.MatchProto(mt.input); mt.expectNoMatch {
+		if match := mt.matcher.Match(mt.input); mt.expectNoMatch {
 			assert.False(t, match, "should not match '%s'", mt.input)
 		} else {
 			assert.True(t, match, "should match '%s'", mt.input)

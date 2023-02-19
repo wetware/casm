@@ -10,8 +10,8 @@ import (
 
 type MatchFunc func(string) (string, bool)
 
-func (f MatchFunc) Match(s string) bool {
-	_, ok := f(s)
+func (f MatchFunc) Match(id protocol.ID) bool {
+	_, ok := f(string(id))
 	return ok
 }
 
@@ -35,10 +35,6 @@ func Match(ms ...MatchFunc) (f MatchFunc) {
 	}
 
 	return
-}
-
-func (f MatchFunc) MatchProto(id protocol.ID) bool {
-	return f.Match(string(id))
 }
 
 func Exactly(s string) MatchFunc {

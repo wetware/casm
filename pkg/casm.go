@@ -148,13 +148,13 @@ var (
 // MatchPacked returns true if the supplied protocol.ID requires
 // a packed Cap'n Proto transport.
 func MatchPacked(id protocol.ID) bool {
-	return packedProt.MatchProto(id)
+	return packedProt.Match(id)
 }
 
 // MatchLz4 returns true if the supplied protocol.ID requires
 // a Lz4 compressed Cap'n Proto transport.
 func MatchLz4(id protocol.ID) bool {
-	return lz4Prot.MatchProto(id)
+	return lz4Prot.Match(id)
 }
 
 type Lz4Stream struct {
