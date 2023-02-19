@@ -15,7 +15,7 @@ func TestProto(t *testing.T) {
 	matcher := casm.NewMatcher(ns)
 	proto := casm.Subprotocol(ns)
 
-	assert.True(t, matcher.MatchProto(proto),
+	assert.True(t, matcher.Match(proto),
 		"matcher should match subprotocol")
 }
 
