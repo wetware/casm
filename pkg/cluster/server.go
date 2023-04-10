@@ -10,7 +10,6 @@ import (
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/query"
 	"github.com/wetware/casm/pkg/cluster/routing"
-	"github.com/wetware/casm/pkg/util/stream"
 )
 
 type RecordBinder interface {
@@ -46,17 +45,16 @@ func (s Server) Iter(ctx context.Context, call api.View_iter) error {
 		return err
 	}
 
-	handler := call.Args().Handler()
-	// TODO(soon): use BBR once scheduler bug is fixed
-
 	var (
-		stream = stream.New(handler.Recv)
-		iter   = iterator(ctx, stream, handler)
+		handler = call.Args().Handler()
+		// TODO(soon): use BBR once scheduler bug is fixed
+
+		iter = iterator(ctx, handler)
 	)
 
 	if err = s.bind(iter, selector(sel)); err == nil {
 		call.Go()
-		err = stream.Wait()
+		err = handler.WaitStreaming()
 	}
 
 	return err
@@ -120,11 +118,9 @@ func maybeRecord(call api.View_lookup) bindFunc {
 	}
 }
 
-type handlerStream = stream.Stream[api.View_Handler_recv_Params]
-
-func iterator(ctx context.Context, s *handlerStream, h api.View_Handler) bindFunc {
+func iterator(ctx context.Context, h api.View_Handler) bindFunc {
 	return func(r routing.Record) error {
-		s.Call(ctx, record(r))
+		h.Recv(ctx, record(r))
 		return nil
 	}
 }

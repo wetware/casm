@@ -3,7 +3,7 @@ module github.com/wetware/casm
 go 1.19
 
 require (
-	capnproto.org/go/capnp/v3 v3.0.0-alpha.26
+	capnproto.org/go/capnp/v3 v3.0.0-alpha.27
 	github.com/coreos/go-semver v0.3.1
 	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-memdb v1.3.4
@@ -16,7 +16,6 @@ require (
 	github.com/lthibault/go-libp2p-inproc-transport v0.4.0
 	github.com/lthibault/jitterbug/v2 v2.2.2
 	github.com/lthibault/log v1.2.3
-	github.com/lthibault/uq v1.0.0
 	github.com/lthibault/util v0.0.12
 	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/termenv v0.15.1
@@ -125,5 +124,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
 	nhooyr.io/websocket v1.8.7 // indirect
-	zenhack.net/go/util v0.0.0-20230327231740-da8cb323921c // indirect
+	zenhack.net/go/util v0.0.0-20230407221818-ef608d25cf61 // indirect
 )

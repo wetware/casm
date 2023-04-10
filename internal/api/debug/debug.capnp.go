@@ -10,7 +10,6 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
-	fmt "fmt"
 	strconv "strconv"
 )
 
@@ -89,6 +88,7 @@ type Debugger capnp.Client
 const Debugger_TypeID = 0xc24c1801396ca74c
 
 func (c Debugger) SysInfo(ctx context.Context, params func(Debugger_sysInfo_Params) error) (Debugger_sysInfo_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xc24c1801396ca74c,
@@ -101,10 +101,14 @@ func (c Debugger) SysInfo(ctx context.Context, params func(Debugger_sysInfo_Para
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Debugger_sysInfo_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Debugger_sysInfo_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Debugger) EnvVars(ctx context.Context, params func(Debugger_envVars_Params) error) (Debugger_envVars_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xc24c1801396ca74c,
@@ -117,10 +121,14 @@ func (c Debugger) EnvVars(ctx context.Context, params func(Debugger_envVars_Para
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Debugger_envVars_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Debugger_envVars_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Debugger) Profiler(ctx context.Context, params func(Debugger_profiler_Params) error) (Debugger_profiler_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xc24c1801396ca74c,
@@ -133,10 +141,14 @@ func (c Debugger) Profiler(ctx context.Context, params func(Debugger_profiler_Pa
 		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 0}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Debugger_profiler_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Debugger_profiler_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c Debugger) Tracer(ctx context.Context, params func(Debugger_tracer_Params) error) (Debugger_tracer_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xc24c1801396ca74c,
@@ -149,8 +161,14 @@ func (c Debugger) Tracer(ctx context.Context, params func(Debugger_tracer_Params
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Debugger_tracer_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Debugger_tracer_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Debugger) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -158,7 +176,7 @@ func (c Debugger) Tracer(ctx context.Context, params func(Debugger_tracer_Params
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c Debugger) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "Debugger(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -218,7 +236,9 @@ func (c Debugger) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c Debugger) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A Debugger_Server is a Debugger with a local implementation.
+}
+
+// A Debugger_Server is a Debugger with a local implementation.
 type Debugger_Server interface {
 	SysInfo(context.Context, Debugger_sysInfo) error
 
@@ -818,7 +838,7 @@ func (s Debugger_profiler_Results) SetProfiler(c capnp.Client) error {
 		return capnp.Struct(s).SetPtr(0, capnp.Ptr{})
 	}
 	seg := s.Segment()
-	in := capnp.NewInterface(seg, seg.Message().AddCap(c))
+	in := capnp.NewInterface(seg, seg.Message().CapTable().Add(c))
 	return capnp.Struct(s).SetPtr(0, in.ToPtr())
 }
 
@@ -968,7 +988,7 @@ func (s Debugger_tracer_Results) SetTracer(v Sampler) error {
 		return capnp.Struct(s).SetPtr(0, capnp.Ptr{})
 	}
 	seg := s.Segment()
-	in := capnp.NewInterface(seg, seg.Message().AddCap(capnp.Client(v)))
+	in := capnp.NewInterface(seg, seg.Message().CapTable().Add(capnp.Client(v)))
 	return capnp.Struct(s).SetPtr(0, in.ToPtr())
 }
 
@@ -1647,6 +1667,7 @@ type Snapshotter capnp.Client
 const Snapshotter_TypeID = 0xca6d27d101913471
 
 func (c Snapshotter) Snapshot(ctx context.Context, params func(Snapshotter_snapshot_Params) error) (Snapshotter_snapshot_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xca6d27d101913471,
@@ -1659,8 +1680,14 @@ func (c Snapshotter) Snapshot(ctx context.Context, params func(Snapshotter_snaps
 		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 0}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Snapshotter_snapshot_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Snapshotter_snapshot_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Snapshotter) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -1668,7 +1695,7 @@ func (c Snapshotter) Snapshot(ctx context.Context, params func(Snapshotter_snaps
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c Snapshotter) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "Snapshotter(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -1728,7 +1755,9 @@ func (c Snapshotter) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c Snapshotter) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A Snapshotter_Server is a Snapshotter with a local implementation.
+}
+
+// A Snapshotter_Server is a Snapshotter with a local implementation.
 type Snapshotter_Server interface {
 	Snapshot(context.Context, Snapshotter_snapshot) error
 }
@@ -1948,6 +1977,7 @@ type Sampler capnp.Client
 const Sampler_TypeID = 0xcb9867bf09c9fd97
 
 func (c Sampler) Sample(ctx context.Context, params func(Sampler_sample_Params) error) (Sampler_sample_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xcb9867bf09c9fd97,
@@ -1960,8 +1990,14 @@ func (c Sampler) Sample(ctx context.Context, params func(Sampler_sample_Params) 
 		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Sampler_sample_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Sampler_sample_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Sampler) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -1969,7 +2005,7 @@ func (c Sampler) Sample(ctx context.Context, params func(Sampler_sample_Params) 
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c Sampler) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "Sampler(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -2029,7 +2065,9 @@ func (c Sampler) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c Sampler) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A Sampler_Server is a Sampler with a local implementation.
+}
+
+// A Sampler_Server is a Sampler with a local implementation.
 type Sampler_Server interface {
 	Sample(context.Context, Sampler_sample) error
 }
@@ -2099,7 +2137,7 @@ type Sampler_Writer capnp.Client
 // Sampler_Writer_TypeID is the unique identifier for the type Sampler_Writer.
 const Sampler_Writer_TypeID = 0xbad68cb175d6ef9e
 
-func (c Sampler_Writer) Write(ctx context.Context, params func(Sampler_Writer_write_Params) error) (stream.StreamResult_Future, capnp.ReleaseFunc) {
+func (c Sampler_Writer) Write(ctx context.Context, params func(Sampler_Writer_write_Params) error) error {
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xbad68cb175d6ef9e,
@@ -2112,8 +2150,13 @@ func (c Sampler_Writer) Write(ctx context.Context, params func(Sampler_Writer_wr
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Sampler_Writer_write_Params(s)) }
 	}
-	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return stream.StreamResult_Future{Future: ans.Future()}, release
+
+	return capnp.Client(c).SendStreamCall(ctx, s)
+
+}
+
+func (c Sampler_Writer) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -2121,7 +2164,7 @@ func (c Sampler_Writer) Write(ctx context.Context, params func(Sampler_Writer_wr
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c Sampler_Writer) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "Sampler_Writer(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -2181,7 +2224,9 @@ func (c Sampler_Writer) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c Sampler_Writer) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A Sampler_Writer_Server is a Sampler_Writer with a local implementation.
+}
+
+// A Sampler_Writer_Server is a Sampler_Writer with a local implementation.
 type Sampler_Writer_Server interface {
 	Write(context.Context, Sampler_Writer_write) error
 }
@@ -2384,7 +2429,7 @@ func (s Sampler_sample_Params) SetWriter(v Sampler_Writer) error {
 		return capnp.Struct(s).SetPtr(0, capnp.Ptr{})
 	}
 	seg := s.Segment()
-	in := capnp.NewInterface(seg, seg.Message().AddCap(capnp.Client(v)))
+	in := capnp.NewInterface(seg, seg.Message().CapTable().Add(capnp.Client(v)))
 	return capnp.Struct(s).SetPtr(0, in.ToPtr())
 }
 
@@ -2589,30 +2634,35 @@ const schema_a90d3b8939007f97 = "x\xda\xa4Vol\x1cW\x11\x9fyo\xf7\xf6\xce>" +
 	"/\x13\x9a?\xa3C\x9c\x93\xbe\x9af(\x92\x8b7Q" +
 	"\xfe\xef\x00\x00\x00\xff\xffy\xd8\x86\x8a"
 
-func init() {
-	schemas.Register(schema_a90d3b8939007f97,
-		0x824eafd52229a594,
-		0x83db2441501729b0,
-		0x8a7b0758ee0ddecb,
-		0x8e15524f9d7d00dd,
-		0x8fdb5f6d26c5dc7d,
-		0x95d1c46932719c75,
-		0x99709cf2f55a9742,
-		0xa78273130755c2b8,
-		0xaaf96929f804b361,
-		0xaf1f635ea04daf65,
-		0xb0d6060017654bb5,
-		0xb7089c9e44bf69bc,
-		0xbad68cb175d6ef9e,
-		0xc24c1801396ca74c,
-		0xca4856ba299657e7,
-		0xca6d27d101913471,
-		0xcb9867bf09c9fd97,
-		0xd19693a973f6d246,
-		0xd9d25e11d54da126,
-		0xdef7de19d8fdbf8d,
-		0xdfdba19e4a7c94f1,
-		0xe5abfacae53c612f,
-		0xe9c5e5ae3dbeef0f,
-		0xf9a6bfc943cf37b8)
+func RegisterSchema(reg *schemas.Registry) {
+	reg.Register(&schemas.Schema{
+		String: schema_a90d3b8939007f97,
+		Nodes: []uint64{
+			0x824eafd52229a594,
+			0x83db2441501729b0,
+			0x8a7b0758ee0ddecb,
+			0x8e15524f9d7d00dd,
+			0x8fdb5f6d26c5dc7d,
+			0x95d1c46932719c75,
+			0x99709cf2f55a9742,
+			0xa78273130755c2b8,
+			0xaaf96929f804b361,
+			0xaf1f635ea04daf65,
+			0xb0d6060017654bb5,
+			0xb7089c9e44bf69bc,
+			0xbad68cb175d6ef9e,
+			0xc24c1801396ca74c,
+			0xca4856ba299657e7,
+			0xca6d27d101913471,
+			0xcb9867bf09c9fd97,
+			0xd19693a973f6d246,
+			0xd9d25e11d54da126,
+			0xdef7de19d8fdbf8d,
+			0xdfdba19e4a7c94f1,
+			0xe5abfacae53c612f,
+			0xe9c5e5ae3dbeef0f,
+			0xf9a6bfc943cf37b8,
+		},
+		Compressed: true,
+	})
 }

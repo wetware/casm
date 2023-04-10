@@ -105,7 +105,12 @@ const schema_bbd81c151780f030 = "x\xda\x12Ht`1\xe4\xdd\xcf\xc8\xc0\x14(\xc2\xca"
 	"\x03\x03#/\x03\x13#/\x03# \x00\x00\xff\xfft" +
 	"w j"
 
-func init() {
-	schemas.Register(schema_bbd81c151780f030,
-		0xfcef4b0e93332397)
+func RegisterSchema(reg *schemas.Registry) {
+	reg.Register(&schemas.Schema{
+		String: schema_bbd81c151780f030,
+		Nodes: []uint64{
+			0xfcef4b0e93332397,
+		},
+		Compressed: true,
+	})
 }

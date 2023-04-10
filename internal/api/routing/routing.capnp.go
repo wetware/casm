@@ -10,7 +10,6 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
-	fmt "fmt"
 	strconv "strconv"
 )
 
@@ -142,6 +141,7 @@ type View capnp.Client
 const View_TypeID = 0xb8cc1b0ba89ddfd2
 
 func (c View) Lookup(ctx context.Context, params func(View_lookup_Params) error) (View_lookup_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb8cc1b0ba89ddfd2,
@@ -154,10 +154,14 @@ func (c View) Lookup(ctx context.Context, params func(View_lookup_Params) error)
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 2}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(View_lookup_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return View_lookup_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c View) Iter(ctx context.Context, params func(View_iter_Params) error) (View_iter_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb8cc1b0ba89ddfd2,
@@ -170,10 +174,14 @@ func (c View) Iter(ctx context.Context, params func(View_iter_Params) error) (Vi
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 3}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(View_iter_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return View_iter_Results_Future{Future: ans.Future()}, release
+
 }
+
 func (c View) Reverse(ctx context.Context, params func(View_reverse_Params) error) (View_reverse_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xb8cc1b0ba89ddfd2,
@@ -186,8 +194,14 @@ func (c View) Reverse(ctx context.Context, params func(View_reverse_Params) erro
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(View_reverse_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return View_reverse_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c View) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -195,7 +209,7 @@ func (c View) Reverse(ctx context.Context, params func(View_reverse_Params) erro
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c View) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "View(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -255,7 +269,9 @@ func (c View) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c View) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A View_Server is a View with a local implementation.
+}
+
+// A View_Server is a View with a local implementation.
 type View_Server interface {
 	Lookup(context.Context, View_lookup) error
 
@@ -387,7 +403,7 @@ type View_Handler capnp.Client
 // View_Handler_TypeID is the unique identifier for the type View_Handler.
 const View_Handler_TypeID = 0x9321a2d72dff5f08
 
-func (c View_Handler) Recv(ctx context.Context, params func(View_Handler_recv_Params) error) (stream.StreamResult_Future, capnp.ReleaseFunc) {
+func (c View_Handler) Recv(ctx context.Context, params func(View_Handler_recv_Params) error) error {
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0x9321a2d72dff5f08,
@@ -400,8 +416,13 @@ func (c View_Handler) Recv(ctx context.Context, params func(View_Handler_recv_Pa
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(View_Handler_recv_Params(s)) }
 	}
-	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return stream.StreamResult_Future{Future: ans.Future()}, release
+
+	return capnp.Client(c).SendStreamCall(ctx, s)
+
+}
+
+func (c View_Handler) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -409,7 +430,7 @@ func (c View_Handler) Recv(ctx context.Context, params func(View_Handler_recv_Pa
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c View_Handler) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "View_Handler(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -469,7 +490,9 @@ func (c View_Handler) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c View_Handler) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A View_Handler_Server is a View_Handler with a local implementation.
+}
+
+// A View_Handler_Server is a View_Handler with a local implementation.
 type View_Handler_Server interface {
 	Recv(context.Context, View_Handler_recv) error
 }
@@ -1635,7 +1658,7 @@ func (s View_iter_Params) SetHandler(v View_Handler) error {
 		return capnp.Struct(s).SetPtr(0, capnp.Ptr{})
 	}
 	seg := s.Segment()
-	in := capnp.NewInterface(seg, seg.Message().AddCap(capnp.Client(v)))
+	in := capnp.NewInterface(seg, seg.Message().CapTable().Add(capnp.Client(v)))
 	return capnp.Struct(s).SetPtr(0, in.ToPtr())
 }
 
@@ -1902,7 +1925,7 @@ func (s View_reverse_Results) SetView(v View) error {
 		return capnp.Struct(s).SetPtr(0, capnp.Ptr{})
 	}
 	seg := s.Segment()
-	in := capnp.NewInterface(seg, seg.Message().AddCap(capnp.Client(v)))
+	in := capnp.NewInterface(seg, seg.Message().CapTable().Add(capnp.Client(v)))
 	return capnp.Struct(s).SetPtr(0, in.ToPtr())
 }
 
@@ -2008,21 +2031,26 @@ const schema_c2974e3dc137fcee = "x\xda\xacU\x7f\x88TU\x1b~\x9fs\xee\xdd;\xf3" +
 	"\xb3\xd4\xd4\x9es\xbcdz\xa63\xc77\xb9\x85\xdc\xcc" +
 	"\xe3\xbf\x03\x00\x00\xff\xff\x10g\xc2}"
 
-func init() {
-	schemas.Register(schema_c2974e3dc137fcee,
-		0x81107838ed1339e2,
-		0x83bca0e4d70e0e82,
-		0x8b8f9a8dbc645c7a,
-		0x92dd7cf694dc2a0d,
-		0x9321a2d72dff5f08,
-		0x9764ff97950b0e11,
-		0x9bbf333a5450f2d0,
-		0xb06e55bb4d9bb7e2,
-		0xb8cc1b0ba89ddfd2,
-		0xb999cf53764e76ae,
-		0xc390eec5b4e4aaef,
-		0xdb1aee7a06a493b6,
-		0xf107ba55f0ab3244,
-		0xf155c3664dada7ff,
-		0xf8eb7e44ba7b1fa8)
+func RegisterSchema(reg *schemas.Registry) {
+	reg.Register(&schemas.Schema{
+		String: schema_c2974e3dc137fcee,
+		Nodes: []uint64{
+			0x81107838ed1339e2,
+			0x83bca0e4d70e0e82,
+			0x8b8f9a8dbc645c7a,
+			0x92dd7cf694dc2a0d,
+			0x9321a2d72dff5f08,
+			0x9764ff97950b0e11,
+			0x9bbf333a5450f2d0,
+			0xb06e55bb4d9bb7e2,
+			0xb8cc1b0ba89ddfd2,
+			0xb999cf53764e76ae,
+			0xc390eec5b4e4aaef,
+			0xdb1aee7a06a493b6,
+			0xf107ba55f0ab3244,
+			0xf155c3664dada7ff,
+			0xf8eb7e44ba7b1fa8,
+		},
+		Compressed: true,
+	})
 }

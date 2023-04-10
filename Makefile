@@ -4,7 +4,7 @@ ifeq ($(origin GOPATH), undefined)
 	GOPATH := $(HOME)/Go
 endif
 
-all: mocks
+all: mocks capnp
 
 mocks: clean-mocks
 # This roundabout call to 'go generate' allows us to:
