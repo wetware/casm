@@ -310,10 +310,15 @@ const schema_fa005a3c690f4a62 = "x\xdal\x921\x8b\x13A\x14\xc7\xff\xff7{\xc9\x81"
 	"V\x0f\xa7\xa3)6\xa6\xcb\xf0\xd3\x87\xbar\xa0\x7f\x03" +
 	"\x00\x00\xff\xff\x8f\x0c\x99p"
 
-func init() {
-	schemas.Register(schema_fa005a3c690f4a62,
-		0x82cca408afabd7c4,
-		0xb1db81b845eb3a2f,
-		0xc84d656f17f92c4e,
-		0xe12a1e555ca80e30)
+func RegisterSchema(reg *schemas.Registry) {
+	reg.Register(&schemas.Schema{
+		String: schema_fa005a3c690f4a62,
+		Nodes: []uint64{
+			0x82cca408afabd7c4,
+			0xb1db81b845eb3a2f,
+			0xc84d656f17f92c4e,
+			0xe12a1e555ca80e30,
+		},
+		Compressed: true,
+	})
 }

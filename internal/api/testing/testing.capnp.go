@@ -10,7 +10,6 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
-	fmt "fmt"
 )
 
 type Echoer capnp.Client
@@ -19,6 +18,7 @@ type Echoer capnp.Client
 const Echoer_TypeID = 0xef96789c0d60cd00
 
 func (c Echoer) Echo(ctx context.Context, params func(Echoer_echo_Params) error) (Echoer_echo_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xef96789c0d60cd00,
@@ -31,8 +31,14 @@ func (c Echoer) Echo(ctx context.Context, params func(Echoer_echo_Params) error)
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Echoer_echo_Params(s)) }
 	}
+
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Echoer_echo_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Echoer) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -40,7 +46,7 @@ func (c Echoer) Echo(ctx context.Context, params func(Echoer_echo_Params) error)
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c Echoer) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "Echoer(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -100,7 +106,9 @@ func (c Echoer) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c Echoer) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A Echoer_Server is a Echoer with a local implementation.
+}
+
+// A Echoer_Server is a Echoer with a local implementation.
 type Echoer_Server interface {
 	Echo(context.Context, Echoer_echo) error
 }
@@ -334,7 +342,7 @@ type Streamer capnp.Client
 // Streamer_TypeID is the unique identifier for the type Streamer.
 const Streamer_TypeID = 0x87f59ceaa25ddecc
 
-func (c Streamer) Recv(ctx context.Context, params func(Streamer_recv_Params) error) (stream.StreamResult_Future, capnp.ReleaseFunc) {
+func (c Streamer) Recv(ctx context.Context, params func(Streamer_recv_Params) error) error {
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0x87f59ceaa25ddecc,
@@ -347,8 +355,13 @@ func (c Streamer) Recv(ctx context.Context, params func(Streamer_recv_Params) er
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Streamer_recv_Params(s)) }
 	}
-	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return stream.StreamResult_Future{Future: ans.Future()}, release
+
+	return capnp.Client(c).SendStreamCall(ctx, s)
+
+}
+
+func (c Streamer) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
 }
 
 // String returns a string that identifies this capability for debugging
@@ -356,7 +369,7 @@ func (c Streamer) Recv(ctx context.Context, params func(Streamer_recv_Params) er
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
 func (c Streamer) String() string {
-	return fmt.Sprintf("%T(%v)", c, capnp.Client(c))
+	return "Streamer(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
@@ -416,7 +429,9 @@ func (c Streamer) SetFlowLimiter(lim fc.FlowLimiter) {
 // for this client.
 func (c Streamer) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
-} // A Streamer_Server is a Streamer with a local implementation.
+}
+
+// A Streamer_Server is a Streamer with a local implementation.
 type Streamer_Server interface {
 	Recv(context.Context, Streamer_recv) error
 }
@@ -570,11 +585,16 @@ const schema_86c7b3eb31eb86de = "x\xda\x12x\xe2\xc0b\xc8[\xcf\xc2\xc0\x14h\xc2\x
 	"z \xaf\x83\xbd\xc6\x9c[\x0c\x08\x00\x00\xff\xff`$" +
 	"\x94\xb0"
 
-func init() {
-	schemas.Register(schema_86c7b3eb31eb86de,
-		0x87f59ceaa25ddecc,
-		0x97878b56a59dadff,
-		0xa46d5fd1187fd6ee,
-		0xef96789c0d60cd00,
-		0xf01f1821166adede)
+func RegisterSchema(reg *schemas.Registry) {
+	reg.Register(&schemas.Schema{
+		String: schema_86c7b3eb31eb86de,
+		Nodes: []uint64{
+			0x87f59ceaa25ddecc,
+			0x97878b56a59dadff,
+			0xa46d5fd1187fd6ee,
+			0xef96789c0d60cd00,
+			0xf01f1821166adede,
+		},
+		Compressed: true,
+	})
 }

@@ -12,7 +12,6 @@ import (
 	"capnproto.org/go/capnp/v3"
 	api "github.com/wetware/casm/internal/api/debug"
 	casm "github.com/wetware/casm/pkg"
-	"github.com/wetware/casm/pkg/util/stream"
 )
 
 var ErrNoStrategy = errors.New("no strategy")
@@ -83,22 +82,27 @@ func (s SamplingServer) Client() capnp.Client {
 	return capnp.Client(s.Sampler())
 }
 
-func (s SamplingServer) Sample(ctx context.Context, call api.Sampler_sample) (err error) {
+func (s SamplingServer) Sample(ctx context.Context, call api.Sampler_sample) error {
 	if s.Strategy == nil {
 		return ErrNoStrategy
 	}
 
-	w := writer(ctx, call)
-	if err = s.sample(ctx, call, w); err == nil {
-		err = w.Wait()
+	c, err := s.sample(ctx, call)
+	if err == nil {
+		err = c.Close()
 	}
 
-	return
+	return err
 }
 
-func (s SamplingServer) sample(ctx context.Context, call api.Sampler_sample, w streamWriter) error {
+func (s SamplingServer) sample(ctx context.Context, call api.Sampler_sample) (io.Closer, error) {
+	w := samplerWriter{
+		ctx:            ctx,
+		Sampler_Writer: call.Args().Writer(),
+	}
+
 	if err := s.Strategy.Start(w); err != nil {
-		return err
+		return nil, err
 	}
 	defer s.Strategy.Stop()
 
@@ -107,7 +111,7 @@ func (s SamplingServer) sample(ctx context.Context, call api.Sampler_sample, w s
 	case <-ctx.Done():
 	}
 
-	return ctx.Err()
+	return w, ctx.Err()
 }
 
 func duration(call api.Sampler_sample) time.Duration {
@@ -119,43 +123,24 @@ func duration(call api.Sampler_sample) time.Duration {
 }
 
 /*
-	Stream
-*/
-
-type streamWriter struct {
-	ctx    context.Context
-	stream *stream.Stream[api.Sampler_Writer_write_Params]
-}
-
-func writer(ctx context.Context, call api.Sampler_sample) streamWriter {
-	w := call.Args().Writer()
-	// TODO(soon): use BBR once scheduler bug is fixed
-
-	return streamWriter{
-		ctx:    ctx,
-		stream: stream.New(w.Write),
-	}
-}
-
-func (s streamWriter) Write(b []byte) (int, error) {
-	s.stream.Call(s.ctx, func(s api.Sampler_Writer_write_Params) error {
-		return s.SetSample(b)
-	})
-
-	if !s.stream.Open() {
-		return 0, s.stream.Wait()
-	}
-
-	return len(b), nil
-}
-
-func (s streamWriter) Wait() error {
-	return s.stream.Wait()
-}
-
-/*
 	sample writer
 */
+
+type samplerWriter struct {
+	ctx context.Context
+	api.Sampler_Writer
+}
+
+func (w samplerWriter) Close() error {
+	return w.WaitStreaming()
+}
+
+func (w samplerWriter) Write(b []byte) (int, error) {
+	err := w.Sampler_Writer.Write(w.ctx, func(ps api.Sampler_Writer_write_Params) error {
+		return ps.SetSample(b)
+	})
+	return len(b), err
+}
 
 type writeServer struct {
 	io.Writer
