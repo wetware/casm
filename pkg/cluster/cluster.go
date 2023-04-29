@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"capnproto.org/go/capnp/v3"
 	"github.com/jpillora/backoff"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/lthibault/jitterbug/v2"
@@ -51,6 +52,7 @@ type Router struct {
 	init, relaying atomic.Bool
 	id             uint64 // instance ID
 	announce       chan []pubsub.PubOpt
+	wc             *capnp.WeakClient
 }
 
 func (r *Router) Stop() {
@@ -78,7 +80,19 @@ func (r *Router) Loggable() map[string]any {
 
 func (r *Router) View() View {
 	r.setup()
-	return Server{RoutingTable: r.RoutingTable}.View()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.wc != nil {
+		if client, ok := r.wc.AddRef(); ok {
+			return View(client)
+		}
+	}
+
+	client := Server{RoutingTable: r.RoutingTable}.Client()
+	r.wc = client.WeakRef()
+	return View(client)
 }
 
 func (r *Router) Bootstrap(ctx context.Context, opt ...pubsub.PubOpt) (err error) {
