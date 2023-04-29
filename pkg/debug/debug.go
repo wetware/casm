@@ -3,6 +3,7 @@ package debug
 import (
 	"context"
 	"runtime/pprof"
+	"sync"
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/pogs"
@@ -129,17 +130,31 @@ type Server struct {
 	// usually contains the default profiles returned by pprof.Profiles, but
 	// can be restricted or disabled entirely.
 	Profiles map[Profile]struct{}
+
+	mu sync.Mutex
+	wc *capnp.WeakClient
 }
 
-func (s Server) Debugger() Debugger {
-	return Debugger(api.Debugger_ServerToClient(s))
+func (s *Server) Debugger() Debugger {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.wc != nil {
+		if client, ok := s.wc.AddRef(); ok {
+			return Debugger(client)
+		}
+	}
+
+	client := capnp.NewClient(api.Debugger_NewServer(s))
+	s.wc = client.WeakRef()
+	return Debugger(client)
 }
 
-func (s Server) Client() capnp.Client {
+func (s *Server) Client() capnp.Client {
 	return capnp.Client(s.Debugger())
 }
 
-func (s Server) SysInfo(_ context.Context, call api.Debugger_sysInfo) error {
+func (s *Server) SysInfo(_ context.Context, call api.Debugger_sysInfo) error {
 	res, err := call.AllocResults()
 	if err == nil {
 		err = alloc(res.NewSysInfo, s.Context.Bind)
@@ -148,7 +163,7 @@ func (s Server) SysInfo(_ context.Context, call api.Debugger_sysInfo) error {
 	return err
 }
 
-func (s Server) EnvVars(_ context.Context, call api.Debugger_envVars) error {
+func (s *Server) EnvVars(_ context.Context, call api.Debugger_envVars) error {
 	if s.Environ == nil {
 		return nil
 	}
@@ -161,7 +176,7 @@ func (s Server) EnvVars(_ context.Context, call api.Debugger_envVars) error {
 	return err
 }
 
-func (s Server) Profiler(_ context.Context, call api.Debugger_profiler) error {
+func (s *Server) Profiler(_ context.Context, call api.Debugger_profiler) error {
 	if _, ok := s.Profiles[call.Args().Profile()]; !ok {
 		return nil
 	}
@@ -187,7 +202,7 @@ func (s Server) Profiler(_ context.Context, call api.Debugger_profiler) error {
 
 }
 
-func (Server) Tracer(_ context.Context, call api.Debugger_tracer) error {
+func (*Server) Tracer(_ context.Context, call api.Debugger_tracer) error {
 	res, err := call.AllocResults()
 	if err == nil {
 		server := SamplingServer{Strategy: Trace{}}

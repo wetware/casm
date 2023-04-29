@@ -17,7 +17,7 @@ func TestSysInfo(t *testing.T) {
 	t.Skip("skipping flaky test (pogs)")
 
 	var info debug.SysInfo
-	server := debug.Server{
+	server := &debug.Server{
 		Context: debug.SystemContext{
 			Version: "1.2.3",
 		},
@@ -39,7 +39,7 @@ func TestDebugger_EnvVars(t *testing.T) {
 	t.Run("NotProvided", func(t *testing.T) {
 		t.Parallel()
 
-		args, err := debug.Server{}.Debugger().EnvVars(context.Background())
+		args, err := new(debug.Server).Debugger().EnvVars(context.Background())
 		assert.NoError(t, err, "rpc should not fail")
 		assert.Empty(t, args, "should not return environment")
 	})
@@ -48,7 +48,7 @@ func TestDebugger_EnvVars(t *testing.T) {
 		t.Parallel()
 
 		want := []string{"foo", "bar", "baz"}
-		s := debug.Server{Environ: func() []string { return want }}
+		s := &debug.Server{Environ: func() []string { return want }}
 
 		args, err := s.Debugger().EnvVars(context.Background())
 		assert.NoError(t, err, "rpc should not fail")
@@ -63,7 +63,7 @@ func TestDebugger_Profiler(t *testing.T) {
 	t.Run("NotProvided", func(t *testing.T) {
 		t.Parallel()
 
-		d := debug.Server{}.Debugger()
+		d := new(debug.Server).Debugger()
 		p, release := d.Profiler(context.Background(), debug.ProfileCPU)
 		assert.NotNil(t, release, "should return capnp.ReleaseFunc")
 		assert.True(t, nullcap(p), "should return null capability")
@@ -71,22 +71,31 @@ func TestDebugger_Profiler(t *testing.T) {
 
 	t.Run("ProvideDefault", func(t *testing.T) {
 		t.Parallel()
+		t.Helper()
 
-		d := debug.Server{Profiles: debug.DefaultProfiles}.Debugger()
+		s := &debug.Server{Profiles: debug.DefaultProfiles}
 		for profile := range debug.DefaultProfiles {
-			p, release := d.Profiler(context.Background(), profile)
-			assert.NotNil(t, release, "should return capnp.ReleaseFunc")
-			assert.False(t, nullcap(p), "should provide %s", profile)
+			t.Run(profile.String(), profileTest(s, profile))
 		}
 	})
+}
+
+func profileTest(s *debug.Server, profile debug.Profile) func(*testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+
+		p, release := s.Debugger().Profiler(context.Background(), profile)
+		assert.NotNil(t, release, "should return capnp.ReleaseFunc")
+		assert.False(t, nullcap(p), "should provide %s", profile)
+	}
 }
 
 func TestDebugger_Tracer(t *testing.T) {
 	t.Parallel()
 	t.Helper()
 
-	d := debug.Server{Profiles: debug.DefaultProfiles}.Debugger()
-	p, release := d.Tracer(context.Background())
+	s := &debug.Server{Profiles: debug.DefaultProfiles}
+	p, release := s.Debugger().Tracer(context.Background())
 	assert.NotNil(t, release, "should return capnp.ReleaseFunc")
 	assert.False(t, nullcap(p), "should provide tracer")
 }
