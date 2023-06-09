@@ -33,7 +33,6 @@ CASM follows a modular, "Lego bricks" design, allowing you to pick and choose th
 | Bootstrap      | `pkg/boot`    | Pluggable strategies for discovering and joining clusters. |
 | Peer Exchange  | `pkg/pex`     | Lightweight gossip-based protocol for randomly sampling peers.  Ideal for building caches. |
 | Clustering     | `pkg/cluster` | Unstructured service providing a global view of the cluster<sup>2</sup>. |
-| Live Debugging | `pkg/debug`   | Production-ready integrations for `runtime/debug`, `runtime/pprof` and `runtime/trace`. |
 
 ## Getting Started
 
