@@ -7,7 +7,7 @@ require (
 	github.com/coreos/go-semver v0.3.1
 	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-memdb v1.3.4
-	github.com/hashicorp/golang-lru/v2 v2.0.2
+	github.com/hashicorp/golang-lru/v2 v2.0.3
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/jpillora/backoff v1.0.0
 	github.com/libp2p/go-buffer-pool v0.1.0
@@ -23,10 +23,10 @@ require (
 	github.com/multiformats/go-multistream v0.4.1
 	github.com/pierrec/lz4/v4 v4.1.17
 	github.com/sirupsen/logrus v1.9.0
-	github.com/stretchr/testify v1.8.2
-	github.com/urfave/cli/v2 v2.25.1
+	github.com/stretchr/testify v1.8.4
+	github.com/urfave/cli/v2 v2.25.5
 	go.uber.org/multierr v1.11.0
-	golang.org/x/net v0.9.0
+	golang.org/x/net v0.10.0
 	golang.org/x/time v0.3.0
 )
 
@@ -118,7 +118,7 @@ require (
 	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
 	golang.org/x/mod v0.10.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.7.0 // indirect
+	golang.org/x/sys v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	golang.org/x/tools v0.8.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
