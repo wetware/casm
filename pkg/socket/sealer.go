@@ -4,7 +4,7 @@ package socket
 
 import (
 	"capnproto.org/go/capnp/v3/exp/bufferpool"
-	"github.com/cespare/xxhash"
+	"github.com/cespare/xxhash/v2"
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/libp2p/go-libp2p/core/crypto"

@@ -4,7 +4,6 @@ go 1.20
 
 require (
 	capnproto.org/go/capnp/v3 v3.0.0-alpha.28
-	github.com/cespare/xxhash v1.1.0
 	github.com/cespare/xxhash/v2 v2.2.0
 	github.com/coreos/go-semver v0.3.1
 	github.com/golang/mock v1.6.0
