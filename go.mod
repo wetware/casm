@@ -11,7 +11,7 @@ require (
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/jpillora/backoff v1.0.0
 	github.com/libp2p/go-buffer-pool v0.1.0
-	github.com/libp2p/go-libp2p v0.27.1
+	github.com/libp2p/go-libp2p v0.27.5
 	github.com/libp2p/go-libp2p-pubsub v0.9.3
 	github.com/lthibault/go-libp2p-inproc-transport v0.4.0
 	github.com/lthibault/jitterbug/v2 v2.2.2
