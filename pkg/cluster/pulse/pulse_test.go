@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	pubsub "github.com/mikelsr/go-libp2p-pubsub"
+	pb "github.com/mikelsr/go-libp2p-pubsub/pb"
 	"github.com/mikelsr/go-libp2p/core/crypto"
 	"github.com/mikelsr/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"

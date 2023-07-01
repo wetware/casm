@@ -9,7 +9,7 @@ import (
 	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	pubsub "github.com/mikelsr/go-libp2p-pubsub"
 	"github.com/mikelsr/go-libp2p/core/peer"
 	b58 "github.com/mr-tron/base58/base58"
 

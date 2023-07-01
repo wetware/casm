@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/mikelsr/go-libp2p"
+	inproc "github.com/mikelsr/go-libp2p-inproc-transport"
 	"github.com/mikelsr/go-libp2p/core/host"
 	"github.com/mikelsr/go-libp2p/core/peer"
 	"github.com/mikelsr/go-libp2p/core/protocol"

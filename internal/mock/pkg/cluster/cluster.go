@@ -10,7 +10,7 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	pubsub "github.com/mikelsr/go-libp2p-pubsub"
 	routing "github.com/wetware/casm/pkg/cluster/routing"
 )
 

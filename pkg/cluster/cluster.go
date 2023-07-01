@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/jpillora/backoff"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/lthibault/jitterbug/v2"
 	"github.com/lthibault/log"
+	pubsub "github.com/mikelsr/go-libp2p-pubsub"
 	"github.com/wetware/casm/pkg/cluster/pulse"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )

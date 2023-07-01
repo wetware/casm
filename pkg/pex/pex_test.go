@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/mikelsr/go-libp2p"
+	inproc "github.com/mikelsr/go-libp2p-inproc-transport"
 	"github.com/mikelsr/go-libp2p/core/host"
 	"github.com/mikelsr/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"

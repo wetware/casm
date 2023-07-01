@@ -3,8 +3,8 @@ package socket_test
 import (
 	"testing"
 
-	inproc "github.com/lthibault/go-libp2p-inproc-transport"
 	"github.com/mikelsr/go-libp2p"
+	inproc "github.com/mikelsr/go-libp2p-inproc-transport"
 	"github.com/mikelsr/go-libp2p/core/peer"
 	"github.com/mikelsr/go-libp2p/core/record"
 	"github.com/stretchr/testify/assert"

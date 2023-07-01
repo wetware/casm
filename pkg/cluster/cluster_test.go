@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	logtest "github.com/lthibault/log/test"
+	pubsub "github.com/mikelsr/go-libp2p-pubsub"
 	mock_cluster "github.com/wetware/casm/internal/mock/pkg/cluster"
 	"github.com/wetware/casm/pkg/cluster"
 

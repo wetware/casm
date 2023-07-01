@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	pubsub "github.com/mikelsr/go-libp2p-pubsub"
 
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/routing"

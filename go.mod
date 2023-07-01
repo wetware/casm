@@ -7,17 +7,15 @@ require (
 	github.com/coreos/go-semver v0.3.1
 	github.com/golang/mock v1.6.0
 	github.com/hashicorp/go-memdb v1.3.4
-	github.com/hashicorp/golang-lru/v2 v2.0.3
+	github.com/hashicorp/golang-lru/v2 v2.0.4
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/jpillora/backoff v1.0.0
 	github.com/libp2p/go-buffer-pool v0.1.0
-	// github.com/libp2p/go-libp2p v0.27.5
-	github.com/libp2p/go-libp2p-pubsub v0.9.3
-	github.com/lthibault/go-libp2p-inproc-transport v0.4.0
 	github.com/lthibault/jitterbug/v2 v2.2.2
 	github.com/lthibault/log v1.2.3
 	github.com/lthibault/util v0.0.12
-	github.com/mikelsr/go-libp2p v0.28.1-0.20230701141504-d6b41845d41e
+	github.com/mikelsr/go-libp2p v0.28.1-0.20230701150814-14dbb6aaeb77
+	// github.com/mikelsr/go-libp2p v0.27.5
 	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/termenv v0.15.1
 	github.com/multiformats/go-multiaddr v0.9.0
@@ -29,6 +27,11 @@ require (
 	go.uber.org/multierr v1.11.0
 	golang.org/x/net v0.11.0
 	golang.org/x/time v0.3.0
+)
+
+require (
+	github.com/mikelsr/go-libp2p-inproc-transport v0.4.1-0.20230701150048-ae362c0619b2
+	github.com/mikelsr/go-libp2p-pubsub v0.9.4-0.20230701150959-99420a3a381d
 )
 
 require (
@@ -127,5 +130,3 @@ require (
 	lukechampine.com/blake3 v1.2.1 // indirect
 	zenhack.net/go/util v0.0.0-20230414211804-99ae9bf14f02 // indirect
 )
-
-// replace github.com/libp2p/go-libp2p => github.com/mikelsr/go-libp2p v0.28.1-0.20230701141504-d6b41845d41e
