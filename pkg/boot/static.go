@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/libp2p/go-libp2p/core/discovery"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/discovery"
+	"github.com/mikelsr/go-libp2p/core/peer"
 
-	ps "github.com/libp2p/go-libp2p/core/peerstore"
+	ps "github.com/mikelsr/go-libp2p/core/peerstore"
 
 	ma "github.com/multiformats/go-multiaddr"
 )

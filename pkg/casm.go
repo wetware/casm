@@ -7,12 +7,12 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
-	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/mikelsr/go-libp2p"
+	"github.com/mikelsr/go-libp2p/core/host"
+	"github.com/mikelsr/go-libp2p/core/protocol"
 
-	// quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
-	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
+	// quic "github.com/mikelsr/go-libp2p/p2p/transport/quic"
+	"github.com/mikelsr/go-libp2p/p2p/transport/tcp"
 	"github.com/pierrec/lz4/v4"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
 )

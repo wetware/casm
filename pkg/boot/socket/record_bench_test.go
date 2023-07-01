@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/record"
+	"github.com/mikelsr/go-libp2p/core/crypto"
+	"github.com/mikelsr/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/record"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/wetware/casm/internal/api/boot"

@@ -12,7 +12,7 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/peer"
 )
 
 // ID is an opaque identifier that identifies a unique host instance

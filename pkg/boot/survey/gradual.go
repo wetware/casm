@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/jpillora/backoff"
-	"github.com/libp2p/go-libp2p/core/discovery"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/discovery"
+	"github.com/mikelsr/go-libp2p/core/peer"
 )
 
 // GradualSurveyor queries a progressively larger subset of the

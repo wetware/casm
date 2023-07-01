@@ -4,8 +4,8 @@ import (
 	"context"
 	"net"
 
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/record"
+	"github.com/mikelsr/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/record"
 	"golang.org/x/time/rate"
 )
 
@@ -48,7 +48,8 @@ func NewRateLimiter(r rate.Limit, burst int, f func(int) int) *RateLimiter {
 // by a socket.
 //
 // NOTE:  limit and burst are expressed in *bits* per second and *bits*,
-//        respectively.  Do not confuse this with bytes.
+//
+//	respectively.  Do not confuse this with bytes.
 func NewBandwidthLimiter(r rate.Limit, burst int) *RateLimiter {
 	return NewRateLimiter(r, burst, func(n int) int { return n * 8 })
 }

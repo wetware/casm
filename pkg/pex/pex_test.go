@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	"github.com/mikelsr/go-libp2p"
+	"github.com/mikelsr/go-libp2p/core/host"
+	"github.com/mikelsr/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -3,7 +3,7 @@ package protoutil_test
 import (
 	"testing"
 
-	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/mikelsr/go-libp2p/core/protocol"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
 
 	"github.com/stretchr/testify/assert"

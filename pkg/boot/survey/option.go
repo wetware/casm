@@ -1,7 +1,7 @@
 package survey
 
 import (
-	"github.com/libp2p/go-libp2p/core/discovery"
+	"github.com/mikelsr/go-libp2p/core/discovery"
 )
 
 /*

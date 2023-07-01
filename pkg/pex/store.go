@@ -10,8 +10,8 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/query"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/record"
+	"github.com/mikelsr/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/record"
 )
 
 func init() { rand.Seed(time.Now().UnixNano()) }

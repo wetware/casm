@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/libp2p/go-libp2p/core/record"
+	"github.com/mikelsr/go-libp2p/core/record"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/urfave/cli/v2"
 	"github.com/wetware/casm/pkg/boot/crawl"

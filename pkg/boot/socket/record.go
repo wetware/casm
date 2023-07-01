@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/record"
+	"github.com/mikelsr/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/record"
 	"github.com/wetware/casm/internal/api/boot"
 )
 

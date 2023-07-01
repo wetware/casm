@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 	inproc "github.com/lthibault/go-libp2p-inproc-transport"
+	"github.com/mikelsr/go-libp2p"
+	"github.com/mikelsr/go-libp2p/core/host"
+	"github.com/mikelsr/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multistream"
 
 	"github.com/stretchr/testify/assert"

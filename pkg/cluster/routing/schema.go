@@ -9,7 +9,7 @@ import (
 
 	"github.com/hashicorp/go-memdb"
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/peer"
 	b58 "github.com/mr-tron/base58/base58"
 )
 

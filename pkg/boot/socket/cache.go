@@ -5,8 +5,8 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	lru "github.com/hashicorp/golang-lru/v2"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/record"
+	"github.com/mikelsr/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/record"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/wetware/casm/internal/api/boot"
 )

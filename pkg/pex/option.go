@@ -6,9 +6,9 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	nsds "github.com/ipfs/go-datastore/namespace"
 	"github.com/ipfs/go-datastore/sync"
-	"github.com/libp2p/go-libp2p/core/discovery"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/lthibault/log"
+	"github.com/mikelsr/go-libp2p/core/discovery"
+	"github.com/mikelsr/go-libp2p/core/peer"
 	"github.com/wetware/casm/pkg/boot"
 )
 
@@ -82,8 +82,7 @@ func WithDiscovery(d discovery.Discovery, opt ...discovery.Option) Option {
 // It is a user-friendly way to set up the discovery service,
 // and is exactly equivalent to:
 //
-//    WithDiscovery(boot.StaticAddrs{...})
-//
+//	WithDiscovery(boot.StaticAddrs{...})
 //
 // Namespaces will be bootstrapped using the supplied peers whenever
 // the PeerExchange is unable to connect to peers in its cache.
@@ -105,16 +104,16 @@ func WithBootstrapPeers(peers ...peer.AddrInfo) Option {
 // If newGossip == nil, the following default values are used
 // for each namespace:
 //
-//    GossipConfig{
-//        MaxView:    32,
-//        Swap:       10,
-//        Protect:    5,
-//        Decay:      0.005,
+//	GossipConfig{
+//	    MaxView:    32,
+//	    Swap:       10,
+//	    Protect:    5,
+//	    Decay:      0.005,
 //
-//        Tick:       time.Minute * 5,
-//        Timeout:    time.Second * 30,
-//        MaxMsgSize: 2048,
-//    }
+//	    Tick:       time.Minute * 5,
+//	    Timeout:    time.Second * 30,
+//	    MaxMsgSize: 2048,
+//	}
 //
 // Users should exercise care when modifying the gossip params
 // and ensure they fully understand the implications of their

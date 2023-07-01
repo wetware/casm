@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/coreos/go-semver/semver"
-	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/mikelsr/go-libp2p/core/protocol"
 )
 
 type MatchFunc func(string) (string, bool)

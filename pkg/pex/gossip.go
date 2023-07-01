@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/libp2p/go-libp2p/core/event"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/lthibault/log"
+	"github.com/mikelsr/go-libp2p/core/event"
+	"github.com/mikelsr/go-libp2p/core/host"
+	"github.com/mikelsr/go-libp2p/core/network"
+	"github.com/mikelsr/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/protocol"
 	"github.com/pierrec/lz4/v4"
 
 	ctxutil "github.com/lthibault/util/ctx"

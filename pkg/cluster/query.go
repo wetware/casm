@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/peer"
 	api "github.com/wetware/casm/internal/api/routing"
 	"github.com/wetware/casm/pkg/cluster/routing"
 )

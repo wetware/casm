@@ -7,8 +7,8 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/libp2p/go-libp2p/core/discovery"
-	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/mikelsr/go-libp2p/core/discovery"
+	"github.com/mikelsr/go-libp2p/core/host"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/peer"
 	"github.com/stretchr/testify/require"
 	mock_routing "github.com/wetware/casm/internal/mock/pkg/cluster/routing"
 	"github.com/wetware/casm/pkg/cluster/query"

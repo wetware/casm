@@ -10,15 +10,15 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	connmgr "github.com/libp2p/go-libp2p/core/connmgr"
-	crypto "github.com/libp2p/go-libp2p/core/crypto"
-	discovery "github.com/libp2p/go-libp2p/core/discovery"
-	event "github.com/libp2p/go-libp2p/core/event"
-	network "github.com/libp2p/go-libp2p/core/network"
-	peer "github.com/libp2p/go-libp2p/core/peer"
-	peerstore "github.com/libp2p/go-libp2p/core/peerstore"
-	protocol "github.com/libp2p/go-libp2p/core/protocol"
-	record "github.com/libp2p/go-libp2p/core/record"
+	connmgr "github.com/mikelsr/go-libp2p/core/connmgr"
+	crypto "github.com/mikelsr/go-libp2p/core/crypto"
+	discovery "github.com/mikelsr/go-libp2p/core/discovery"
+	event "github.com/mikelsr/go-libp2p/core/event"
+	network "github.com/mikelsr/go-libp2p/core/network"
+	peer "github.com/mikelsr/go-libp2p/core/peer"
+	peerstore "github.com/mikelsr/go-libp2p/core/peerstore"
+	protocol "github.com/mikelsr/go-libp2p/core/protocol"
+	record "github.com/mikelsr/go-libp2p/core/record"
 	multiaddr "github.com/multiformats/go-multiaddr"
 )
 
@@ -306,6 +306,20 @@ func (mr *MockConnMockRecorder) ID() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ID", reflect.TypeOf((*MockConn)(nil).ID))
 }
 
+// IsClosed mocks base method.
+func (m *MockConn) IsClosed() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsClosed")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsClosed indicates an expected call of IsClosed.
+func (mr *MockConnMockRecorder) IsClosed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsClosed", reflect.TypeOf((*MockConn)(nil).IsClosed))
+}
+
 // LocalMultiaddr mocks base method.
 func (m *MockConn) LocalMultiaddr() multiaddr.Multiaddr {
 	m.ctrl.T.Helper()
@@ -332,20 +346,6 @@ func (m *MockConn) LocalPeer() peer.ID {
 func (mr *MockConnMockRecorder) LocalPeer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalPeer", reflect.TypeOf((*MockConn)(nil).LocalPeer))
-}
-
-// LocalPrivateKey mocks base method.
-func (m *MockConn) LocalPrivateKey() crypto.PrivKey {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LocalPrivateKey")
-	ret0, _ := ret[0].(crypto.PrivKey)
-	return ret0
-}
-
-// LocalPrivateKey indicates an expected call of LocalPrivateKey.
-func (mr *MockConnMockRecorder) LocalPrivateKey() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalPrivateKey", reflect.TypeOf((*MockConn)(nil).LocalPrivateKey))
 }
 
 // NewStream mocks base method.

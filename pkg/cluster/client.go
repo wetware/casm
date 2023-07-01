@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/mikelsr/go-libp2p/core/peer"
 
 	api "github.com/wetware/casm/internal/api/routing"
 	casm "github.com/wetware/casm/pkg"
