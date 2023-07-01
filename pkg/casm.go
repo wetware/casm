@@ -10,7 +10,8 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
+
+	// quic "github.com/libp2p/go-libp2p/p2p/transport/quic"
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/pierrec/lz4/v4"
 	protoutil "github.com/wetware/casm/pkg/util/proto"
@@ -77,7 +78,8 @@ func Client(opt ...libp2p.Option) HostFactory {
 		libp2p.NoTransports,
 		libp2p.NoListenAddrs,
 		libp2p.Transport(tcp.NewTCPTransport),
-		libp2p.Transport(quic.NewTransport)})
+		// libp2p.Transport(quic.NewTransport)
+	})
 }
 
 // Client returns a HostFactory for a server host.  A server host
@@ -88,7 +90,8 @@ func Server(opt ...libp2p.Option) HostFactory {
 	return factory(opt, []libp2p.Option{
 		libp2p.NoTransports,
 		libp2p.Transport(tcp.NewTCPTransport),
-		libp2p.Transport(quic.NewTransport)})
+		// libp2p.Transport(quic.NewTransport)
+	})
 }
 
 func factory(opt, defaults []libp2p.Option) HostFactory {
