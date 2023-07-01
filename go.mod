@@ -14,7 +14,7 @@ require (
 	github.com/lthibault/jitterbug/v2 v2.2.2
 	github.com/lthibault/log v1.2.3
 	github.com/lthibault/util v0.0.12
-	github.com/mikelsr/go-libp2p v0.28.1-0.20230701150814-14dbb6aaeb77
+	github.com/mikelsr/go-libp2p v0.28.1-0.20230701164104-d35ccfab977a
 	// github.com/mikelsr/go-libp2p v0.27.5
 	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/termenv v0.15.1
@@ -30,7 +30,7 @@ require (
 )
 
 require (
-	github.com/mikelsr/go-libp2p-inproc-transport v0.4.1-0.20230701150048-ae362c0619b2
+	github.com/mikelsr/go-libp2p-inproc-transport v0.4.1-0.20230701164203-13bece37c1af
 	github.com/mikelsr/go-libp2p-pubsub v0.9.4-0.20230701150959-99420a3a381d
 )
 
@@ -84,6 +84,7 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/miekg/dns v1.1.55 // indirect
 	github.com/mikelsr/quic-go v0.36.1-0.20230701132136-1d9415b66898 // indirect
+	github.com/mikelsr/webtransport-go v0.0.0-20230701162752-682cdbbd920e // indirect
 	github.com/mikioh/tcpinfo v0.0.0-20190314235526-30a79bb1804b // indirect
 	github.com/mikioh/tcpopt v0.0.0-20190314235656-172688c1accc // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
@@ -105,10 +106,7 @@ require (
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.11.0 // indirect
 	github.com/quic-go/qpack v0.4.0 // indirect
-	github.com/quic-go/qtls-go1-19 v0.3.2 // indirect
 	github.com/quic-go/qtls-go1-20 v0.3.0 // indirect
-	github.com/quic-go/quic-go v0.36.0 // indirect
-	github.com/quic-go/webtransport-go v0.5.3 // indirect
 	github.com/raulk/go-watchdog v1.3.0 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
